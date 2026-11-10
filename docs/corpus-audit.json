@@ -1,0 +1,365 @@
+{
+  "source": "rlottie-master/example/resource",
+  "accepted": [
+    "gears.json",
+    "tile_grid_loading_animation.json",
+    "movie_loading.json",
+    "glow_loading.json",
+    "loading_animation.json"
+  ],
+  "rejected": [
+    {
+      "file": "material_wave_loading.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[0].ks.p.k[0].to"
+    },
+    {
+      "file": "27746-joypixels-partying-face-emoji-animation.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "_alarm.json",
+      "reason": "Shape op mm at $.layers[1].shapes[1].it[2].ty"
+    },
+    {
+      "file": "29056-nepenthe-illustration.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "bounching_ball.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "anubis.json",
+      "reason": "Time stretch/start offset at $.layers[0]"
+    },
+    {
+      "file": "cooking.json",
+      "reason": "Shape op tm at $.layers[0].shapes[1].ty"
+    },
+    {
+      "file": "loading_rectangles.json",
+      "reason": "Unsupported field at $.layers[0].hix"
+    },
+    {
+      "file": "jolly_walker.json",
+      "reason": "Expressions at $.layers[4].shapes[0].it[0].ks.x"
+    },
+    {
+      "file": "intelia_logo_animation.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "bell.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "waves_.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "static_dynamic_dash.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[0].shapes[0].p.k[0].to"
+    },
+    {
+      "file": "Indicators1.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[0].ks.p.k[0].to"
+    },
+    {
+      "file": "gradient_animated_background.json",
+      "reason": "Shape op gf at $.layers[0].shapes[0].it[2].ty"
+    },
+    {
+      "file": "file_transfer.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "marker.json",
+      "reason": "Time stretch/start offset at $.layers[0]"
+    },
+    {
+      "file": "tractor.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "worm.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "settings.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "red_box.json",
+      "reason": "Shape op tm at $.layers[0].shapes[0].it[1].ty"
+    },
+    {
+      "file": "confetti.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "5317-fireworkds.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "gears_or_settings.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "loading.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "dna.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "loading_.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "gradient_sleepy_loader.json",
+      "reason": "Shape op gf at $.layers[0].shapes[0].it[0].it[2].ty"
+    },
+    {
+      "file": "a_cup_of_coffee.json",
+      "reason": "Shape op tm at $.layers[0].shapes[0].it[1].ty"
+    },
+    {
+      "file": "it's_lunch_time!.json",
+      "reason": "Shape op tm at $.layers[0].shapes[1].ty"
+    },
+    {
+      "file": "ModernPictogramsForLottie_LoudMute.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "world_locations.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "emoji_shock.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "balloons_with_string.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[0].ks.p.k[0].to"
+    },
+    {
+      "file": "image_embedded.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "image_test.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "looping_landscape_+_plane_+_clouds.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "emoji_wink.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "hourglass.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "abstract_circle.json",
+      "reason": "Shape op rp at $.layers[0].shapes[1].ty"
+    },
+    {
+      "file": "like.json",
+      "reason": "Unsupported field at $.layers[0].sw"
+    },
+    {
+      "file": "ao.json",
+      "reason": "Unsupported field at $.layers[0].shapes[3].ml2"
+    },
+    {
+      "file": "StickAndBall.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[1].ks.p.k[0].to"
+    },
+    {
+      "file": "1667-firework.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "dynamic_property.json",
+      "reason": "Shape op mm at $.layers[0].shapes[0].it[2].ty"
+    },
+    {
+      "file": "imprint.json",
+      "reason": "Shape op tm at $.layers[0].shapes[1].ty"
+    },
+    {
+      "file": "done.json",
+      "reason": "Shape op tm at $.layers[0].shapes[1].ty"
+    },
+    {
+      "file": "pumped_up.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[0].ks.p.k[0].to"
+    },
+    {
+      "file": "polystar_anim.json",
+      "reason": "Shape op sr at $.layers[0].shapes[0].ty"
+    },
+    {
+      "file": "telegram.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[2].ks.p.k[0].to"
+    },
+    {
+      "file": "5344-honey-sack-hud.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "starts_transparent.json",
+      "reason": "Time stretch/start offset at $.layers[1]"
+    },
+    {
+      "file": "triib_manage.json",
+      "reason": "Unsupported field at $.comps"
+    },
+    {
+      "file": "loader_animation.json",
+      "reason": "Time stretch/start offset at $.layers[0]"
+    },
+    {
+      "file": "mnemonics.json",
+      "reason": "Unsupported nonzero ddd at $.ddd"
+    },
+    {
+      "file": "birth_stone_logo.json",
+      "reason": "Unsupported nonzero ddd at $.ddd"
+    },
+    {
+      "file": "ripple_loading_animation.json",
+      "reason": "Shape op gs at $.layers[0].shapes[1].ty"
+    },
+    {
+      "file": "matte_two_item_with_lowerlayer.json",
+      "reason": "Unsupported nonzero td at $.layers[0].td"
+    },
+    {
+      "file": "party_penguin.json",
+      "reason": "Unsupported nonzero hasMask at $.layers[5].hasMask"
+    },
+    {
+      "file": "mask.json",
+      "reason": "Unsupported field at $.layers[0].sw"
+    },
+    {
+      "file": "loader.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[1].ks.p.k[0].to"
+    },
+    {
+      "file": "acrobatics.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[0].ks.p.k[0].to"
+    },
+    {
+      "file": "happy.json",
+      "reason": "Unsupported ef at $.layers[0].ef"
+    },
+    {
+      "file": "windmill.json",
+      "reason": "Expressions at $.layers[1].ks.p.x"
+    },
+    {
+      "file": "heart.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "a_mountain.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[0].ks.p.k[0].to"
+    },
+    {
+      "file": "leap_frog_loader.json",
+      "reason": "Unsupported ef at $.layers[0].ef"
+    },
+    {
+      "file": "360\u00ba_degree.json",
+      "reason": "Shape op mm at $.layers[0].shapes[1].it[2].ty"
+    },
+    {
+      "file": "night_own.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "3d.json",
+      "reason": "Unsupported nonzero ddd at $.ddd"
+    },
+    {
+      "file": "1643-exploding-star.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "personal_character.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "mughead.json",
+      "reason": "Unsupported ef at $.layers[1].ef"
+    },
+    {
+      "file": "peli-canon.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "4479-fireworks.json",
+      "reason": "Unsupported field at $.layers[0].shapes[0].it[1].ml2"
+    },
+    {
+      "file": "funky_chicken.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "spin,_lil_loader_v2.json",
+      "reason": "Time stretch/start offset at $.layers[0]"
+    },
+    {
+      "file": "fingerprint_success.json",
+      "reason": "Time stretch/start offset at $.layers[0]"
+    },
+    {
+      "file": "you're_in!.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "maps.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "dynamic_path_test.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[0].shapes[0].p.k[0].to"
+    },
+    {
+      "file": "insta_camera.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "loader_4.json",
+      "reason": "Shape op tm at $.layers[0].shapes[1].ty"
+    },
+    {
+      "file": "browser.json",
+      "reason": "Spatial B\u00e9zier motion at $.layers[3].ks.p.k[0].to"
+    },
+    {
+      "file": "square_wheel.json",
+      "reason": "Unsupported assets at $.assets"
+    },
+    {
+      "file": "polystar_line_clockwise_trim.json",
+      "reason": "Shape op sr at $.layers[0].shapes[0].ty"
+    },
+    {
+      "file": "eid_mubarak.json",
+      "reason": "Unsupported nonzero hasMask at $.layers[3].hasMask"
+    },
+    {
+      "file": "ondas.json",
+      "reason": "Unsupported field at $.layers[0].shapes[0].it[1].ml2"
+    }
+  ],
+  "total": 93
+}

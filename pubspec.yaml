@@ -1,0 +1,18 @@
+name: fastlottie
+description: "Fast, efficient Lottie animations for Flutter."
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.0
+  flutter: ">=3.47.1"
+
+dependencies:
+  archive: 4.6.0
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  lottie: 3.8.2

@@ -1,0 +1,385 @@
+{
+  "assets": 94,
+  "fastlottie": 94,
+  "fallback": 0,
+  "source_sha256": "829343053817bf04daa3586f350f79917b1617604027416a7cac0057b4a97532",
+  "files": [
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786080.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764967.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786125.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786110.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786081.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764968.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786126.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786111.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786082.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764969.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786127.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786112.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786083.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764970.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786128.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786113.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786084.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764971.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786129.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786114.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786085.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764972.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786130.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786115.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786086.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764973.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786131.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786116.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786087.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764974.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786132.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786117.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786088.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764975.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786133.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786118.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786089.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764976.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786134.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786119.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786090.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764977.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786135.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786120.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786091.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764978.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786136.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786121.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786092.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764979.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786137.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786122.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786093.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764980.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786138.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786123.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786094.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764981.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotHotHot-1794222825310/file_4786139.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786124.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786095.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764982.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786096.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764983.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786097.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764984.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786098.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764985.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786099.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764986.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786100.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764987.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786101.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764988.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786102.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764989.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786103.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764990.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786104.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764991.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786105.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764992.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786106.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764993.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786107.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764994.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786108.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764995.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786109.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764996.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764997.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764998.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4764999.tgs",
+      "backend": "fastlottie"
+    },
+    {
+      "asset": "assets/tgs/HotCherry-1794222813220/file_4765000.tgs",
+      "backend": "fastlottie"
+    }
+  ],
+  "validation": "test/tgs_test.dart: 94 compile/render, 752 differential samples"
+}

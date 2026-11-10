@@ -1,0 +1,65 @@
+name: fastlottie_example
+description: Fastlottie demo and reproducible benchmarks.
+publish_to: none
+environment:
+  sdk: ^3.13.0
+dependencies:
+  flutter:
+    sdk: flutter
+  fastlottie:
+    path: ../
+  lottie: 3.8.2
+  path_provider: ^2.1.5
+  cupertino_icons: ^2.0.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - assets/tgs/Crocosaurus-1794222759141/
+    - assets/tgs/HotCherry-1794222813220/
+    - assets/tgs/HotHotHot-1794222825310/
+    - assets/tgs/ViAndCaitlyn-1794222798837/
+    - assets/tgs/Topics-1794247486249/file_4798662.tgs
+    - assets/tgs/Topics-1794247486249/file_4798663.tgs
+    - assets/tgs/Topics-1794247486249/file_4798664.tgs
+    - assets/tgs/Topics-1794247486249/file_4798665.tgs
+    - assets/tgs/Topics-1794247486249/file_4798666.tgs
+    - assets/tgs/Topics-1794247486249/file_4798668.tgs
+    - assets/tgs/Topics-1794247486249/file_4798669.tgs
+    - assets/tgs/Topics-1794247486249/file_4798671.tgs
+    - assets/tgs/Topics-1794247486249/file_4798672.tgs
+    - assets/tgs/Topics-1794247486249/file_4798673.tgs
+    - assets/tgs/Topics-1794247486249/file_4798675.tgs
+    - assets/tgs/Topics-1794247486249/file_4798676.tgs
+    - assets/tgs/Topics-1794247486249/file_4798677.tgs
+    - assets/tgs/Topics-1794247486249/file_4798678.tgs
+    - assets/tgs/Topics-1794247486249/file_4798679.tgs
+    - assets/tgs/Topics-1794247486249/file_4798682.tgs
+    - assets/tgs/Topics-1794247486249/file_4798683.tgs
+    - assets/tgs/Topics-1794247486249/file_4798684.tgs
+    - assets/tgs/Topics-1794247486249/file_4798686.tgs
+    - assets/tgs/Topics-1794247486249/file_4798687.tgs
+    - assets/tgs/Topics-1794247486249/file_4798688.tgs
+    - assets/tgs/Topics-1794247486249/file_4798689.tgs
+    - assets/tgs/Topics-1794247486249/file_4798691.tgs
+    - assets/tgs/Topics-1794247486249/file_4798692.tgs
+    - assets/tgs/Topics-1794247486249/file_4798693.tgs
+    - assets/tgs/Topics-1794247486249/file_4798694.tgs
+    - assets/tgs/Topics-1794247486249/file_4798695.tgs
+    - assets/tgs/Topics-1794247486249/file_4798696.tgs
+    - assets/tgs/Topics-1794247486249/file_4798697.tgs
+    - assets/tgs/Topics-1794247486249/file_4798698.tgs
+    - assets/tgs/Topics-1794247486249/file_4798700.tgs
+    - assets/tgs/Topics-1794247486249/file_4798701.tgs
+    - assets/tgs/Topics-1794247486249/file_4798702.tgs
+    - assets/tgs/Topics-1794247486249/file_4798703.tgs
+    - assets/tgs/Topics-1794247486249/file_4798705.tgs
+    - assets/tgs/Topics-1794247486249/file_4798706.tgs
+    - assets/tgs/Topics-1794247486249/file_4798707.tgs
+    - assets/tgs/Topics-1794247486249/file_4798708.tgs
+    - assets/tgs/Topics-1794247486249/file_4798710.tgs
+    - assets/tgs/Topics-1794247486249/file_4798713.tgs

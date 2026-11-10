@@ -1,0 +1,950 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-09T11:13:00.688071Z",
+  "release": true,
+  "os": "Version 27.2 (Build 26B123)",
+  "dart": "3.15.0-95.0.dev (dev) (Wed Oct 28 21:03:11 2026 -0700) on \"macos_arm64\"",
+  "lottie": "3.8.2",
+  "size_px": 256,
+  "warm_loops": 12,
+  "source_frames": 60,
+  "fixtures": {
+    "static": {
+      "bytes": 938,
+      "parse_compile_fast": {
+        "median_us": 38.0,
+        "p95_us": 72.0,
+        "min_us": 21.0
+      },
+      "parse_lottie": {
+        "median_us": 34.0,
+        "p95_us": 46.0,
+        "min_us": 14.0
+      },
+      "modes": {
+        "fast_uncached": {
+          "prepare_us": 1,
+          "cold_record": {
+            "median_us": 2.083,
+            "p95_us": 3.417,
+            "min_us": 1.958
+          },
+          "warm_record": {
+            "median_us": 2.0,
+            "p95_us": 3.583,
+            "min_us": 1.875
+          },
+          "settled_record": {
+            "median_us": 2.0,
+            "p95_us": 3.209,
+            "min_us": 1.916
+          },
+          "raster_readback_wall": {
+            "median_us": 1462.583,
+            "p95_us": 3791.834,
+            "min_us": 471.375
+          },
+          "rgba_bytes": 0
+        },
+        "lottie_uncached": {
+          "prepare_us": 12,
+          "cold_record": {
+            "median_us": 2.958,
+            "p95_us": 10.958,
+            "min_us": 2.833
+          },
+          "warm_record": {
+            "median_us": 2.875,
+            "p95_us": 5.417,
+            "min_us": 2.708
+          },
+          "settled_record": {
+            "median_us": 2.875,
+            "p95_us": 4.167,
+            "min_us": 2.709
+          },
+          "raster_readback_wall": {
+            "median_us": 707.292,
+            "p95_us": 2010.375,
+            "min_us": 484.042
+          },
+          "rgba_bytes": null
+        },
+        "fast_picture": {
+          "prepare_us": 10,
+          "cold_record": {
+            "median_us": 1.0,
+            "p95_us": 2.083,
+            "min_us": 0.917
+          },
+          "warm_record": {
+            "median_us": 1.0,
+            "p95_us": 1.958,
+            "min_us": 0.875
+          },
+          "settled_record": {
+            "median_us": 0.958,
+            "p95_us": 1.542,
+            "min_us": 0.875
+          },
+          "raster_readback_wall": {
+            "median_us": 834.208,
+            "p95_us": 2255.5,
+            "min_us": 469.125
+          },
+          "rgba_bytes": 0
+        },
+        "lottie_picture": {
+          "prepare_us": 7,
+          "cold_record": {
+            "median_us": 1.458,
+            "p95_us": 2.709,
+            "min_us": 1.375
+          },
+          "warm_record": {
+            "median_us": 1.416,
+            "p95_us": 2.084,
+            "min_us": 1.291
+          },
+          "settled_record": {
+            "median_us": 1.417,
+            "p95_us": 2.291,
+            "min_us": 1.333
+          },
+          "raster_readback_wall": {
+            "median_us": 716.375,
+            "p95_us": 1060.709,
+            "min_us": 422.25
+          },
+          "rgba_bytes": null
+        },
+        "fast_raster": {
+          "prepare_us": 216,
+          "cold_record": {
+            "median_us": 0.792,
+            "p95_us": 1.25,
+            "min_us": 0.75
+          },
+          "warm_record": {
+            "median_us": 0.792,
+            "p95_us": 1.208,
+            "min_us": 0.708
+          },
+          "settled_record": {
+            "median_us": 5.833,
+            "p95_us": 11.542,
+            "min_us": 5.5
+          },
+          "raster_readback_wall": {
+            "median_us": 1746.0,
+            "p95_us": 8108.0,
+            "min_us": 764.875
+          },
+          "rgba_bytes": 262144
+        },
+        "lottie_raster": {
+          "prepare_us": 15,
+          "cold_record": {
+            "median_us": 6.417,
+            "p95_us": 12.417,
+            "min_us": 6.083
+          },
+          "warm_record": {
+            "median_us": 4.25,
+            "p95_us": 8.167,
+            "min_us": 3.166
+          },
+          "settled_record": {
+            "median_us": 9.958,
+            "p95_us": 17.125,
+            "min_us": 5.958
+          },
+          "raster_readback_wall": {
+            "median_us": 2042.875,
+            "p95_us": 5537.833,
+            "min_us": 959.833
+          },
+          "rgba_bytes": null
+        }
+      }
+    },
+    "icon": {
+      "bytes": 1033,
+      "parse_compile_fast": {
+        "median_us": 70.0,
+        "p95_us": 80.0,
+        "min_us": 63.0
+      },
+      "parse_lottie": {
+        "median_us": 53.0,
+        "p95_us": 58.0,
+        "min_us": 51.0
+      },
+      "modes": {
+        "fast_uncached": {
+          "prepare_us": 2,
+          "cold_record": {
+            "median_us": 6.417,
+            "p95_us": 14.5,
+            "min_us": 6.25
+          },
+          "warm_record": {
+            "median_us": 5.625,
+            "p95_us": 7.042,
+            "min_us": 4.833
+          },
+          "settled_record": {
+            "median_us": 15.417,
+            "p95_us": 22.667,
+            "min_us": 9.458
+          },
+          "raster_readback_wall": {
+            "median_us": 1660.417,
+            "p95_us": 2803.25,
+            "min_us": 730.584
+          },
+          "rgba_bytes": 0
+        },
+        "lottie_uncached": {
+          "prepare_us": 23,
+          "cold_record": {
+            "median_us": 11.417,
+            "p95_us": 12.959,
+            "min_us": 7.375
+          },
+          "warm_record": {
+            "median_us": 8.375,
+            "p95_us": 11.125,
+            "min_us": 7.208
+          },
+          "settled_record": {
+            "median_us": 14.708,
+            "p95_us": 28.458,
+            "min_us": 7.292
+          },
+          "raster_readback_wall": {
+            "median_us": 1764.042,
+            "p95_us": 2175.25,
+            "min_us": 847.917
+          },
+          "rgba_bytes": null
+        },
+        "fast_picture": {
+          "prepare_us": 46,
+          "cold_record": {
+            "median_us": 12.625,
+            "p95_us": 16.875,
+            "min_us": 11.958
+          },
+          "warm_record": {
+            "median_us": 2.458,
+            "p95_us": 4.416,
+            "min_us": 2.125
+          },
+          "settled_record": {
+            "median_us": 6.834,
+            "p95_us": 8.667,
+            "min_us": 2.125
+          },
+          "raster_readback_wall": {
+            "median_us": 1852.916,
+            "p95_us": 4825.959,
+            "min_us": 904.334
+          },
+          "rgba_bytes": 0
+        },
+        "lottie_picture": {
+          "prepare_us": 11,
+          "cold_record": {
+            "median_us": 21.084,
+            "p95_us": 31.334,
+            "min_us": 20.292
+          },
+          "warm_record": {
+            "median_us": 4.625,
+            "p95_us": 6.0,
+            "min_us": 3.416
+          },
+          "settled_record": {
+            "median_us": 3.125,
+            "p95_us": 11.084,
+            "min_us": 3.0
+          },
+          "raster_readback_wall": {
+            "median_us": 1793.333,
+            "p95_us": 4056.208,
+            "min_us": 837.791
+          },
+          "rgba_bytes": null
+        },
+        "fast_raster": {
+          "prepare_us": 10258,
+          "cold_record": {
+            "median_us": 2.25,
+            "p95_us": 2.667,
+            "min_us": 2.0
+          },
+          "warm_record": {
+            "median_us": 2.291,
+            "p95_us": 2.75,
+            "min_us": 1.833
+          },
+          "settled_record": {
+            "median_us": 5.875,
+            "p95_us": 10.458,
+            "min_us": 1.791
+          },
+          "raster_readback_wall": {
+            "median_us": 1375.042,
+            "p95_us": 4836.375,
+            "min_us": 783.333
+          },
+          "rgba_bytes": 15728640
+        },
+        "lottie_raster": {
+          "prepare_us": 23,
+          "cold_record": {
+            "median_us": 28.042,
+            "p95_us": 49.917,
+            "min_us": 15.125
+          },
+          "warm_record": {
+            "median_us": 4.0,
+            "p95_us": 7.166,
+            "min_us": 3.333
+          },
+          "settled_record": {
+            "median_us": 3.666,
+            "p95_us": 5.875,
+            "min_us": 3.292
+          },
+          "raster_readback_wall": {
+            "median_us": 1219.166,
+            "p95_us": 2471.583,
+            "min_us": 913.833
+          },
+          "rgba_bytes": null
+        }
+      }
+    },
+    "many_shapes": {
+      "bytes": 48725,
+      "parse_compile_fast": {
+        "median_us": 1247.0,
+        "p95_us": 2582.0,
+        "min_us": 1131.0
+      },
+      "parse_lottie": {
+        "median_us": 1058.0,
+        "p95_us": 1949.0,
+        "min_us": 940.0
+      },
+      "modes": {
+        "fast_uncached": {
+          "prepare_us": 1,
+          "cold_record": {
+            "median_us": 53.583,
+            "p95_us": 86.708,
+            "min_us": 51.792
+          },
+          "warm_record": {
+            "median_us": 49.833,
+            "p95_us": 57.083,
+            "min_us": 43.291
+          },
+          "settled_record": {
+            "median_us": 44.625,
+            "p95_us": 63.292,
+            "min_us": 43.041
+          },
+          "raster_readback_wall": {
+            "median_us": 942.291,
+            "p95_us": 2846.791,
+            "min_us": 593.291
+          },
+          "rgba_bytes": 0,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 1047.0,
+              "p95_us": 1814.0,
+              "min_us": 906.0
+            },
+            "raster": {
+              "median_us": 1981.0,
+              "p95_us": 2973.0,
+              "min_us": 1456.0
+            },
+            "total": {
+              "median_us": 3202.0,
+              "p95_us": 4844.0,
+              "min_us": 2556.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "lottie_uncached": {
+          "prepare_us": 2,
+          "cold_record": {
+            "median_us": 226.417,
+            "p95_us": 380.667,
+            "min_us": 92.0
+          },
+          "warm_record": {
+            "median_us": 90.458,
+            "p95_us": 116.958,
+            "min_us": 81.75
+          },
+          "settled_record": {
+            "median_us": 94.375,
+            "p95_us": 118.333,
+            "min_us": 82.417
+          },
+          "raster_readback_wall": {
+            "median_us": 754.375,
+            "p95_us": 2401.583,
+            "min_us": 491.75
+          },
+          "rgba_bytes": null,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 1587.0,
+              "p95_us": 1807.0,
+              "min_us": 747.0
+            },
+            "raster": {
+              "median_us": 1577.0,
+              "p95_us": 1849.0,
+              "min_us": 763.0
+            },
+            "total": {
+              "median_us": 3334.0,
+              "p95_us": 3735.0,
+              "min_us": 1640.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "fast_picture": {
+          "prepare_us": 2,
+          "cold_record": {
+            "median_us": 63.167,
+            "p95_us": 117.791,
+            "min_us": 57.417
+          },
+          "warm_record": {
+            "median_us": 6.75,
+            "p95_us": 13.791,
+            "min_us": 2.333
+          },
+          "settled_record": {
+            "median_us": 13.5,
+            "p95_us": 20.125,
+            "min_us": 4.542
+          },
+          "raster_readback_wall": {
+            "median_us": 1310.833,
+            "p95_us": 4643.625,
+            "min_us": 574.542
+          },
+          "rgba_bytes": 0,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 251.0,
+              "p95_us": 504.0,
+              "min_us": 117.0
+            },
+            "raster": {
+              "median_us": 2434.0,
+              "p95_us": 3574.0,
+              "min_us": 1491.0
+            },
+            "total": {
+              "median_us": 2821.0,
+              "p95_us": 4137.0,
+              "min_us": 1732.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "lottie_picture": {
+          "prepare_us": 2,
+          "cold_record": {
+            "median_us": 254.083,
+            "p95_us": 340.833,
+            "min_us": 102.083
+          },
+          "warm_record": {
+            "median_us": 14.625,
+            "p95_us": 22.417,
+            "min_us": 9.5
+          },
+          "settled_record": {
+            "median_us": 37.042,
+            "p95_us": 49.583,
+            "min_us": 24.542
+          },
+          "raster_readback_wall": {
+            "median_us": 1877.959,
+            "p95_us": 4445.041,
+            "min_us": 596.583
+          },
+          "rgba_bytes": null,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 509.0,
+              "p95_us": 634.0,
+              "min_us": 148.0
+            },
+            "raster": {
+              "median_us": 2897.0,
+              "p95_us": 3898.0,
+              "min_us": 1464.0
+            },
+            "total": {
+              "median_us": 3509.0,
+              "p95_us": 4528.0,
+              "min_us": 1940.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "fast_raster": {
+          "prepare_us": 20501,
+          "cold_record": {
+            "median_us": 0.959,
+            "p95_us": 1.709,
+            "min_us": 0.833
+          },
+          "warm_record": {
+            "median_us": 0.792,
+            "p95_us": 1.0,
+            "min_us": 0.709
+          },
+          "settled_record": {
+            "median_us": 1.875,
+            "p95_us": 2.667,
+            "min_us": 1.791
+          },
+          "raster_readback_wall": {
+            "median_us": 604.0,
+            "p95_us": 855.083,
+            "min_us": 441.25
+          },
+          "rgba_bytes": 15728640,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 133.0,
+              "p95_us": 188.0,
+              "min_us": 56.0
+            },
+            "raster": {
+              "median_us": 429.0,
+              "p95_us": 552.0,
+              "min_us": 222.0
+            },
+            "total": {
+              "median_us": 686.0,
+              "p95_us": 850.0,
+              "min_us": 370.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "lottie_raster": {
+          "prepare_us": 4,
+          "cold_record": {
+            "median_us": 248.5,
+            "p95_us": 526.083,
+            "min_us": 131.875
+          },
+          "warm_record": {
+            "median_us": 9.584,
+            "p95_us": 18.417,
+            "min_us": 8.125
+          },
+          "settled_record": {
+            "median_us": 33.125,
+            "p95_us": 67.958,
+            "min_us": 21.416
+          },
+          "raster_readback_wall": {
+            "median_us": 856.625,
+            "p95_us": 1355.041,
+            "min_us": 618.542
+          },
+          "rgba_bytes": null,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 213.0,
+              "p95_us": 294.0,
+              "min_us": 86.0
+            },
+            "raster": {
+              "median_us": 333.0,
+              "p95_us": 498.0,
+              "min_us": 144.0
+            },
+            "total": {
+              "median_us": 652.0,
+              "p95_us": 943.0,
+              "min_us": 295.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        }
+      }
+    },
+    "morph": {
+      "bytes": 161619,
+      "parse_compile_fast": {
+        "median_us": 1074.0,
+        "p95_us": 1587.0,
+        "min_us": 981.0
+      },
+      "parse_lottie": {
+        "median_us": 2272.0,
+        "p95_us": 2534.0,
+        "min_us": 2072.0
+      },
+      "modes": {
+        "fast_uncached": {
+          "prepare_us": 2,
+          "cold_record": {
+            "median_us": 64.792,
+            "p95_us": 86.625,
+            "min_us": 60.541
+          },
+          "warm_record": {
+            "median_us": 60.833,
+            "p95_us": 79.709,
+            "min_us": 55.333
+          },
+          "settled_record": {
+            "median_us": 66.125,
+            "p95_us": 110.792,
+            "min_us": 60.167
+          },
+          "raster_readback_wall": {
+            "median_us": 681.417,
+            "p95_us": 2026.167,
+            "min_us": 551.834
+          },
+          "rgba_bytes": 0,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 823.0,
+              "p95_us": 924.0,
+              "min_us": 293.0
+            },
+            "raster": {
+              "median_us": 1388.0,
+              "p95_us": 1558.0,
+              "min_us": 526.0
+            },
+            "total": {
+              "median_us": 2389.0,
+              "p95_us": 2663.0,
+              "min_us": 969.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "lottie_uncached": {
+          "prepare_us": 3,
+          "cold_record": {
+            "median_us": 256.834,
+            "p95_us": 1112.25,
+            "min_us": 149.75
+          },
+          "warm_record": {
+            "median_us": 157.667,
+            "p95_us": 635.834,
+            "min_us": 145.959
+          },
+          "settled_record": {
+            "median_us": 170.667,
+            "p95_us": 260.042,
+            "min_us": 149.292
+          },
+          "raster_readback_wall": {
+            "median_us": 722.792,
+            "p95_us": 2405.334,
+            "min_us": 455.166
+          },
+          "rgba_bytes": null,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 1134.0,
+              "p95_us": 1938.0,
+              "min_us": 392.0
+            },
+            "raster": {
+              "median_us": 942.0,
+              "p95_us": 1704.0,
+              "min_us": 286.0
+            },
+            "total": {
+              "median_us": 2207.0,
+              "p95_us": 3633.0,
+              "min_us": 840.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "fast_picture": {
+          "prepare_us": 3,
+          "cold_record": {
+            "median_us": 190.042,
+            "p95_us": 322.625,
+            "min_us": 171.666
+          },
+          "warm_record": {
+            "median_us": 2.5,
+            "p95_us": 4.542,
+            "min_us": 2.333
+          },
+          "settled_record": {
+            "median_us": 3.125,
+            "p95_us": 6.542,
+            "min_us": 3.0
+          },
+          "raster_readback_wall": {
+            "median_us": 1395.292,
+            "p95_us": 2992.291,
+            "min_us": 856.417
+          },
+          "rgba_bytes": 0,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 132.0,
+              "p95_us": 208.0,
+              "min_us": 74.0
+            },
+            "raster": {
+              "median_us": 743.0,
+              "p95_us": 1618.0,
+              "min_us": 546.0
+            },
+            "total": {
+              "median_us": 1079.0,
+              "p95_us": 1999.0,
+              "min_us": 705.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "lottie_picture": {
+          "prepare_us": 2,
+          "cold_record": {
+            "median_us": 253.584,
+            "p95_us": 632.25,
+            "min_us": 152.375
+          },
+          "warm_record": {
+            "median_us": 1.959,
+            "p95_us": 2.583,
+            "min_us": 1.708
+          },
+          "settled_record": {
+            "median_us": 4.917,
+            "p95_us": 6.625,
+            "min_us": 4.084
+          },
+          "raster_readback_wall": {
+            "median_us": 1006.833,
+            "p95_us": 3268.25,
+            "min_us": 490.041
+          },
+          "rgba_bytes": null,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 180.0,
+              "p95_us": 225.0,
+              "min_us": 55.0
+            },
+            "raster": {
+              "median_us": 1442.0,
+              "p95_us": 1605.0,
+              "min_us": 304.0
+            },
+            "total": {
+              "median_us": 1726.0,
+              "p95_us": 1964.0,
+              "min_us": 443.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "fast_raster": {
+          "prepare_us": 19592,
+          "cold_record": {
+            "median_us": 1.125,
+            "p95_us": 1.791,
+            "min_us": 0.958
+          },
+          "warm_record": {
+            "median_us": 1.0,
+            "p95_us": 1.917,
+            "min_us": 0.875
+          },
+          "settled_record": {
+            "median_us": 0.792,
+            "p95_us": 1.958,
+            "min_us": 0.75
+          },
+          "raster_readback_wall": {
+            "median_us": 665.333,
+            "p95_us": 2341.792,
+            "min_us": 478.958
+          },
+          "rgba_bytes": 15728640,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 130.0,
+              "p95_us": 188.0,
+              "min_us": 53.0
+            },
+            "raster": {
+              "median_us": 311.0,
+              "p95_us": 527.0,
+              "min_us": 152.0
+            },
+            "total": {
+              "median_us": 593.0,
+              "p95_us": 838.0,
+              "min_us": 262.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "lottie_raster": {
+          "prepare_us": 1,
+          "cold_record": {
+            "median_us": 275.5,
+            "p95_us": 538.25,
+            "min_us": 158.917
+          },
+          "warm_record": {
+            "median_us": 1.833,
+            "p95_us": 2.417,
+            "min_us": 1.583
+          },
+          "settled_record": {
+            "median_us": 12.5,
+            "p95_us": 16.375,
+            "min_us": 7.625
+          },
+          "raster_readback_wall": {
+            "median_us": 1086.584,
+            "p95_us": 3628.292,
+            "min_us": 481.5
+          },
+          "rgba_bytes": null,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 179.0,
+              "p95_us": 254.0,
+              "min_us": 111.0
+            },
+            "raster": {
+              "median_us": 400.0,
+              "p95_us": 541.0,
+              "min_us": 239.0
+            },
+            "total": {
+              "median_us": 705.0,
+              "p95_us": 932.0,
+              "min_us": 457.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        },
+        "fast_simd_uncached": {
+          "prepare_us": 2,
+          "cold_record": {
+            "median_us": 144.208,
+            "p95_us": 324.083,
+            "min_us": 124.25
+          },
+          "warm_record": {
+            "median_us": 56.125,
+            "p95_us": 134.625,
+            "min_us": 51.458
+          },
+          "settled_record": {
+            "median_us": 70.667,
+            "p95_us": 99.958,
+            "min_us": 62.291
+          },
+          "raster_readback_wall": {
+            "median_us": 625.042,
+            "p95_us": 3598.042,
+            "min_us": 471.292
+          },
+          "rgba_bytes": null,
+          "visible_frames": {
+            "instances": 9,
+            "samples": 90,
+            "refresh_hz": 120.0,
+            "build": {
+              "median_us": 716.0,
+              "p95_us": 866.0,
+              "min_us": 176.0
+            },
+            "raster": {
+              "median_us": 1409.0,
+              "p95_us": 1536.0,
+              "min_us": 294.0
+            },
+            "total": {
+              "median_us": 2262.0,
+              "p95_us": 2490.0,
+              "min_us": 564.0
+            },
+            "over_budget_fraction": 0.0
+          }
+        }
+      }
+    }
+  },
+  "source_sha256": "94cf3c7e17c82ffa93061fbcc6172d930a472c4f2d88f30c697da9183fd6046d",
+  "device": "macos",
+  "cpu": "Apple M5",
+  "flutter_version": "Flutter 3.50.0-1.0.pre-284 \u2022 channel master \u2022 https://github.com/flutter/flutter.git\nFramework \u2022 revision 666d2c4e83 (11 days ago) \u2022 2026-10-29 10:24:30 +0000\nEngine \u2022 hash 9bbca0aa0a9b4ef9de36ba7cf82d007b0468a85f (revision 666d2c4e83) (11 days ago) \u2022 2026-10-29 10:24:30.000Z\nTools \u2022 Dart 3.15.0 (build 3.15.0-95.0.dev) \u2022 DevTools 2.61.0\n"
+}

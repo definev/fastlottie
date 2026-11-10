@@ -1,0 +1,487 @@
+{
+  "schema": 1,
+  "release": true,
+  "date_utc": "2026-11-09T15:28:35.597625Z",
+  "os": "CP3A.261005.002.A1",
+  "dart": "3.15.0-95.0.dev (dev) (Wed Oct 28 21:03:11 2026 -0700) on \"android_arm64\"",
+  "assets": 94,
+  "preloaded_models": 94,
+  "viewport_logical": {
+    "width": 441.9437081450416,
+    "height": 982.0971292112035,
+    "dpr": 2.4437501430511475
+  },
+  "warm_seconds": 12,
+  "modes": {
+    "vector": {
+      "max_active": null,
+      "max_animation_fps": null,
+      "cold_idle": {
+        "samples": 90,
+        "warmup_frames": 30,
+        "build": {
+          "median_us": 46244.0,
+          "p95_us": 85353.0,
+          "max_us": 196573.0
+        },
+        "raster": {
+          "median_us": 30740.0,
+          "p95_us": 36107.0,
+          "max_us": 37366.0
+        },
+        "total": {
+          "median_us": 122211.0,
+          "p95_us": 164049.0,
+          "max_us": 263799.0
+        },
+        "submitted_frames_per_second": 17.577007536191356,
+        "cpu_ticks_including_warmup": 1187,
+        "wall_us_including_warmup": 7427655
+      }
+    },
+    "cached_all": {
+      "max_active": null,
+      "max_animation_fps": null,
+      "cold_idle": {
+        "samples": 90,
+        "warmup_frames": 30,
+        "build": {
+          "median_us": 47853.0,
+          "p95_us": 88197.0,
+          "max_us": 223437.0
+        },
+        "raster": {
+          "median_us": 30276.0,
+          "p95_us": 34089.0,
+          "max_us": 35775.0
+        },
+        "total": {
+          "median_us": 126240.0,
+          "p95_us": 168790.0,
+          "max_us": 295152.0
+        },
+        "submitted_frames_per_second": 16.9096173353597,
+        "cpu_ticks_including_warmup": 1201,
+        "wall_us_including_warmup": 7480663
+      },
+      "warm_idle": {
+        "samples": 90,
+        "warmup_frames": 30,
+        "build": {
+          "median_us": 44787.0,
+          "p95_us": 85954.0,
+          "max_us": 87711.0
+        },
+        "raster": {
+          "median_us": 28355.0,
+          "p95_us": 32986.0,
+          "max_us": 34620.0
+        },
+        "total": {
+          "median_us": 117375.0,
+          "p95_us": 157730.0,
+          "max_us": 166210.0
+        },
+        "submitted_frames_per_second": 18.618261418380992,
+        "cpu_ticks_including_warmup": 1219,
+        "wall_us_including_warmup": 7537186
+      },
+      "cache_before_warm_measurement": {
+        "bytes": 17075376,
+        "reserved_bytes": 63907840,
+        "maximum_bytes": 67108864,
+        "entries": 5,
+        "hits": 238,
+        "misses": 10381,
+        "rendered_frames": 171,
+        "pending": 33,
+        "error": null
+      },
+      "cache_after_warm_measurement": {
+        "bytes": 24165152,
+        "reserved_bytes": 63907840,
+        "maximum_bytes": 67108864,
+        "entries": 5,
+        "hits": 461,
+        "misses": 14498,
+        "rendered_frames": 242,
+        "pending": 32,
+        "error": null
+      },
+      "scrolling": {
+        "samples": 90,
+        "warmup_frames": 30,
+        "build": {
+          "median_us": 47595.0,
+          "p95_us": 97260.0,
+          "max_us": 148324.0
+        },
+        "raster": {
+          "median_us": 31054.0,
+          "p95_us": 37085.0,
+          "max_us": 41968.0
+        },
+        "total": {
+          "median_us": 136464.0,
+          "p95_us": 184898.0,
+          "max_us": 215730.0
+        },
+        "submitted_frames_per_second": 17.291501887396574,
+        "cpu_ticks_including_warmup": 1215,
+        "wall_us_including_warmup": 7384517
+      }
+    },
+    "mobile": {
+      "max_active": 8,
+      "max_animation_fps": 30,
+      "cold_idle": {
+        "samples": 90,
+        "warmup_frames": 30,
+        "build": {
+          "median_us": 12179.0,
+          "p95_us": 23525.0,
+          "max_us": 65275.0
+        },
+        "raster": {
+          "median_us": 27061.0,
+          "p95_us": 29142.0,
+          "max_us": 29642.0
+        },
+        "total": {
+          "median_us": 50367.0,
+          "p95_us": 92970.0,
+          "max_us": 108083.0
+        },
+        "submitted_frames_per_second": 33.395458893004324,
+        "cpu_ticks_including_warmup": 691,
+        "wall_us_including_warmup": 4220413
+      },
+      "warm_idle": {
+        "samples": 90,
+        "warmup_frames": 30,
+        "build": {
+          "median_us": 8319.0,
+          "p95_us": 20754.0,
+          "max_us": 23956.0
+        },
+        "raster": {
+          "median_us": 24749.0,
+          "p95_us": 28200.0,
+          "max_us": 30080.0
+        },
+        "total": {
+          "median_us": 47423.0,
+          "p95_us": 61722.0,
+          "max_us": 83305.0
+        },
+        "submitted_frames_per_second": 36.35022502423008,
+        "cpu_ticks_including_warmup": 661,
+        "wall_us_including_warmup": 4173643
+      },
+      "cache_before_warm_measurement": {
+        "bytes": 25662992,
+        "reserved_bytes": 64906400,
+        "maximum_bytes": 67108864,
+        "entries": 8,
+        "hits": 603,
+        "misses": 2997,
+        "rendered_frames": 257,
+        "pending": 33,
+        "error": null
+      },
+      "cache_after_warm_measurement": {
+        "bytes": 33152192,
+        "reserved_bytes": 64906400,
+        "maximum_bytes": 67108864,
+        "entries": 8,
+        "hits": 1016,
+        "misses": 3552,
+        "rendered_frames": 332,
+        "pending": 32,
+        "error": null
+      },
+      "scrolling": {
+        "samples": 90,
+        "warmup_frames": 30,
+        "build": {
+          "median_us": 2035.0,
+          "p95_us": 37864.0,
+          "max_us": 84233.0
+        },
+        "raster": {
+          "median_us": 27744.0,
+          "p95_us": 33958.0,
+          "max_us": 40464.0
+        },
+        "total": {
+          "median_us": 54785.0,
+          "p95_us": 91883.0,
+          "max_us": 125120.0
+        },
+        "submitted_frames_per_second": 31.433934875244365,
+        "cpu_ticks_including_warmup": 711,
+        "wall_us_including_warmup": 4275629
+      }
+    },
+    "vector_control": {
+      "max_active": null,
+      "max_animation_fps": null,
+      "cold_idle": {
+        "samples": 90,
+        "warmup_frames": 30,
+        "build": {
+          "median_us": 47464.0,
+          "p95_us": 92414.0,
+          "max_us": 160672.0
+        },
+        "raster": {
+          "median_us": 31145.0,
+          "p95_us": 34714.0,
+          "max_us": 36201.0
+        },
+        "total": {
+          "median_us": 124354.0,
+          "p95_us": 169392.0,
+          "max_us": 243691.0
+        },
+        "submitted_frames_per_second": 17.404823482822515,
+        "cpu_ticks_including_warmup": 1192,
+        "wall_us_including_warmup": 7510420
+      }
+    }
+  },
+  "warm_extra_decodes": 0,
+  "source_sha256": "7c05765764b8a4c1a68c43e27452d359738fdc59ad6deea8ce6539351be34bb1",
+  "device": "3C091JEHN14062",
+  "android_before_flutter_run": {
+    "captured_utc": "2026-11-09T15:28:14.666495+00:00",
+    "model": "Pixel 7a",
+    "android": "17",
+    "cpu_ticks_per_second": "100",
+    "battery_celsius": 42.9,
+    "thermal_status": 3,
+    "temperatures": [
+      {
+        "celsius": 61.000004,
+        "name": "G3D",
+        "status": 0
+      },
+      {
+        "celsius": 64.0,
+        "name": "BIG",
+        "status": 0
+      },
+      {
+        "celsius": 67.0,
+        "name": "LITTLE",
+        "status": 0
+      },
+      {
+        "celsius": 1.0,
+        "name": "VIRTUAL-USB-THROTTLING",
+        "status": 0
+      },
+      {
+        "celsius": 68.0,
+        "name": "MID",
+        "status": 0
+      },
+      {
+        "celsius": 47.872,
+        "name": "neutral_therm",
+        "status": 0
+      },
+      {
+        "celsius": 45.29911,
+        "name": "cellular-emergency",
+        "status": 0
+      },
+      {
+        "celsius": 45.29911,
+        "name": "VIRTUAL-SKIN-CHARGE",
+        "status": 4
+      },
+      {
+        "celsius": 48.588,
+        "name": "gnss_tcxo_therm",
+        "status": 0
+      },
+      {
+        "celsius": 45.29911,
+        "name": "VIRTUAL-SKIN-HINT",
+        "status": 3
+      },
+      {
+        "celsius": 45.29911,
+        "name": "VIRTUAL-SKIN",
+        "status": 3
+      },
+      {
+        "celsius": 61.000004,
+        "name": "TPU",
+        "status": 0
+      },
+      {
+        "celsius": 41.319,
+        "name": "usb_pwr_therm2",
+        "status": 0
+      },
+      {
+        "celsius": 1.0,
+        "name": "VIRTUAL-USB-UI",
+        "status": 0
+      },
+      {
+        "celsius": 41.273003,
+        "name": "disp_therm",
+        "status": 0
+      },
+      {
+        "celsius": 45.175003,
+        "name": "skin_therm1",
+        "status": 1
+      },
+      {
+        "celsius": 40.677002,
+        "name": "usb_pwr_therm",
+        "status": 1
+      },
+      {
+        "celsius": 41.891003,
+        "name": "quiet_therm",
+        "status": 0
+      },
+      {
+        "celsius": 42.9,
+        "name": "battery",
+        "status": 0
+      },
+      {
+        "celsius": 51.898003,
+        "name": "skin_therm2",
+        "status": 0
+      },
+      {
+        "celsius": 46.70325,
+        "name": "VIRTUAL-SKIN-CHARGE-WLC",
+        "status": 5
+      }
+    ]
+  },
+  "android_after_run": {
+    "captured_utc": "2026-11-09T15:29:49.905374+00:00",
+    "model": "Pixel 7a",
+    "android": "17",
+    "cpu_ticks_per_second": "100",
+    "battery_celsius": 43.0,
+    "thermal_status": 4,
+    "temperatures": [
+      {
+        "celsius": 59.000004,
+        "name": "G3D",
+        "status": 0
+      },
+      {
+        "celsius": 61.000004,
+        "name": "BIG",
+        "status": 0
+      },
+      {
+        "celsius": 62.000004,
+        "name": "LITTLE",
+        "status": 0
+      },
+      {
+        "celsius": 1.0,
+        "name": "VIRTUAL-USB-THROTTLING",
+        "status": 0
+      },
+      {
+        "celsius": 61.000004,
+        "name": "MID",
+        "status": 0
+      },
+      {
+        "celsius": 48.636,
+        "name": "neutral_therm",
+        "status": 0
+      },
+      {
+        "celsius": 45.87673,
+        "name": "cellular-emergency",
+        "status": 0
+      },
+      {
+        "celsius": 45.87673,
+        "name": "VIRTUAL-SKIN-CHARGE",
+        "status": 5
+      },
+      {
+        "celsius": 49.447002,
+        "name": "gnss_tcxo_therm",
+        "status": 0
+      },
+      {
+        "celsius": 45.87673,
+        "name": "VIRTUAL-SKIN-HINT",
+        "status": 4
+      },
+      {
+        "celsius": 45.87673,
+        "name": "VIRTUAL-SKIN",
+        "status": 4
+      },
+      {
+        "celsius": 60.000004,
+        "name": "TPU",
+        "status": 0
+      },
+      {
+        "celsius": 41.364002,
+        "name": "usb_pwr_therm2",
+        "status": 0
+      },
+      {
+        "celsius": 1.0,
+        "name": "VIRTUAL-USB-UI",
+        "status": 0
+      },
+      {
+        "celsius": 41.548,
+        "name": "disp_therm",
+        "status": 0
+      },
+      {
+        "celsius": 45.963,
+        "name": "skin_therm1",
+        "status": 1
+      },
+      {
+        "celsius": 40.654003,
+        "name": "usb_pwr_therm",
+        "status": 1
+      },
+      {
+        "celsius": 42.601,
+        "name": "quiet_therm",
+        "status": 0
+      },
+      {
+        "celsius": 43.000004,
+        "name": "battery",
+        "status": 0
+      },
+      {
+        "celsius": 52.612003,
+        "name": "skin_therm2",
+        "status": 0
+      },
+      {
+        "celsius": 47.144638,
+        "name": "VIRTUAL-SKIN-CHARGE-WLC",
+        "status": 5
+      }
+    ]
+  },
+  "flutter_version": "Flutter 3.50.0-1.0.pre-284 \u2022 channel master \u2022 https://github.com/flutter/flutter.git\nFramework \u2022 revision 666d2c4e83 (11 days ago) \u2022 2026-10-29 10:24:30 +0000\nEngine \u2022 hash 9bbca0aa0a9b4ef9de36ba7cf82d007b0468a85f (revision 666d2c4e83) (11 days ago) \u2022 2026-10-29 10:24:30.000Z\nTools \u2022 Dart 3.15.0 (build 3.15.0-95.0.dev) \u2022 DevTools 2.61.0\n"
+}
