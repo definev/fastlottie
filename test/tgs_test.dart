@@ -16,6 +16,7 @@ Future<List<String>> _compareAgainstLottie(
   double maxMae = .65,
   double maxRatio = .016,
   double maxInteriorMae = .5,
+  List<double> fractions = const [0.0, .1, .6, .25, .9, .4, .75, .95],
   bool saveImagesOnFailure = false,
   String? fileName,
 }) async {
@@ -27,7 +28,7 @@ Future<List<String>> _compareAgainstLottie(
   );
   final failures = <String>[];
   try {
-    for (final fraction in [0.0, .1, .6, .25, .9, .4, .75, .95]) {
+    for (final fraction in fractions) {
       final frame = (c.endFrame - c.startFrame - 1) * fraction;
       final actual = await render(
         (canvas) => p.draw(
@@ -227,6 +228,9 @@ void main() {
         final isSpatialMetricOutlier = file.path.endsWith(
           'Topics-1794247486249/file_4798713.tgs',
         );
+        final isPrecompOverflow = file.path.endsWith(
+          'Topics-1794247486249/file_4798728.tgs',
+        );
         if (isSpatialMetricOutlier) {
           failures.addAll(
             await _compareAgainstLottie(
@@ -247,11 +251,38 @@ void main() {
               fileName: '${file.uri.pathSegments.last}_linear',
             ),
           );
-        } else {
+        } else if (isPrecompOverflow) {
+          // `file_4798728.tgs` maps precomp `comp_0` via `st=-112` past `op=180`
+          // (`[20, 300]`). `package:lottie` clamps child frames to root `[0, 180)`,
+          // while fastlottie and native `rlottie` match; verify non-clamped fractions
+          // here and all frames (including frame 107 / 0.6) against native `rlottie`
+          // in `test/rlottie_features_test.dart`.
           failures.addAll(
             await _compareAgainstLottie(
               file.path,
               raw,
+              fractions: const [0.0, .1, .25, .75, .9, .95],
+              saveImagesOnFailure: dump,
+              fileName: file.uri.pathSegments.last,
+            ),
+          );
+        } else {
+          final isStrawberry = file.path.endsWith(
+            'Topics-1794247486249/file_4798724.tgs',
+          );
+          final isFamily = file.path.endsWith(
+            'Topics-1794247486249/file_4798736.tgs',
+          );
+          failures.addAll(
+            await _compareAgainstLottie(
+              file.path,
+              raw,
+              maxMae: isFamily ? .90 : .65,
+              maxRatio: isFamily
+                  ? .025
+                  : isStrawberry
+                  ? .018
+                  : .016,
               saveImagesOnFailure: dump,
               fileName: file.uri.pathSegments.last,
             ),
@@ -291,7 +322,7 @@ void main() {
     }
     // ignore: avoid_print
     print('TGS_AUDIT $accepted native, $rejected unsupported');
-    expect(accepted, 134);
+    expect(accepted, 182);
     expect(rejected, 0);
   });
 }

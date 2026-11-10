@@ -35,7 +35,7 @@ Example chỉ có fastlottie/lottie, không tự chuyển engine khi lỗi. Cove
 native**; expression tham chiếu content scale/opacity và Layer Control đã bổ sung.
 Chi tiết ở `no-fallback.md`. Raw LoD vẫn chạy animation khi cuộn.
 
-Các field metadata được allowlist; field mới không được biết cũng bị từ chối.
+Các field metadata được allowlist (`meta`, `cl`, root `fitz`, v.v.); field mới không được biết cũng bị từ chối.
 Đây là subset chủ đích; một file có các shape quen thuộc vẫn có thể bị từ chối
 vì modifier, expression, hoặc dữ liệu asset khác ở root.
 

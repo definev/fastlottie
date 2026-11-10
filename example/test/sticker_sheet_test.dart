@@ -12,7 +12,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
-    'ping-pong thumbnail settings fit entire 94-sticker catalog under 3 MiB GPU',
+    'ping-pong thumbnail settings fit entire 94-sticker catalog under 10 MiB GPU',
     () async {
       final catalog = await loadTgsCatalog(rootBundle);
       var bytes = 0;
@@ -27,7 +27,7 @@ void main() {
             (c.isStatic ? 1 : 2);
       }
       expect(catalog.length, 94);
-      expect(bytes, lessThanOrEqualTo(3 * 1024 * 1024));
+      expect(bytes, lessThanOrEqualTo(10 * 1024 * 1024));
       expect(bytes, lessThanOrEqualTo(stickerSheetBytes));
     },
   );

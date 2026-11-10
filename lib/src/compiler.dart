@@ -59,7 +59,7 @@ class _Compiler {
     check(
       json,
       r'$',
-      'v fr ip op w h nm ddd assets layers markers meta fonts chars slots tgs comps',
+      'v fr ip op w h nm ddd assets layers markers meta fonts chars slots tgs comps fitz',
     );
     zero(json, 'ddd', r'$');
     for (final key in ['fonts', 'chars', 'slots']) {
@@ -463,7 +463,7 @@ class _Compiler {
           sawTransform = true;
           transform = _transform(m, p);
         case 'gr':
-          check(m, p, 'ty nm mn ix hd it np cix bm');
+          check(m, p, 'ty nm mn ix hd it np cix bm cl');
           final group = _group(m['it'], '$p.it');
           if (!hidden) {
             sources.add(group);

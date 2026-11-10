@@ -5,9 +5,11 @@ import 'dart:typed_data';
 
 import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie_example/main.dart';
+import 'package:fastlottie_example/tgs/clock.dart';
 import 'package:fastlottie_example/tgs/cupertino_chat.dart';
 import 'package:fastlottie_example/tgs/network_server.dart';
 import 'package:fastlottie_example/tgs/network_store.dart';
+import 'package:fastlottie_example/tgs/sheet.dart';
 import 'package:fastlottie_example/tgs/store.dart';
 // Keep compatible with Flutter versions before the cupertino_ui split.
 // ignore: deprecated_member_use
@@ -44,9 +46,16 @@ void main() {
       final catalog = await fetchRemoteTgsCatalog(server.baseUri);
       expect(catalog.packs.length, 5);
       expect(catalog.stickers.length, 94);
-      expect(catalog.emojis.length, 40);
-      expect(catalog.shortcodeMap.length, 40);
-      expect(catalog.shortcodeMap.containsKey(':sparkles:'), isTrue);
+      expect(catalog.emojis.length, 88);
+      expect(catalog.shortcodeMap.length, 88);
+      expect(catalog.shortcodeMap.containsKey(':studio_microphone:'), isTrue);
+      expect(catalog.shortcodeMap.containsKey(':nail_polish:'), isTrue);
+      expect(catalog.shortcodeMap.containsKey(':writing_hand:'), isTrue);
+      expect(catalog.shortcodeMap.containsKey(':brain:'), isTrue);
+      expect(catalog.shortcodeMap.containsKey(':cat2:'), isTrue);
+      for (final emoji in catalog.emojis) {
+        expect(emoji.shortcode, matches(RegExp(r'^:[a-z0-9_]+:$')));
+      }
 
       final client = HttpClient();
       addTearDown(() => client.close(force: true));
@@ -58,7 +67,7 @@ void main() {
           jsonDecode(await utf8.decodeStream(healthResp)) as Map<String, dynamic>;
       expect(healthJson['ok'], isTrue);
       expect(healthJson['stickers'], 94);
-      expect(healthJson['emojis'], 40);
+      expect(healthJson['emojis'], 88);
 
       final firstUri = catalog.stickers.first.uri;
       final tgsReq = await client.getUrl(firstUri);
@@ -295,7 +304,7 @@ void main() {
       expect(find.byKey(const ValueKey('sticker-picker-panel')), findsOneWidget);
       expect(find.byKey(const ValueKey('sticker-picker-grid')), findsOneWidget);
 
-      // Switch to Emoji tab, tap first emoji to insert `:sparkles:`, type message, send.
+      // Switch to Emoji tab, tap first emoji to insert 1-char PUA token with inline animated sticker.
       await tester.tap(find.byKey(const ValueKey('picker-tab-__emoji__')));
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey('picker-emoji-0')));
@@ -304,13 +313,39 @@ void main() {
       final field = tester.widget<CupertinoTextField>(
         find.byKey(const ValueKey('chat-composer-field')),
       );
-      expect(field.controller!.text, contains(':sparkles:'));
+      final composerCtrl = field.controller! as EmojiComposerController;
+      // Exactly 1 UTF-16 code unit in composer text (BMP PUA base 0xE000).
+      expect(composerCtrl.text.length, 1);
+      expect(composerCtrl.text.codeUnitAt(0), EmojiComposerController.puaBase);
+      expect(composerCtrl.toShortcodeText(), contains(':studio_microphone:'));
 
+      // The animated InlineNetworkSticker is mounted directly inside the CupertinoTextField!
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('chat-composer-field')),
+          matching: find.byType(InlineNetworkSticker),
+        ),
+        findsOneWidget,
+      );
+
+      // Typing a typed shortcode (e.g. `:nail_polish:`) automatically collapses into
+      // a second inline animated sticker in the composer!
       await tester.enterText(
         find.byKey(const ValueKey('chat-composer-field')),
-        '${field.controller!.text}Cupertino Network!',
+        '${composerCtrl.text} :nail_polish: Cupertino Network!',
       );
       await tester.pump();
+
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('chat-composer-field')),
+          matching: find.byType(InlineNetworkSticker),
+        ),
+        findsNWidgets(2),
+      );
+      expect(composerCtrl.toShortcodeText(), contains(':studio_microphone:'));
+      expect(composerCtrl.toShortcodeText(), contains(':nail_polish:'));
+
       await tester.tap(find.byKey(const ValueKey('composer-send-button')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 260));
@@ -408,5 +443,452 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 50)),
     );
     await tester.pump();
+  });
+
+  testWidgets(
+    'InlineNetworkSticker locks raster keySize across header/bubble/grid sizes without thrashing',
+    (tester) async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _PassthroughHttpOverrides();
+      addTearDown(() => HttpOverrides.global = previous);
+
+      tester.view.physicalSize = const Size(412 * 2.625, 915 * 2.625);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      late LocalTgsServer server;
+      await tester.runAsync(() async {
+        server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
+      });
+      addTearDown(() async {
+        await tester.runAsync(() => server.close(force: true));
+      });
+
+      final store = NetworkTgsStore(framePaced: false);
+      final rasterCache = FastLottieRasterCache.pingPong(
+        maximumBytes: 16 * 1024 * 1024,
+        maximumFrameRate: 30,
+      );
+      final item = server.catalog.emojis.first;
+      final sheet = StickerSheet(
+        assets: [item.urlString],
+        pixelSize: 96,
+        store: store,
+        rasterCache: rasterCache,
+        frameRate: 30,
+      );
+      final clock = StickerClock()
+        ..configure(playing: true, reducedMotion: false, maximumFrameRate: 30);
+
+      addTearDown(() {
+        clock.dispose();
+        sheet.dispose();
+        rasterCache.dispose();
+        store.dispose();
+      });
+
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: CupertinoPageScaffold(
+            child: Column(
+              children: [
+                InlineNetworkSticker(
+                  item: item,
+                  sheet: sheet,
+                  clock: clock,
+                  store: store,
+                  renderer: ChatRendererMode.fastlottie,
+                  still: false,
+                  size: 24,
+                ),
+                InlineNetworkSticker(
+                  item: item,
+                  sheet: sheet,
+                  clock: clock,
+                  store: store,
+                  renderer: ChatRendererMode.fastlottie,
+                  still: false,
+                  size: 23.2,
+                ),
+                InlineNetworkSticker(
+                  item: item,
+                  sheet: sheet,
+                  clock: clock,
+                  store: store,
+                  renderer: ChatRendererMode.fastlottie,
+                  still: false,
+                  size: 80,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      for (var i = 0; i < 80 && rasterCache.renderedFrames == 0; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 15)),
+        );
+        await tester.pump(const Duration(milliseconds: 33));
+      }
+
+      expect(sheet.activePlayers, 1);
+      expect(rasterCache.entries, 1);
+      expect(rasterCache.debugAdmissionAttempts, 1);
+      expect(rasterCache.renderedFrames, greaterThan(0));
+
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  group('EmojiComposerController & EmojiShortcodeTextInputFormatter', () {
+    test(
+      '1-character UTF-16 code unit rule, shortcode roundtrip, and single-tap backspace',
+      () async {
+        final previous = HttpOverrides.current;
+        HttpOverrides.global = _PassthroughHttpOverrides();
+        addTearDown(() => HttpOverrides.global = previous);
+
+        final server = await LocalTgsServer.startFromDirectoryPath(
+          'assets/tgs',
+        );
+        addTearDown(() => server.close(force: true));
+
+        final catalog = server.catalog;
+        final store = NetworkTgsStore(framePaced: false);
+        final rasterCache = FastLottieRasterCache.pingPong(
+          maximumBytes: 8 * 1024 * 1024,
+        );
+        final sheet = StickerSheet(
+          assets: [for (final e in catalog.emojis) e.urlString],
+          pixelSize: 96,
+          store: store,
+          rasterCache: rasterCache,
+          frameRate: 30,
+        );
+        final clock = StickerClock()
+          ..configure(playing: true, reducedMotion: false, maximumFrameRate: 30);
+        addTearDown(() {
+          clock.dispose();
+          sheet.dispose();
+          rasterCache.dispose();
+          store.dispose();
+        });
+
+        final controller = EmojiComposerController(
+          catalog: catalog,
+          sheet: sheet,
+          clock: clock,
+          store: store,
+        );
+        addTearDown(controller.dispose);
+
+        // Verify charForEmoji maps each emoji deterministically to exactly 1 UTF-16 code unit
+        expect(catalog.emojis.length, 88);
+        for (var i = 0; i < catalog.emojis.length; i++) {
+          final char = controller.charForEmoji(catalog.emojis[i])!;
+          expect(char.length, 1);
+          expect(char.codeUnitAt(0), EmojiComposerController.puaBase + i);
+        }
+
+        // Roundtrip test: text with mixed shortcodes -> PUA -> shortcode
+        const original = 'Xin chào :studio_microphone: và :nail_polish: nhé!';
+        final decoded = controller.decodeShortcodes(original);
+        expect(decoded.length, 'Xin chào \uE000 và \uE001 nhé!'.length);
+        expect(controller.toShortcodeText(decoded), original);
+
+        // Verify single-tap backspace behavior:
+        // When text is 'Hi \uE000', cursor at index 4 (right after emoji).
+        controller.value = TextEditingValue(
+          text: 'Hi ${String.fromCharCode(EmojiComposerController.puaBase)}',
+          selection: const TextSelection.collapsed(offset: 4),
+        );
+        expect(controller.text.length, 4);
+
+        // Simulate Backspace: delete 1 code unit before caret
+        final textBefore = controller.value.selection.textBefore(
+          controller.text,
+        );
+        final textAfter = controller.value.selection.textAfter(controller.text);
+        final backspaced =
+            textBefore.substring(0, textBefore.length - 1) + textAfter;
+        controller.value = TextEditingValue(
+          text: backspaced,
+          selection: TextSelection.collapsed(offset: textBefore.length - 1),
+        );
+        expect(controller.text, 'Hi ');
+        expect(controller.text.length, 3);
+        expect(
+          controller.text.contains(
+            String.fromCharCode(EmojiComposerController.puaBase),
+          ),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'EmojiShortcodeTextInputFormatter auto-collapses typed :shortcode: on closing colon',
+      () {
+        final catalog = TgsRemoteCatalog(
+          baseUri: Uri.parse('http://127.0.0.1:8080/'),
+          packs: [],
+          stickers: [],
+          emojis: [
+            TgsRemoteItem(
+              id: 'e0',
+              packId: 'pack_emoji',
+              packTitle: 'Topics',
+              fileName: '0.tgs',
+              kind: TgsItemKind.emoji,
+              relativePath: 'tgs/0.tgs',
+              label: 'Studio Microphone',
+              bytes: 100,
+              uri: Uri.parse('http://127.0.0.1:8080/tgs/0.tgs'),
+              shortcode: ':studio_microphone:',
+            ),
+            TgsRemoteItem(
+              id: 'e1',
+              packId: 'pack_emoji',
+              packTitle: 'Topics',
+              fileName: '1.tgs',
+              kind: TgsItemKind.emoji,
+              relativePath: 'tgs/1.tgs',
+              label: 'High Voltage',
+              bytes: 100,
+              uri: Uri.parse('http://127.0.0.1:8080/tgs/1.tgs'),
+              shortcode: ':zap:',
+            ),
+          ],
+        );
+
+        final formatter = EmojiShortcodeTextInputFormatter(() => catalog);
+
+        // Typing normal text without closing colon does not change text
+        final v1 = formatter.formatEditUpdate(
+          const TextEditingValue(
+            text: 'Hello :studi',
+            selection: TextSelection.collapsed(offset: 12),
+          ),
+          const TextEditingValue(
+            text: 'Hello :studio',
+            selection: TextSelection.collapsed(offset: 13),
+          ),
+        );
+        expect(v1.text, 'Hello :studio');
+
+        // Typing closing colon finishes shortcode -> converts to 1-char PUA token!
+        final v2 = formatter.formatEditUpdate(
+          const TextEditingValue(
+            text: 'Hello :studio_microphone',
+            selection: TextSelection.collapsed(offset: 24),
+          ),
+          const TextEditingValue(
+            text: 'Hello :studio_microphone:',
+            selection: TextSelection.collapsed(offset: 25),
+          ),
+        );
+        expect(v2.text, 'Hello \uE000');
+        expect(v2.text.length, 7); // 'Hello ' (6) + '\uE000' (1)
+        expect(
+          v2.selection.baseOffset,
+          7,
+        ); // Caret is positioned cleanly right after the emoji
+
+        // Unknown shortcode is not collapsed
+        final v3 = formatter.formatEditUpdate(
+          const TextEditingValue(
+            text: ':not_real',
+            selection: TextSelection.collapsed(offset: 9),
+          ),
+          const TextEditingValue(
+            text: ':not_real:',
+            selection: TextSelection.collapsed(offset: 10),
+          ),
+        );
+        expect(v3.text, ':not_real:');
+
+        // Active IME composing range is respected and untouched
+        final v4 = formatter.formatEditUpdate(
+          const TextEditingValue(
+            text: 'đang gõ',
+            composing: TextRange(start: 5, end: 7),
+          ),
+          const TextEditingValue(
+            text: 'đang gõ :zap:',
+            composing: TextRange(start: 5, end: 13),
+          ),
+        );
+        expect(v4.text, 'đang gõ :zap:');
+      },
+    );
+
+    testWidgets(
+      'EmojiComposerController.buildTextSpan emits WidgetSpan with InlineNetworkSticker',
+      (tester) async {
+        final previous = HttpOverrides.current;
+        HttpOverrides.global = _PassthroughHttpOverrides();
+        addTearDown(() => HttpOverrides.global = previous);
+
+        late LocalTgsServer server;
+        await tester.runAsync(() async {
+          server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
+        });
+        addTearDown(() async {
+          await tester.runAsync(() => server.close(force: true));
+        });
+
+        final catalog = server.catalog;
+        final store = NetworkTgsStore(framePaced: false);
+        final rasterCache = FastLottieRasterCache.pingPong(
+          maximumBytes: 16 * 1024 * 1024,
+          maximumFrameRate: 30,
+        );
+        final sheet = StickerSheet(
+          assets: [for (final e in catalog.emojis) e.urlString],
+          pixelSize: 96,
+          store: store,
+          rasterCache: rasterCache,
+          frameRate: 30,
+        );
+        final clock = StickerClock()
+          ..configure(playing: true, reducedMotion: false, maximumFrameRate: 30);
+
+        final controller = EmojiComposerController(
+          catalog: catalog,
+          sheet: sheet,
+          clock: clock,
+          store: store,
+        );
+        addTearDown(() {
+          controller.dispose();
+          clock.dispose();
+          sheet.dispose();
+          rasterCache.dispose();
+          store.dispose();
+        });
+
+        controller.text = 'A\uE000B';
+
+        late BuildContext capturedContext;
+        await tester.pumpWidget(
+          CupertinoApp(
+            home: Builder(
+              builder: (ctx) {
+                capturedContext = ctx;
+                return const SizedBox();
+              },
+            ),
+          ),
+        );
+
+        final span = controller.buildTextSpan(
+          context: capturedContext,
+          withComposing: false,
+        );
+
+        expect(span.children, isNotNull);
+        expect(span.children!.length, 3);
+        expect((span.children![0] as TextSpan).text, 'A');
+        expect(span.children![1], isA<WidgetSpan>());
+        final widgetSpan = span.children![1] as WidgetSpan;
+        expect(widgetSpan.alignment, PlaceholderAlignment.middle);
+        expect(widgetSpan.child, isA<Padding>());
+        final padding = widgetSpan.child as Padding;
+        expect(padding.child, isA<InlineNetworkSticker>());
+        final sticker = padding.child as InlineNetworkSticker;
+        expect(sticker.size, 21);
+        expect(sticker.repaintBoundary, isTrue);
+        expect((span.children![2] as TextSpan).text, 'B');
+      },
+    );
+
+    testWidgets(
+      'Reduce Motion freezes clock & hero animations while still loading HTTP models and rendering static frame 0',
+      (tester) async {
+        final previous = HttpOverrides.current;
+        HttpOverrides.global = _PassthroughHttpOverrides();
+        addTearDown(() => HttpOverrides.global = previous);
+
+        late LocalTgsServer server;
+        await tester.runAsync(() async {
+          server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
+        });
+        addTearDown(() async {
+          await tester.runAsync(() => server.close(force: true));
+        });
+
+        await tester.pumpWidget(
+          CupertinoApp(
+            builder: (ctx, child) => MediaQuery(
+              data: MediaQuery.of(ctx).copyWith(disableAnimations: true),
+              child: child!,
+            ),
+            home: CupertinoChatScreen(externalServerUri: server.baseUri),
+          ),
+        );
+
+        for (var i = 0;
+            i < 80 &&
+                find
+                    .byKey(const ValueKey('cupertino-message-list'))
+                    .evaluate()
+                    .isEmpty;
+            i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+        }
+
+        // Wait for seeded hero sticker to finish HTTP download even under Reduce Motion.
+        for (var i = 0; i < 80; i++) {
+          final heroes = tester.widgetList<FastLottie>(
+            find.descendant(
+              of: find.byType(HeroNetworkSticker),
+              matching: find.byType(FastLottie),
+            ),
+          );
+          if (heroes.isNotEmpty) break;
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+        }
+
+        final heroFast = tester.widget<FastLottie>(
+          find
+              .descendant(
+                of: find.byType(HeroNetworkSticker),
+                matching: find.byType(FastLottie),
+              )
+              .first,
+        );
+        expect(heroFast.animate, isFalse);
+
+        // Insert an emoji into the composer under Reduce Motion; it must still
+        // mount InlineNetworkSticker with `still: true`.
+        await tester.enterText(
+          find.byKey(const ValueKey('chat-composer-field')),
+          'Static :studio_microphone:',
+        );
+        await tester.pump();
+
+        final inlineInComposer = tester.widget<InlineNetworkSticker>(
+          find.descendant(
+            of: find.byKey(const ValueKey('chat-composer-field')),
+            matching: find.byType(InlineNetworkSticker),
+          ),
+        );
+        expect(inlineInComposer.still, isTrue);
+
+        await tester.pumpWidget(const SizedBox());
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+      },
+    );
   });
 }

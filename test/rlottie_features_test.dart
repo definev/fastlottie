@@ -291,4 +291,60 @@ void main() {
         ? 'Set RLOTTIE_RENDERER to the locally built oracle.'
         : false,
   );
+
+  test(
+    'native rlottie oracle: precomp overflow past parent duration (Topics notes 728)',
+    () async {
+      final raw = decodeLottieBytes(
+        File(
+          'example/assets/tgs/Topics-1794247486249/file_4798728.tgs',
+        ).readAsBytesSync(),
+      );
+      final directory = Directory.systemTemp.createTempSync(
+        'fastlottie-notes-oracle-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final input = File('${directory.path}/notes.json')..writeAsBytesSync(raw);
+      final output = File('${directory.path}/output.rgba');
+      final comp = FastLottieComposition.fromBytes(raw);
+      final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
+      addTearDown(player.dispose);
+      final span = comp.endFrame - comp.startFrame;
+      for (final n in [0, 18, 45, 72, 107, 134, 161, 179]) {
+        final process = await Process.run(oracle!, [
+          input.path,
+          '$n',
+          '256',
+          '256',
+          output.path,
+        ]);
+        expect(process.exitCode, 0, reason: '${process.stderr}');
+        final expected = output.readAsBytesSync();
+        final actual = await render(
+          (c) => player.draw(
+            c,
+            const ui.Rect.fromLTWH(0, 0, 256, 256),
+            n / span,
+            useFrameRate: false,
+          ),
+        );
+        var error = 0, bad = 0;
+        for (var i = 0; i < actual.length; i++) {
+          final delta = (actual[i] - expected[i]).abs();
+          error += delta;
+          if (delta > 12) bad++;
+        }
+        final mae = error / actual.length;
+        final ratio = bad / actual.length;
+        // Composite RLE coverage rounding across the 18-layer 3D note mattes gives
+        // ~1.3 MAE between native rlottie and Skia/Impeller (already <0.65 vs lottie
+        // outside the child-duration overflow region around frame 107).
+        expect(mae, lessThan(2.0), reason: 'Notes frame $n MAE=$mae');
+        expect(ratio, lessThan(.035), reason: 'Notes frame $n bad=$ratio');
+      }
+    },
+    skip: oracle == null
+        ? 'Set RLOTTIE_RENDERER to the locally built oracle.'
+        : false,
+  );
 }

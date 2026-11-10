@@ -298,7 +298,7 @@ void main() {
         )
         .map(File.new)
         .toList();
-    expect(files.length, 134);
+    expect(files.length, 182);
     var native = 0, fallback = 0;
     for (final file in files) {
       final parsed = await decodeTgs(file.readAsBytesSync(), false);
@@ -319,7 +319,7 @@ void main() {
       image.dispose();
       picture.dispose();
     }
-    expect(native, 134);
+    expect(native, 182);
     expect(fallback, 0);
   });
   test(

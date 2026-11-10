@@ -207,13 +207,12 @@ class LocalTgsServer {
         final (key, fileName) = entries[i];
         final relativePath = '/tgs/$packId/$fileName';
         final size = await sizeForPath(key);
+        final meta = isEmoji ? topicEmojiMetadataByFile[fileName] : null;
         final shortcode = isEmoji
-            ? (i < defaultEmojiShortcodes.length
-                  ? defaultEmojiShortcodes[i]
-                  : ':topic_${i + 1}:')
+            ? (meta?.shortcode ?? ':topic_${i + 1}:')
             : null;
         final label = isEmoji
-            ? (shortcode?.replaceAll(':', '') ?? 'emoji_${i + 1}')
+            ? (meta?.label ?? shortcode!.replaceAll(':', ''))
             : '$packTitle #${i + 1}';
         final item = TgsRemoteItem(
           id: '$packId/$fileName',

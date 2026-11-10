@@ -6,6 +6,7 @@ import 'package:fastlottie/fastlottie.dart';
 // ignore: deprecated_member_use
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
 
 import 'cache_dir.dart';
@@ -58,6 +59,285 @@ class ChatMessage {
           reloadEpoch: nextEpoch,
         )
       : this;
+}
+
+/// A Cupertino-ready [TextEditingController] that displays animated TGS emojis
+/// inline inside [CupertinoTextField] using single-character UTF-16 BMP tokens
+/// (`U+E000 + emojiIndex`) paired with [WidgetSpan].
+///
+/// Because each custom emoji occupies exactly ONE UTF-16 code unit,
+/// `value.text.length` strictly matches `RenderEditable`'s `plainText.length`,
+/// guaranteeing correct caret navigation, drag selection, and single-tap backspace.
+class EmojiComposerController extends TextEditingController {
+  EmojiComposerController({
+    super.text,
+    this.catalog,
+    this.sheet,
+    this.clock,
+    this.store,
+    this.renderer = ChatRendererMode.fastlottie,
+    this.still = false,
+    this.emojiSize = 21,
+  });
+
+  /// Base code point in the Unicode Basic Multilingual Plane (BMP) Private Use Area (PUA).
+  static const int puaBase = 0xE000;
+
+  TgsRemoteCatalog? catalog;
+  StickerSheet? sheet;
+  StickerClock? clock;
+  TgsStoreBase? store;
+  ChatRendererMode renderer;
+  bool still;
+  double emojiSize;
+
+  /// Returns the 1-character UTF-16 PUA string for the given [item], or null if
+  /// the item is not found in [catalog.emojis].
+  String? charForEmoji(TgsRemoteItem item) {
+    final cat = catalog;
+    if (cat == null) return null;
+    final idx = cat.emojis.indexOf(item);
+    if (idx < 0) return null;
+    return String.fromCharCode(puaBase + idx);
+  }
+
+  /// Converts any PUA emoji tokens in [sourceText] (or [text]) into human-readable
+  /// shortcodes (e.g. `\uE000` -> `:studio_microphone:`).
+  String toShortcodeText([String? sourceText]) {
+    final raw = sourceText ?? text;
+    final cat = catalog;
+    if (cat == null || cat.emojis.isEmpty) return raw;
+    final emojis = cat.emojis;
+    final buf = StringBuffer();
+    for (var i = 0; i < raw.length; i++) {
+      final code = raw.codeUnitAt(i);
+      final idx = code - puaBase;
+      if (idx >= 0 && idx < emojis.length) {
+        final emoji = emojis[idx];
+        buf.write(emoji.shortcode ?? String.fromCharCode(code));
+      } else {
+        buf.writeCharCode(code);
+      }
+    }
+    return buf.toString();
+  }
+
+  /// Converts human-readable shortcodes (e.g. `:studio_microphone:`) in [sourceText]
+  /// into single-character PUA tokens (`\uE000`).
+  String decodeShortcodes(String sourceText) {
+    final cat = catalog;
+    if (cat == null || cat.shortcodeMap.isEmpty) return sourceText;
+    final shortcodeMap = cat.shortcodeMap;
+    final emojis = cat.emojis;
+    return sourceText.replaceAllMapped(RegExp(r':[a-z0-9_]+:'), (match) {
+      final token = match.group(0)!;
+      final item = shortcodeMap[token];
+      if (item != null) {
+        final idx = emojis.indexOf(item);
+        if (idx >= 0) {
+          return String.fromCharCode(puaBase + idx);
+        }
+      }
+      return token;
+    });
+  }
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    assert(!value.composing.isValid || !withComposing || value.isComposingRangeValid);
+    final hasComposing = withComposing && value.isComposingRangeValid;
+    final composingStyle = hasComposing
+        ? style?.merge(const TextStyle(decoration: TextDecoration.underline))
+        : null;
+
+    final rawText = value.text;
+    if (rawText.isEmpty) {
+      return TextSpan(style: style, text: '');
+    }
+
+    final cat = catalog;
+    final sh = sheet;
+    final clk = clock;
+    final st = store;
+
+    // Fallback if sheets or catalog aren't loaded yet.
+    if (cat == null || sh == null || clk == null || st == null || cat.emojis.isEmpty) {
+      if (!hasComposing) {
+        return TextSpan(style: style, text: rawText);
+      }
+      return TextSpan(
+        style: style,
+        children: [
+          TextSpan(text: value.composing.textBefore(rawText)),
+          TextSpan(
+            style: composingStyle,
+            text: value.composing.textInside(rawText),
+          ),
+          TextSpan(text: value.composing.textAfter(rawText)),
+        ],
+      );
+    }
+
+    final emojis = cat.emojis;
+    final emojiCount = emojis.length;
+
+    List<InlineSpan> buildSpanList(String segment, TextStyle? segStyle) {
+      if (segment.isEmpty) return const [];
+      final spans = <InlineSpan>[];
+      final textBuf = StringBuffer();
+
+      void flushText() {
+        if (textBuf.isNotEmpty) {
+          spans.add(TextSpan(text: textBuf.toString(), style: segStyle));
+          textBuf.clear();
+        }
+      }
+
+      for (var i = 0; i < segment.length; i++) {
+        final code = segment.codeUnitAt(i);
+        final idx = code - puaBase;
+        if (idx >= 0 && idx < emojiCount) {
+          flushText();
+          final item = emojis[idx];
+          spans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              baseline: TextBaseline.alphabetic,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                child: InlineNetworkSticker(
+                  item: item,
+                  sheet: sh,
+                  clock: clk,
+                  store: st,
+                  renderer: renderer,
+                  still: still,
+                  size: emojiSize,
+                  placeholderColor: const Color(0xff232636),
+                  repaintBoundary: true,
+                ),
+              ),
+            ),
+          );
+        } else {
+          textBuf.writeCharCode(code);
+        }
+      }
+      flushText();
+      return spans;
+    }
+
+    if (!hasComposing) {
+      final children = buildSpanList(rawText, style);
+      return TextSpan(style: style, children: children);
+    }
+
+    final before = value.composing.textBefore(rawText);
+    final inside = value.composing.textInside(rawText);
+    final after = value.composing.textAfter(rawText);
+
+    final children = <InlineSpan>[
+      ...buildSpanList(before, style),
+      ...buildSpanList(inside, composingStyle),
+      ...buildSpanList(after, style),
+    ];
+
+    return TextSpan(style: style, children: children);
+  }
+}
+
+/// Automatically collapses typed `:shortcode:` tokens (e.g. `:studio_microphone:`)
+/// into their corresponding 1-character UTF-16 PUA emoji token as soon as the
+/// closing colon is typed, adjusting selection offsets accurately.
+class EmojiShortcodeTextInputFormatter extends TextInputFormatter {
+  EmojiShortcodeTextInputFormatter(this.getCatalog);
+
+  final TgsRemoteCatalog? Function() getCatalog;
+
+  static final RegExp _shortcodeRegex = RegExp(r':[a-z0-9_]+:');
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.isComposingRangeValid && !newValue.composing.isCollapsed) {
+      return newValue;
+    }
+    final text = newValue.text;
+    if (!text.contains(':')) {
+      return newValue;
+    }
+    final catalog = getCatalog();
+    if (catalog == null || catalog.shortcodeMap.isEmpty) {
+      return newValue;
+    }
+
+    final matches = _shortcodeRegex.allMatches(text).toList();
+    if (matches.isEmpty) {
+      return newValue;
+    }
+
+    bool hasMatch = false;
+    for (final m in matches) {
+      if (catalog.shortcodeMap.containsKey(m.group(0)!)) {
+        hasMatch = true;
+        break;
+      }
+    }
+    if (!hasMatch) {
+      return newValue;
+    }
+
+    final buffer = StringBuffer();
+    var cursor = 0;
+    var selectionStart = newValue.selection.start;
+    var selectionEnd = newValue.selection.end;
+
+    for (final match in matches) {
+      final token = match.group(0)!;
+      final item = catalog.shortcodeMap[token];
+      if (item == null) continue;
+      final idx = catalog.emojis.indexOf(item);
+      if (idx < 0) continue;
+
+      buffer.write(text.substring(cursor, match.start));
+
+      final puaChar = String.fromCharCode(EmojiComposerController.puaBase + idx);
+      buffer.write(puaChar);
+
+      final delta = 1 - (match.end - match.start);
+      if (selectionStart >= match.end) {
+        selectionStart += delta;
+      } else if (selectionStart > match.start) {
+        selectionStart = buffer.length;
+      }
+      if (selectionEnd >= match.end) {
+        selectionEnd += delta;
+      } else if (selectionEnd > match.start) {
+        selectionEnd = buffer.length;
+      }
+
+      cursor = match.end;
+    }
+
+    if (cursor < text.length) {
+      buffer.write(text.substring(cursor));
+    }
+
+    final transformedText = buffer.toString();
+    return TextEditingValue(
+      text: transformedText,
+      selection: TextSelection(
+        baseOffset: selectionStart.clamp(0, transformedText.length),
+        extentOffset: selectionEnd.clamp(0, transformedText.length),
+      ),
+    );
+  }
 }
 
 class _Palette {
@@ -183,7 +463,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         decodeConcurrency: 2,
         batchSize: 2,
         framePaced: true,
-        maximumEntries: 180,
+        maximumEntries: 256,
       );
 
   final FastLottieRasterCache _rasterCache = FastLottieRasterCache.pingPong(
@@ -199,7 +479,10 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   final ScrollController _messageScroll = ScrollController();
   final ScrollController _pickerScroll = ScrollController();
-  final TextEditingController _composerController = TextEditingController();
+  late final EmojiComposerController _composerController =
+      EmojiComposerController();
+  late final EmojiShortcodeTextInputFormatter _shortcodeFormatter =
+      EmojiShortcodeTextInputFormatter(() => _catalog);
   final FocusNode _composerFocus = FocusNode();
   final ValueNotifier<bool> _showScrollBottom = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _hasDraft = ValueNotifier<bool>(false);
@@ -213,6 +496,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   ChatRendererMode _renderer = ChatRendererMode.fastlottie;
   late bool _isDark = widget.isDark;
+  bool? _reducedMotionOverride;
   bool _foreground = true;
   bool _drawerOpen = false;
   int _selectedTabIndex = 0; // 0 = All, 1..N = Sticker Packs, last = Emoji
@@ -221,7 +505,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   final List<ChatMessage> _messages = <ChatMessage>[];
 
   _Palette get _palette => _isDark ? _Palette.dark : _Palette.light;
-  bool get _reduced => MediaQuery.disableAnimationsOf(context);
+  bool get _reduced =>
+      _reducedMotionOverride ?? MediaQuery.disableAnimationsOf(context);
 
   @override
   void initState() {
@@ -300,11 +585,27 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
     _emojiSheet = StickerSheet(
       assets: [for (final item in catalog.emojis) item.urlString],
-      pixelSize: 72,
+      pixelSize: 96,
       store: _store,
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
     )..constrained = _pressure.constrained;
+
+    _composerController.catalog = catalog;
+    _composerController.sheet = _emojiSheet;
+    _composerController.clock = _clock;
+    _composerController.store = _store;
+    _composerController.renderer = _renderer;
+    _composerController.still = _reduced || _pressure.constrained;
+    if (_composerController.text.contains(':')) {
+      final decoded = _composerController.decodeShortcodes(_composerController.text);
+      if (decoded != _composerController.text) {
+        _composerController.value = TextEditingValue(
+          text: decoded,
+          selection: TextSelection.collapsed(offset: decoded.length),
+        );
+      }
+    }
 
     if (_messages.isEmpty) {
       _seedInitialConversation(catalog);
@@ -319,47 +620,53 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   void _seedInitialConversation(TgsRemoteCatalog catalog) {
     final now = DateTime.now();
-    String sc(int idx) => idx < catalog.emojis.length
+    String sc(String code, [int fallbackIdx = 0]) =>
+        catalog.shortcodeMap[code]?.shortcode ??
+        (fallbackIdx < catalog.emojis.length
+            ? (catalog.emojis[fallbackIdx].shortcode ?? '')
+            : '');
+    String byIdx(int idx) => idx < catalog.emojis.length
         ? (catalog.emojis[idx].shortcode ?? '')
         : '';
 
     final earlierSamples = <(bool outgoing, String text)>[
       (
         false,
-        '${sc(0)} Chào mừng đến với màn hình chat TGS qua HTTP local server!',
+        '${sc(':tada:', 0)} Chào mừng đến với màn hình chat TGS qua HTTP local server!',
       ),
       (
         true,
-        'Mọi file `.tgs` (cả emoji trong tin nhắn ${sc(1)} ${sc(2)} và bộ sticker) đều được tải qua mạng từ local HTTP server.',
+        'Mọi file `.tgs` (cả 88 emoji trong Topics pack ${sc(':zap:', 1)} ${sc(':fire:', 2)} và bộ sticker) đều được tải qua mạng từ local HTTP server.',
       ),
       (
         false,
-        'Khi cuộn nhanh ở khay sticker: HTTP queue (tối đa 6 luồng) tự abort socket những sticker vừa cuộn khỏi màn hình ${sc(7)} và giữ giải mã vector tách biệt trên Isolate.',
+        'Khi cuộn nhanh ở khay sticker: HTTP queue (tối đa 6 luồng) tự abort socket những sticker vừa cuộn khỏi màn hình ${sc(':iphone:', 7)} và giữ giải mã vector tách biệt trên Isolate.',
       ),
       (
         true,
-        'Thumbnail ở grid & emoji nội tuyến ${sc(4)} ${sc(37)} chạy qua Ping-Pong RLE + LZ4 `.flcache` ở 30 FPS.',
+        'Thumbnail ở grid & emoji nội tuyến ${sc(':bulb:', 4)} ${sc(':brain:', 37)} chạy qua Ping-Pong RLE + LZ4 `.flcache` ở 30 FPS.',
       ),
       (
         false,
-        'Còn sticker gửi thẳng vào khung chat sẽ nhảy hàng đợi ưu tiên và render bằng Vector Impeller trực tiếp, không đánh đổi độ nét hay FPS ${sc(12)}',
+        'Còn sticker gửi thẳng vào khung chat sẽ nhảy hàng đợi ưu tiên và render bằng Vector Impeller trực tiếp, không đánh đổi độ nét hay FPS ${sc(':trophy:', 12)}',
       ),
     ];
 
     // Older messages above so the user can scroll up cleanly through chat history.
     const fillerTopics = <String>[
-      'HTTP GET /catalog trả về 5 bộ pack và 40 emoji động.',
+      'HTTP GET /catalog trả về 5 bộ pack và 88 Topics emoji động.',
       'ETag + Cache-Control + URL `.tgsbin` disk cache giúp lần mở lại 0ms mạng.',
       'Trong menu góc phải bạn có thể giả lập mạng chậm 80ms / 220ms để quan sát loading placeholder.',
-      'Nhấn giữ bất kỳ sticker nào trong khay để xem trước kích thước lớn.',
+      'Nhấn giữ bất kỳ sticker hoặc emoji nào trong khay để xem trước kích thước lớn.',
       'Nhấn vào sticker đã gửi trong khung chat để replay hiệu ứng.',
       'Toàn bộ UI được dựng hoàn toàn bằng Cupertino (`package:flutter/cupertino.dart`).',
     ];
 
+    final topicCount = math.max(1, catalog.emojis.length);
     for (var i = 0; i < 16; i++) {
       final t = now.subtract(Duration(minutes: 30 - i));
-      final emojiA = sc(i % math.max(1, catalog.emojis.length));
-      final emojiB = sc((i + 5) % math.max(1, catalog.emojis.length));
+      final emojiA = byIdx((i * 5) % topicCount);
+      final emojiB = byIdx((40 + i * 3) % topicCount);
       _messages.add(
         ChatMessage.text(
           id: 'seed_${_messageSeq++}',
@@ -400,7 +707,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       ChatMessage.text(
         id: 'seed_welcome_${_messageSeq++}',
         text:
-            '${sc(5)} Thử gõ tin nhắn kèm emoji từ tab Emoji, hoặc chạm nút ${sc(16)} bên dưới để mở khay sticker và gửi thử ngay nhé! ${sc(3)}',
+            '${sc(':studio_microphone:', 0)} Thử gõ tin nhắn kèm 88 emoji từ tab Emoji (${sc(':strawberry:', 40)} ${sc(':pizza:', 70)} ${sc(':brain:', 80)} ${sc(':cat2:', 87)}), hoặc chạm nút smiley bên dưới để mở khay sticker và gửi thử ngay nhé! ${sc(':star:', 3)}',
         isOutgoing: true,
         timestamp: now.subtract(const Duration(minutes: 1)),
       ),
@@ -442,19 +749,33 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   void _syncPlayback() {
     final active = _foreground && TickerMode.valuesOf(context).enabled;
-    final fastEnabled =
+    final sheetEnabled =
         active &&
         _renderer == ChatRendererMode.fastlottie &&
-        !_reduced &&
         !_pressure.constrained;
+    final fastEnabled = sheetEnabled && !_reduced;
     _clock.configure(
       playing: active,
       reducedMotion: _reduced,
       maximumFrameRate: stickerThumbnailFrameRate,
     );
-    _stickerSheet?.active = fastEnabled;
-    _emojiSheet?.active = fastEnabled;
+    _stickerSheet?.active = sheetEnabled;
+    _emojiSheet?.active = sheetEnabled;
     _rasterCache.enabled = fastEnabled;
+    final nextStill = _reduced || _pressure.constrained;
+    final composerVisualChanged =
+        _composerController.renderer != _renderer ||
+        _composerController.still != nextStill;
+    _composerController.catalog = _catalog;
+    _composerController.sheet = _emojiSheet;
+    _composerController.clock = _clock;
+    _composerController.store = _store;
+    _composerController.renderer = _renderer;
+    _composerController.still = nextStill;
+    if (composerVisualChanged && _composerController.text.isNotEmpty) {
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+      _composerController.notifyListeners();
+    }
   }
 
   @override
@@ -492,6 +813,10 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_messageScroll.hasClients) return;
+      if (_reduced) {
+        _messageScroll.jumpTo(0);
+        return;
+      }
       _messageScroll.animateTo(
         0,
         duration: const Duration(milliseconds: 240),
@@ -501,14 +826,14 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   }
 
   void _sendTextMessage() {
-    final trimmed = _composerController.text.trim();
-    if (trimmed.isEmpty) return;
+    final textToSend = _composerController.toShortcodeText().trim();
+    if (textToSend.isEmpty) return;
     _composerController.clear();
     setState(() {
       _messages.add(
         ChatMessage.text(
           id: 'msg_${_messageSeq++}',
-          text: trimmed,
+          text: textToSend,
           isOutgoing: true,
           timestamp: DateTime.now(),
         ),
@@ -534,11 +859,11 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   }
 
   void _insertEmojiShortcode(TgsRemoteItem item) {
-    final code = item.shortcode;
-    if (code == null || code.isEmpty) return;
+    final char = _composerController.charForEmoji(item);
+    if (char == null) return;
     final value = _composerController.value;
     final selection = value.selection;
-    final insertText = '$code ';
+    final insertText = char;
     final text = value.text;
     if (selection.isValid && selection.start >= 0 && selection.end <= text.length) {
       final nextText = text.replaceRange(
@@ -553,10 +878,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         ),
       );
     } else {
-      final nextText =
-          text.isEmpty || text.endsWith(' ') || text.endsWith('\n')
-          ? '$text$insertText'
-          : '$text $insertText';
+      final nextText = '$text$insertText';
       _composerController.value = TextEditingValue(
         text: nextText,
         selection: TextSelection.collapsed(offset: nextText.length),
@@ -662,6 +984,17 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
           ),
           CupertinoActionSheetAction(
             onPressed: () {
+              final next = !_reduced;
+              Navigator.of(ctx).pop();
+              setState(() => _reducedMotionOverride = next);
+              _syncPlayback();
+            },
+            child: Text(
+              'Giảm chuyển động (Reduce Motion): ${_reduced ? 'Đang BẬT (Tĩnh)' : 'Đang TẮT (Động)'}',
+            ),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
               Navigator.of(ctx).pop();
               unawaited(_showTelemetryDialog());
             },
@@ -733,7 +1066,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                 item: item,
                 store: _store,
                 renderer: _renderer,
-                animate: true,
+                animate: !_reduced,
                 size: 180,
                 placeholderColor: _palette.tilePlaceholder,
                 borderColor: _palette.incomingBorder,
@@ -742,6 +1075,17 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               ),
             ),
             const SizedBox(height: 8),
+            Text(
+              '${item.label}${item.shortcode != null ? ' · ${item.shortcode}' : ''}',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: _palette.textPrimary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
             Text(
               '${item.fileName} · ${(item.bytes / 1024).toStringAsFixed(1)} KB',
               style: TextStyle(fontSize: 12, color: _palette.textSecondary),
@@ -768,6 +1112,15 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                 _sendSticker(item);
               },
               child: const Text('Gửi Sticker'),
+            ),
+          if (item.kind == TgsItemKind.emoji)
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _insertEmojiShortcode(item);
+              },
+              child: Text('Chèn ${item.shortcode ?? 'Emoji'}'),
             ),
         ],
       ),
@@ -964,7 +1317,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                               builder: (context, visible, _) => IgnorePointer(
                                 ignoring: !visible,
                                 child: AnimatedOpacity(
-                                  duration: const Duration(milliseconds: 160),
+                                  duration: _reduced
+                                      ? Duration.zero
+                                      : const Duration(milliseconds: 160),
                                   opacity: visible ? 1 : 0,
                                   child: CupertinoButton(
                                     key: const ValueKey('scroll-to-bottom-btn'),
@@ -1002,6 +1357,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                       drawerOpen: _drawerOpen,
                       hasDraftListenable: _hasDraft,
                       palette: palette,
+                      formatter: _shortcodeFormatter,
                       onToggleDrawer: _toggleDrawer,
                       onSend: _sendTextMessage,
                     ),
@@ -1161,15 +1517,17 @@ class _ComposerBar extends StatelessWidget {
     required this.palette,
     required this.onToggleDrawer,
     required this.onSend,
+    this.formatter,
   });
 
-  final TextEditingController controller;
+  final EmojiComposerController controller;
   final FocusNode focusNode;
   final bool drawerOpen;
   final ValueListenable<bool> hasDraftListenable;
   final _Palette palette;
   final VoidCallback onToggleDrawer;
   final VoidCallback onSend;
+  final TextInputFormatter? formatter;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1194,25 +1552,105 @@ class _ComposerBar extends StatelessWidget {
         ),
         const SizedBox(width: 4),
         Expanded(
-          child: CupertinoTextField(
-            key: const ValueKey('chat-composer-field'),
-            controller: controller,
-            focusNode: focusNode,
-            minLines: 1,
-            maxLines: 5,
-            textInputAction: TextInputAction.send,
-            onSubmitted: (_) => onSend(),
-            placeholder: 'Nhắn tin hoặc chèn emoji động…',
-            placeholderStyle: TextStyle(
-              color: palette.textSecondary.withValues(alpha: 0.75),
-              fontSize: 15,
-            ),
-            style: TextStyle(color: palette.textPrimary, fontSize: 15),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            decoration: BoxDecoration(
-              color: palette.fieldFill,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: palette.fieldBorder, width: 0.7),
+          child: Actions(
+            actions: {
+              CopySelectionTextIntent: CallbackAction<CopySelectionTextIntent>(
+                onInvoke: (intent) {
+                  final val = controller.value;
+                  if (!val.selection.isValid || val.selection.isCollapsed) {
+                    return null;
+                  }
+                  final selected = val.selection.textInside(val.text);
+                  final decoded = controller.toShortcodeText(selected);
+                  Clipboard.setData(ClipboardData(text: decoded));
+                  if (intent.collapseSelection) {
+                    final nextText =
+                        val.selection.textBefore(val.text) +
+                        val.selection.textAfter(val.text);
+                    controller.value = TextEditingValue(
+                      text: nextText,
+                      selection: TextSelection.collapsed(
+                        offset: val.selection.start,
+                      ),
+                    );
+                  }
+                  return null;
+                },
+              ),
+            },
+            child: CupertinoTextField(
+              key: const ValueKey('chat-composer-field'),
+              controller: controller,
+              focusNode: focusNode,
+              minLines: 1,
+              maxLines: 5,
+              strutStyle: const StrutStyle(
+                fontSize: 15,
+                height: 1.4,
+                forceStrutHeight: true,
+              ),
+              inputFormatters: [?formatter],
+              contextMenuBuilder: (context, editableTextState) {
+                final buttonItems = editableTextState.contextMenuButtonItems;
+                final modifiedItems = buttonItems.map((item) {
+                  if (item.type == ContextMenuButtonType.copy) {
+                    return item.copyWith(
+                      onPressed: () {
+                        final val = controller.value;
+                        if (val.selection.isValid &&
+                            !val.selection.isCollapsed) {
+                          final selected = val.selection.textInside(val.text);
+                          final decoded = controller.toShortcodeText(selected);
+                          Clipboard.setData(ClipboardData(text: decoded));
+                        }
+                        editableTextState.hideToolbar();
+                      },
+                    );
+                  }
+                  if (item.type == ContextMenuButtonType.cut) {
+                    return item.copyWith(
+                      onPressed: () {
+                        final val = controller.value;
+                        if (val.selection.isValid &&
+                            !val.selection.isCollapsed) {
+                          final selected = val.selection.textInside(val.text);
+                          final decoded = controller.toShortcodeText(selected);
+                          Clipboard.setData(ClipboardData(text: decoded));
+                          final nextText =
+                              val.selection.textBefore(val.text) +
+                              val.selection.textAfter(val.text);
+                          controller.value = TextEditingValue(
+                            text: nextText,
+                            selection: TextSelection.collapsed(
+                              offset: val.selection.start,
+                            ),
+                          );
+                        }
+                        editableTextState.hideToolbar();
+                      },
+                    );
+                  }
+                  return item;
+                }).toList();
+                return CupertinoAdaptiveTextSelectionToolbar.buttonItems(
+                  anchors: editableTextState.contextMenuAnchors,
+                  buttonItems: modifiedItems,
+                );
+              },
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => onSend(),
+              placeholder: 'Nhắn tin hoặc chèn emoji động…',
+              placeholderStyle: TextStyle(
+                color: palette.textSecondary.withValues(alpha: 0.75),
+                fontSize: 15,
+              ),
+              style: TextStyle(color: palette.textPrimary, fontSize: 15),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: palette.fieldFill,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: palette.fieldBorder, width: 0.7),
+              ),
             ),
           ),
         ),
@@ -1225,7 +1663,9 @@ class _ComposerBar extends StatelessWidget {
             minimumSize: const Size.square(36),
             onPressed: canSend ? onSend : null,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 140),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 140),
               width: 34,
               height: 34,
               decoration: BoxDecoration(
@@ -1622,7 +2062,7 @@ class _ChatMessageRow extends StatelessWidget {
     );
   }
 
-  static final RegExp _tokenRegex = RegExp(r':[a-z0-9_]+:');
+  static final RegExp _tokenOrPuaRegex = RegExp(r':[a-z0-9_]+:|[\uE000-\uF8FF]');
 
   List<InlineSpan> _parseRichSpans(
     String text,
@@ -1632,9 +2072,15 @@ class _ChatMessageRow extends StatelessWidget {
   ) {
     final spans = <InlineSpan>[];
     var cursor = 0;
-    for (final match in _tokenRegex.allMatches(text)) {
+    for (final match in _tokenOrPuaRegex.allMatches(text)) {
       final token = match.group(0)!;
-      final item = catalog.shortcodeMap[token];
+      final TgsRemoteItem? item;
+      if (token.startsWith(':')) {
+        item = catalog.shortcodeMap[token];
+      } else {
+        final idx = token.codeUnitAt(0) - EmojiComposerController.puaBase;
+        item = (idx >= 0 && idx < catalog.emojis.length) ? catalog.emojis[idx] : null;
+      }
       if (item == null) continue;
       if (match.start > cursor) {
         spans.add(TextSpan(text: text.substring(cursor, match.start)));
@@ -1740,6 +2186,8 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
 
   @override
   Widget build(BuildContext context) {
+    final effectiveStill =
+        widget.still || MediaQuery.disableAnimationsOf(context);
     if (widget.renderer == ChatRendererMode.lottie) {
       return SizedBox.square(
         dimension: widget.size,
@@ -1747,7 +2195,7 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
           url: widget.item.urlString,
           store: widget.store,
           clock: widget.clock,
-          animate: !widget.still,
+          animate: !effectiveStill,
           placeholderColor: widget.placeholderColor,
         ),
       );
@@ -1786,7 +2234,7 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
             url: widget.item.urlString,
             sheet: widget.sheet,
             clock: widget.clock,
-            still: widget.still,
+            still: effectiveStill,
             devicePixelRatio: dpr,
             placeholderColor: widget.placeholderColor,
             repaint: listenable,
@@ -1836,9 +2284,16 @@ class _NetworkInlinePainter extends CustomPainter {
     }
     final c = player.composition;
     final maxEdge = math.max(size.width, size.height);
+    // Lock raster key size to `sheet.pixelSize` across all inline sizes
+    // (header avatar, chat bubbles, 5-column picker) so consumers share one
+    // entry without thrashing or dropping background decodes.
     final effectiveDpr = maxEdge <= 0
         ? devicePixelRatio
-        : math.min(devicePixelRatio, sheet.pixelSize / maxEdge);
+        : sheet.pixelSize / maxEdge;
+    final targetPixels = maxEdge * devicePixelRatio;
+    final filterQuality = (targetPixels - sheet.pixelSize).abs() > 1
+        ? FilterQuality.low
+        : null;
     final span = c.endFrame - c.startFrame;
     final frame = still || span <= 0
         ? 0.0
@@ -1850,7 +2305,10 @@ class _NetworkInlinePainter extends CustomPainter {
       Offset.zero & size,
       progress,
       devicePixelRatio: math.max(0.1, effectiveDpr),
-      coldFallback: (c, target) => _drawPlaceholder(c, target.size, target.topLeft),
+      filterQuality: filterQuality,
+      coldFallback: still
+          ? null
+          : (c, target) => _drawPlaceholder(c, target.size, target.topLeft),
     );
   }
 
@@ -2075,15 +2533,18 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
           );
         }
 
+        final effectiveAnimate =
+            widget.animate && !MediaQuery.disableAnimationsOf(context);
+
         if (widget.renderer == ChatRendererMode.fastlottie && model.fast != null) {
           return GestureDetector(
-            onTap: () => setState(() => _replayTick++),
+            onTap: effectiveAnimate ? () => setState(() => _replayTick++) : null,
             child: FastLottie(
               key: ValueKey('hero_${widget.item.id}_$_replayTick'),
               composition: model.fast!,
               width: widget.size,
               height: widget.size,
-              animate: widget.animate,
+              animate: effectiveAnimate,
               repeat: true,
               useFrameRate: true,
               usePipeline: false,
@@ -2096,7 +2557,7 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
             model.reference != null) {
           return Lottie(
             composition: model.reference!,
-            animate: widget.animate,
+            animate: effectiveAnimate,
             repeat: true,
             frameRate: FrameRate.composition,
             fit: BoxFit.contain,
