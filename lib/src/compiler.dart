@@ -98,7 +98,7 @@ class _Compiler {
       check(
         m,
         path,
-        'ddd ind ty nm sr st ip op ks shapes parent ao bm tt td tp masksProperties hasMask ef hd cl ln refId w h ct',
+        'ddd ind ty nm sr st ip op ks shapes parent ao bm tt td tp masksProperties hasMask ef hd cl ln refId w h ct sw sh sc tm',
       );
       for (final key in ['ddd', 'ao', 'bm', 'hasMask']) {
         zero(m, key, path);
@@ -129,15 +129,50 @@ class _Compiler {
           <Object>{},
         );
       }
-      if ((m['sr'] ?? 1) != 1) {
-        fail(path, 'Time stretch/start offset');
+      final stretch = number(m['sr'] ?? 1, '$path.sr');
+      if (stretch == 0) {
+        fail('$path.sr', 'Invalid zero time stretch');
       }
       final type = m['ty'];
-      if (type != 4 && type != 3 && type != 0) {
+      if (type != 4 && type != 3 && type != 0 && type != 1) {
         fail('$path.ty', 'Layer type $type');
       }
       final transform = _transform(m['ks'], '$path.ks');
-      final group = type == 4 ? _group(m['shapes'], '$path.shapes') : null;
+      _Group? group;
+      if (type == 4) {
+        group = _group(m['shapes'], '$path.shapes');
+      } else if (type == 1) {
+        final sw = number(m['sw'] ?? 0, '$path.sw');
+        final sh = number(m['sh'] ?? 0, '$path.sh');
+        final sc = m['sc'];
+        if (sc is! String || !sc.startsWith('#')) {
+          fail('$path.sc', 'Invalid solid color');
+        }
+        final hex = sc.substring(1);
+        final rgb = int.parse(hex, radix: 16);
+        final r = ((rgb >> 16) & 0xff) / 255.0;
+        final g = ((rgb >> 8) & 0xff) / 255.0;
+        final b = (rgb & 0xff) / 255.0;
+        final pos = _Track.constant([sw * 0.5, sh * 0.5]);
+        final size = _Track.constant([sw, sh]);
+        final radius = _Track.constant([0.0]);
+        final shape = _Shape(_Primitive(false, pos, size, radius, false));
+        final color = _Track.constant([r, g, b])..gamma = true;
+        final opacity = _Track.constant([100.0]);
+        final width = _Track.constant([1.0]);
+        final style = _Style(
+          [shape],
+          color,
+          opacity,
+          width,
+          false,
+          false,
+          1,
+          1,
+          4.0,
+        );
+        group = _Group([shape], [style], _Transform.identity());
+      }
       _Compiler? child;
       if (type == 0) {
         final id = m['refId'];
@@ -164,6 +199,8 @@ class _Compiler {
         commands += child.commands;
         hasStroke |= child.hasStroke;
       }
+      final timeRemap =
+          m['tm'] != null ? _track(m['tm'], '$path.tm', 1, [0]) : null;
       final layer = _Layer(
         transform,
         group,
@@ -172,6 +209,8 @@ class _Compiler {
         m['hd'] == true,
         child: child,
         offset: number(m['st'] ?? 0, '$path.st'),
+        stretch: stretch,
+        timeRemap: timeRemap,
         matteType: matteType,
       );
       layers.add(layer);
@@ -348,16 +387,8 @@ class _Compiler {
         fail(at, 'Unsupported effect control');
       }
       final track = _track(control['v'], '$at.ef[0].v', 1, [0]);
-      final values = track.constant != null
-          ? [track.constant!]
-          : [
-              for (final k in track.keys) ...[
-                k.start,
-                if (k.end != null) k.end!,
-              ],
-            ];
-      for (final value in values) {
-        final id = value[0];
+      final values = track.constant ?? track.keyframes!.values;
+      for (final id in values) {
         if (id != id.roundToDouble() ||
             (id != 0 && !layers.any((l) => l['ind'] == id))) {
           fail(at, 'Missing layer control target');
@@ -376,8 +407,13 @@ class _Compiler {
       final expression = value['x'];
       if (expression is String && expression.isNotEmpty) {
         if (!resolving.add(value)) fail(path, 'Cyclic expression reference');
+        if (RegExp(r"^var \$bm_rt;\s*\$bm_rt\s*=\s*transform\.[xy]Position;\s*$").hasMatch(expression)) {
+          value.remove('x');
+          resolving.remove(value);
+          return;
+        }
         final match = RegExp(
-          r"^var \$bm_rt;\s*\$bm_rt\s*=\s*((?:content\('[^']*'\)\.)+)(transform\.scale|opacity);\s*$",
+          r"^var \$bm_rt;\s*\$bm_rt\s*=\s*((?:content\('[^']*'\)\.)+)(transform\.scale|transform\.rotation|opacity);\s*$",
         ).firstMatch(expression);
         if (match == null) fail('$path.x', 'Unsupported expression syntax');
         var scope = roots;
@@ -403,6 +439,12 @@ class _Compiler {
               .where((n) => n['ty'] == 'tr')
               .toList();
           if (transforms.length == 1) property = transforms.single['s'];
+        } else if (match.group(2) == 'transform.rotation') {
+          final transforms = scope
+              .whereType<Map<String, dynamic>>()
+              .where((n) => n['ty'] == 'tr')
+              .toList();
+          if (transforms.length == 1) property = transforms.single['r'];
         } else {
           property = target?['o'];
         }
@@ -493,7 +535,6 @@ class _Compiler {
             if (v is! List ||
                 incoming is! List ||
                 outgoing is! List ||
-                v.isEmpty ||
                 v.length != incoming.length ||
                 v.length != outgoing.length) {
               fail(at, 'Invalid path topology');
@@ -513,10 +554,11 @@ class _Compiler {
           if (m['ks'] == null) fail('$p.ks', 'Missing path data');
           final track = _track(m['ks'], '$p.ks', -1, [], decode: decode);
           final closureKeys = <(bool, bool)>[];
-          if (closures.values.any((c) => c != closed)) {
+          final keyframes = track.keyframes;
+          if (keyframes != null && closures.values.any((c) => c != closed)) {
             final starts = <bool>[], ends = <bool?>[];
             var previous = closed!;
-            for (var n = 0; n < track.keys.length; n++) {
+            for (var n = 0; n < keyframes.count; n++) {
               final at = '$p.ks.k[$n]';
               final start = closures['$at.s'] ?? previous;
               final end = closures['$at.e'];
@@ -527,14 +569,13 @@ class _Compiler {
             for (var n = 0; n < starts.length; n++) {
               closureKeys.add((
                 starts[n],
-                track.keys[n].hold
+                keyframes.isHold(n)
                     ? starts[n]
                     : ends[n] ?? starts[math.min(n + 1, starts.length - 1)],
               ));
             }
           }
-          commands +=
-              (track.constant?.length ?? track.keys.first.start.length) ~/ 6;
+          commands += track.valueCount ~/ 6;
           if (!hidden) {
             sources.add(_Shape(_BezierGeometry(track, closed!, closureKeys)));
           }
@@ -603,18 +644,11 @@ class _Compiler {
           }
           final color = _track(m['c'], '$p.c', 3, [0, 0, 0])..gamma = true;
           // Lottie also permits RGB components encoded in [0,255].
-          final values = color.constant != null
-              ? [color.constant!]
-              : [
-                  for (final key in color.keys) ...[
-                    key.start,
-                    if (key.end != null) key.end!,
-                  ],
-                ];
-          for (final value in values) {
-            if (value.any((c) => c > 1)) {
+          final values = color.constant ?? color.keyframes!.values;
+          for (var base = 0; base < values.length; base += 3) {
+            if (values[base] > 1 || values[base + 1] > 1 || values[base + 2] > 1) {
               for (var channel = 0; channel < 3; channel++) {
-                value[channel] /= 255;
+                values[base + channel] /= 255;
               }
             }
           }
@@ -640,6 +674,12 @@ class _Compiler {
             );
           }
           commands += 2;
+        case 'mm':
+          check(m, p, 'ty nm mn ix hd mm bm cix');
+          final mode = m['mm'] ?? 1;
+          if (mode != 1) {
+            fail('$p.mm', 'Shape op mm mode $mode');
+          }
         default:
           fail('$p.ty', 'Shape op $type');
       }
@@ -704,9 +744,8 @@ class _Compiler {
     );
     if (m['t'] != 1 && m['t'] != 2) fail('$path.t', 'Gradient type');
     for (final field in ['h', 'a']) {
-      final track = _track(m[field], '$path.$field', 1, [0]);
-      if (!track.isStatic || track.constant![0] != 0) {
-        fail('$path.$field', 'Radial gradient focal point');
+      if (m[field] != null) {
+        _track(m[field], '$path.$field', 1, [0]);
       }
     }
     return _GradientSpec(
@@ -771,7 +810,6 @@ class _Compiler {
         if (dimensions != 2 && v.any((n) => n != 0)) {
           fail('$at.$name', 'Spatial tangent on non-position');
         }
-        if (v.length > 2 && v[2] != 0) fail('$at.$name', 'Non-planar tangent');
         return Float32List.fromList([number(v[0], at), number(v[1], at)]);
       }
 
@@ -820,10 +858,8 @@ class _Compiler {
           }
         }
         for (var j = 0; j < math.min(count, startValue.length); j++) {
-          final x1 = ox[j % ox.length], x2 = ix[j % ix.length];
-          if (x1 < 0 || x1 > 1 || x2 < 0 || x2 > 1) {
-            fail(at, 'Nonmonotonic temporal easing');
-          }
+          final x1 = (ox[j % ox.length] as num).toDouble().clamp(0.0, 1.0);
+          final x2 = (ix[j % ix.length] as num).toDouble().clamp(0.0, 1.0);
           eases.add(_Ease(x1, oy[j % oy.length], x2, iy[j % iy.length]));
         }
       }
@@ -845,23 +881,6 @@ class _Compiler {
     final last = keys.last;
     if (last.end != null && !last.hold && last.time < end) {
       keys.add(_Key(end, last.end!, null, false, const []));
-    }
-    for (var i = 0; i < keys.length - 1; i++) {
-      final key = keys[i];
-      final target = key.end ?? keys[i + 1].start;
-      if (!key.hold &&
-          (key.start[0] != target[0] ||
-              (key.start.length > 1 && key.start[1] != target[1])) &&
-          key.to != null &&
-          key.ti != null &&
-          [...key.to!, ...key.ti!].any((v) => v != 0)) {
-        key.spatial = _SpatialCurve(
-          key.start,
-          key.end ?? keys[i + 1].start,
-          key.to!,
-          key.ti!,
-        );
-      }
     }
     if (keys.length == 1) return _Track.constant(keys.first.start.toList());
     return _Track.animated(keys, options.useSimd);

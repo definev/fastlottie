@@ -254,7 +254,7 @@ void main() {
   );
   test('rejects unsupported operations with JSON paths', () {
     final changes = <void Function(Map<String, dynamic>)>[
-      (j) => j['layers'][0]['shapes'].add({'ty': 'mm'}),
+      (j) => j['layers'][0]['shapes'].add({'ty': 'zz'}),
       (j) => j['layers'][0]['ddd'] = 1,
       (j) => j['layers'][0]['tt'] = 1,
       (j) => j['layers'][0]['ty'] = 0,

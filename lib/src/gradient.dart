@@ -2,24 +2,10 @@ part of '../fastlottie.dart';
 
 class _GradientSpec {
   _GradientSpec(this.count, this.stops, this.start, this.end, this.radial)
-    : _alphaCount = math.max(
-        0,
-        ((stops.constant?.length ?? stops.keys.first.start.length) -
-                count * 4) ~/
-            2,
-      ),
+    : _alphaCount = math.max(0, (stops.valueCount - count * 4) ~/ 2),
       _rgb = Float32List(count * 3),
       _scratchOffsets = Float64List(
-        math.max(
-          2,
-          count +
-              math.max(
-                0,
-                ((stops.constant?.length ?? stops.keys.first.start.length) -
-                        count * 4) ~/
-                    2,
-              ),
-        ),
+        math.max(2, count + math.max(0, (stops.valueCount - count * 4) ~/ 2)),
       );
   final int count;
   final int _alphaCount;
@@ -106,9 +92,10 @@ class _GradientSpec {
           : ((p - values[left * 4]) / span).clamp(0.0, 1.0);
       final l3 = left * 3;
       final r3 = right * 3;
-      final r = ((_rgb[l3] + (_rgb[r3] - _rgb[l3]) * t) * 255)
-          .round()
-          .clamp(0, 255);
+      final r = ((_rgb[l3] + (_rgb[r3] - _rgb[l3]) * t) * 255).round().clamp(
+        0,
+        255,
+      );
       final g = ((_rgb[l3 + 1] + (_rgb[r3 + 1] - _rgb[l3 + 1]) * t) * 255)
           .round()
           .clamp(0, 255);

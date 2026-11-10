@@ -125,6 +125,8 @@ class _Fork {
             v.hidden,
             child: v.child == null ? null : scene(v.child!),
             offset: v.offset,
+            stretch: v.stretch,
+            timeRemap: v.timeRemap == null ? null : track(v.timeRemap!),
             matteType: v.matteType,
           )
           ..parent = v.parent == null ? null : layer(v.parent!)

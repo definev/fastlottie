@@ -318,8 +318,8 @@ void main() {
       image.dispose();
       picture.dispose();
     }
-    expect(native, 775);
-    expect(unsupported, 288);
+    expect(native, 959);
+    expect(unsupported, 104);
   });
   test(
     'priority acquire jumps ahead of normal queue and promotes coalesced entries',

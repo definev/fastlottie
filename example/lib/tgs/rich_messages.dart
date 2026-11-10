@@ -395,11 +395,11 @@ class RichMessageList extends StatelessWidget {
     final messages = <List<InlineSpan>>[
       [
         emoji(0, 'Special offer'),
-        const TextSpan(text: ' MẶT HÀNG VỪA GIẢM GIÁ\n\n', style: bold),
+        const TextSpan(text: ' LIMITED-TIME OFFER\n\n', style: bold),
         emoji(1, 'Product'),
         const TextSpan(text: ' Item: '),
         emoji(2, 'Service plan'),
-        const TextSpan(text: ' GÓI PREMIUM 30 NGÀY\n', style: bold),
+        const TextSpan(text: ' 30-DAY PREMIUM PLAN\n', style: bold),
         emoji(3, 'Original price'),
         const TextSpan(text: ' Was: '),
         const TextSpan(
@@ -428,7 +428,7 @@ class RichMessageList extends StatelessWidget {
         emoji(0, 'Second emoji'),
         emoji(1, 'Third emoji'),
         emoji(5, 'Fourth emoji'),
-        const TextSpan(text: '\nChữ đậm ', style: bold),
+        const TextSpan(text: '\nBold text ', style: bold),
         const TextSpan(
           text: 'and regular text stay within the same paragraph.',
         ),
@@ -491,7 +491,7 @@ class RichMessageList extends StatelessWidget {
                         const TextSpan(text: ' '),
                         emoji(
                           (index + 2) % topicEmojiAssets.length,
-                          'Emoji động',
+                          'Animated emoji',
                         ),
                       ],
               ),

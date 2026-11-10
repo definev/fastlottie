@@ -154,6 +154,8 @@ class _Layer {
     this.hidden, {
     this.child,
     this.offset = 0,
+    this.stretch = 1,
+    this.timeRemap,
     this.matteType = 0,
   });
   final _Transform transform;
@@ -161,7 +163,8 @@ class _Layer {
   final double ip, op;
   final bool hidden;
   final _Compiler? child;
-  final double offset;
+  final double offset, stretch;
+  final _Track? timeRemap;
   final int matteType;
   _Layer? matte;
   bool isMatteSource = false;
@@ -197,6 +200,7 @@ class _Layer {
   _Layer? parent;
   late final bool isStatic =
       transform.isStatic &&
+      (timeRemap?.isStatic ?? true) &&
       (group?.isStatic ?? true) &&
       (child?.isStatic ?? true) &&
       (parent?.isStatic ?? true);
@@ -229,7 +233,10 @@ class _Layer {
     _lastWorldBoundsFrame = frame;
     var bounds = group?.drawBounds(frame);
     if (child != null) {
-      bounds = _unionRect(bounds, child!.worldBounds(frame - offset));
+      final childFrame = timeRemap != null
+          ? timeRemap!.scalar(frame) * child!.fps - child!.start
+          : (frame - offset) / stretch;
+      bounds = _unionRect(bounds, child!.worldBounds(childFrame));
     }
     if (bounds == null) return _cachedWorldBounds = null;
     for (_Layer? p = this; p != null; p = p.parent) {
@@ -250,15 +257,18 @@ class _Layer {
     if (!visible(frame)) return;
     final alpha = effectiveAlpha(frame, parentAlpha);
     if (alpha == 0) return;
+    final childFrame = timeRemap != null
+        ? timeRemap!.scalar(frame) * child!.fps - child!.start
+        : (frame - offset) / stretch;
     if (!hasAnySpatialTransform) {
       group?.draw(canvas, frame, alpha);
-      child?.draw(canvas, frame - offset, alpha);
+      child?.draw(canvas, childFrame, alpha);
       return;
     }
     canvas.save();
     applyParents(canvas, frame);
     group?.draw(canvas, frame, alpha);
-    child?.draw(canvas, frame - offset, alpha);
+    child?.draw(canvas, childFrame, alpha);
     canvas.restore();
   }
 }
@@ -479,10 +489,10 @@ class _BezierGeometry extends _Geometry {
     final target = _cached ??= Path();
     final points = track.at(frame);
     if (closures.isEmpty) return _contour(points, closed, target: target);
-    if (frame <= track.keys.first.time) {
+    if (frame <= track.keyframes!.times.first) {
       return _contour(points, closures.first.$1, target: target);
     }
-    if (frame >= track.keys.last.time) {
+    if (frame >= track.keyframes!.times.last) {
       return _contour(points, closures.last.$1, target: target);
     }
     final (startClosed, endClosed) = closures[track._cursor];

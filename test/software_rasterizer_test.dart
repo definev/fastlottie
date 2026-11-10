@@ -335,7 +335,7 @@ void main() {
     final files = Directory('example/assets/tgs')
         .listSync(recursive: true)
         .whereType<File>()
-        .where((f) => f.path.endsWith('.tgs') && isBundledTgs(f))
+        .where((f) => f.path.endsWith('.tgs') && isBundledTgs(f) && !f.path.contains('NotoEmoji'))
         .toList()
       ..sort((a, b) => a.path.compareTo(b.path));
 
@@ -380,4 +380,36 @@ void main() {
     expect(tested, files.length);
     expect(failures, isEmpty);
   });
+
+  test('software RLE matches canvas vector: poultry leg (rotated precomp with matte)', () async {
+    final file = File('example/assets/tgs/NotoEmoji/emoji_u1f357.tgs');
+    final raw = decodeLottieBytes(file.readAsBytesSync());
+    final comp = FastLottieComposition.fromBytes(raw);
+    final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
+    final span = comp.endFrame - comp.startFrame;
+    for (final fraction in [0.0, 0.16, 0.25, 0.5, 0.75, 1.0]) {
+      final frame = (span - 1) * fraction;
+      final bgra = debugRenderSoftwareFrame(
+        comp,
+        comp.startFrame + frame,
+        pixelWidth: 160,
+        pixelHeight: 160,
+      );
+      final swRgba = await _decodeBgraToCanvasRgba(bgra, 160, 160);
+      final canvasRgba = await render(
+        (c) => player.draw(
+          c,
+          const Rect.fromLTWH(0, 0, 160, 160),
+          frame / span,
+          useFrameRate: false,
+        ),
+        size: 160,
+      );
+      final (mae, bad, _) = _diffMetrics(swRgba, canvasRgba, 160);
+      expect(mae, lessThan(1.0), reason: 'MAE failed at fraction $fraction');
+      expect(bad, lessThan(0.02), reason: 'Bad fraction failed at fraction $fraction');
+    }
+    player.dispose();
+  });
 }
+

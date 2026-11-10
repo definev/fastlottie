@@ -19,11 +19,13 @@ giờ được dùng để draw trực tiếp. Cache model TGS nằm ở example
 coalesced leases và tối đa hai worker jobs. Xem `tgs-grid.md` để biết coverage,
 fallback có nhãn, scope memory budget và số đo thực.
 
-`_Track` dùng Float32List cho dữ liệu và buffer nội suy tái sử dụng, last-frame
-memoization, binary search khi frame ra khỏi keyframe segment hiện tại. Easing
-solve x(t) bằng bracketed Newton trước khi tính y(t). Geometry tĩnh tạo Path một
-lần, geometry động chỉ tạo lại khi frame thay đổi. Static flags được memoize.
-Path của group không bị invalidated chỉ vì màu/opacity động.
+`_Track` dùng các cột thời gian, cờ và offset riêng cho keyframe động. Binary
+search chỉ đọc cột thời gian khi frame ra khỏi segment hiện tại. Giá trị
+`Float32List` được gom theo vector để nội suy tuần tự và dùng chung giữa player;
+chỉ cursor và buffer output là riêng. Easing solve x(t) bằng bracketed Newton
+trước khi tính y(t). Geometry tĩnh tạo Path một lần, geometry động chỉ tạo lại
+khi frame thay đổi. Static flags được memoize. Path của group không bị
+invalidated chỉ vì màu/opacity động. Xem [bố cục dữ liệu và số đo](data-layout.md).
 
 Trim dùng alias geometry trong bước compile để modifier tác động cả paint đã bắt
 path trước đó và geometry trong nested group. Mỗi modifier giữ input snapshot,

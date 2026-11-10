@@ -460,7 +460,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       widget.store ??
       NetworkTgsStore(
         httpConcurrency: 6,
-        decodeConcurrency: 3,
+        decodeConcurrency: 2,
         batchSize: 2,
         framePaced: true,
         maximumEntries: 256,
@@ -632,34 +632,34 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     final earlierSamples = <(bool outgoing, String text)>[
       (
         false,
-        '${sc(':tada:', 0)} Chào mừng đến với màn hình chat TGS qua HTTP local server! ${sc(':partying_face:', 0)}',
+        '${sc(':tada:', 0)} Welcome to the TGS chat demo, powered by a local HTTP server! ${sc(':partying_face:', 0)}',
       ),
       (
         true,
-        'Mọi file `.tgs` (gồm 60 Noto Emoji ${sc(':smile:', 0)} ${sc(':heart_eyes:', 0)} ${sc(':rofl:', 0)}, 88 Topics Emoji ${sc(':zap:', 1)} ${sc(':fire:', 2)} và bộ sticker) đều được tải qua mạng từ local HTTP server.',
+        'Every `.tgs` file (including 60 Noto Emoji ${sc(':smile:', 0)} ${sc(':heart_eyes:', 0)} ${sc(':rofl:', 0)}, 88 Topics Emoji ${sc(':zap:', 1)} ${sc(':fire:', 2)}, and the sticker packs) is served over the network by the local HTTP server.',
       ),
       (
         false,
-        'Khi cuộn nhanh ở khay sticker: HTTP queue (tối đa 6 luồng) tự abort socket những sticker vừa cuộn khỏi màn hình ${sc(':iphone:', 7)} và giữ giải mã vector tách biệt trên Isolate ${sc(':exploding_head:', 0)}.',
+        'When you scroll quickly through the sticker tray, the HTTP queue (up to 6 concurrent requests) aborts sockets for stickers that leave the screen ${sc(':iphone:', 7)} while vector decoding stays isolated on a separate isolate ${sc(':exploding_head:', 0)}.',
       ),
       (
         true,
-        'Thumbnail ở grid & emoji nội tuyến ${sc(':bulb:', 4)} ${sc(':heart_on_fire:', 0)} ${sc(':sparkles:', 0)} chạy qua Ping-Pong RLE + LZ4 `.flcache` ở 30 FPS.',
+        'Grid thumbnails and inline emoji ${sc(':bulb:', 4)} ${sc(':heart_on_fire:', 0)} ${sc(':sparkles:', 0)} use Ping-Pong RLE + LZ4 `.flcache` at 30 FPS.',
       ),
       (
         false,
-        'Còn sticker gửi thẳng vào khung chat sẽ nhảy hàng đợi ưu tiên và render bằng Vector Impeller trực tiếp, không đánh đổi độ nét hay FPS ${sc(':trophy:', 12)} ${sc(':thumbs_up:', 0)}',
+        'Stickers sent directly to the chat skip the queue and render as vectors with Impeller, preserving sharpness and frame rate ${sc(':trophy:', 12)} ${sc(':thumbs_up:', 0)}',
       ),
     ];
 
     // Older messages above so the user can scroll up cleanly through chat history.
     const fillerTopics = <String>[
-      'HTTP GET /catalog trả về 6 bộ pack cùng 148 Topics & Noto emoji động.',
-      'ETag + Cache-Control + URL `.tgsbin` disk cache giúp lần mở lại 0ms mạng.',
-      'Trong menu góc phải bạn có thể giả lập mạng chậm 80ms / 220ms để quan sát loading placeholder.',
-      'Nhấn giữ bất kỳ sticker hoặc emoji nào trong khay để xem trước kích thước lớn.',
-      'Nhấn vào sticker đã gửi trong khung chat để replay hiệu ứng.',
-      'Toàn bộ UI được dựng hoàn toàn bằng Cupertino (`package:flutter/cupertino.dart`).',
+      'HTTP GET /catalog returns 6 packs and 148 animated Topics and Noto emoji.',
+      'ETag, Cache-Control, and the `.tgsbin` disk cache make repeat visits network-free.',
+      'Use the menu in the top-right corner to simulate 80 ms or 220 ms network latency and see the loading placeholders.',
+      'Long-press any sticker or emoji in the tray to preview it at full size.',
+      'Tap a sticker in the chat to replay its animation.',
+      'The entire interface is built with Cupertino (`package:flutter/cupertino.dart`).',
     ];
 
     final topicCount = math.max(1, catalog.emojis.length);
@@ -707,7 +707,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       ChatMessage.text(
         id: 'seed_welcome_${_messageSeq++}',
         text:
-            '${sc(':studio_microphone:', 0)} Thử gõ tin nhắn kèm Noto Emoji (${sc(':smile:', 0)} ${sc(':heart_eyes:', 0)} ${sc(':partying_face:', 0)} ${sc(':heart_on_fire:', 0)} ${sc(':thumbs_up:', 0)}) hoặc Topics Emoji (${sc(':strawberry:', 40)} ${sc(':pizza:', 70)} ${sc(':cat2:', 87)}), hay chạm nút smiley bên dưới để mở khay chọn nhé! ${sc(':sparkles:', 3)}',
+            '${sc(':studio_microphone:', 0)} Try typing a message with Noto Emoji (${sc(':smile:', 0)} ${sc(':heart_eyes:', 0)} ${sc(':partying_face:', 0)} ${sc(':heart_on_fire:', 0)} ${sc(':thumbs_up:', 0)}) or Topics Emoji (${sc(':strawberry:', 40)} ${sc(':pizza:', 70)} ${sc(':cat2:', 87)}), or tap the smiley button below to open the picker! ${sc(':sparkles:', 3)}',
         isOutgoing: true,
         timestamp: now.subtract(const Duration(minutes: 1)),
       ),
@@ -910,7 +910,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     await showCupertinoModalPopup<void>(
       context: context,
       builder: (ctx) => CupertinoActionSheet(
-        title: const Text('Tuỳ chọn Server & Bộ nhớ đệm'),
+        title: const Text('Server & Cache Options'),
         message: Text(
           'Endpoint: ${_catalog?.baseUri ?? '-'}\n'
           'Net DL: ${_store.networkDownloads} | URL Disk Hits: ${_store.diskSourceHits} | '
@@ -925,7 +925,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                 setState(() {});
               },
               child: Text(
-                'Độ trễ mạng: 0 ms (Local)${server.simulatedLatency.inMilliseconds == 0 ? ' ✓' : ''}',
+                'Network latency: 0 ms (Local)${server.simulatedLatency.inMilliseconds == 0 ? ' ✓' : ''}',
               ),
             ),
             CupertinoActionSheetAction(
@@ -935,7 +935,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                 setState(() {});
               },
               child: Text(
-                'Độ trễ mạng: 80 ms (Fast 4G)${server.simulatedLatency.inMilliseconds == 80 ? ' ✓' : ''}',
+                'Network latency: 80 ms (Fast 4G)${server.simulatedLatency.inMilliseconds == 80 ? ' ✓' : ''}',
               ),
             ),
             CupertinoActionSheetAction(
@@ -945,7 +945,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                 setState(() {});
               },
               child: Text(
-                'Độ trễ mạng: 220 ms (Slow 3G)${server.simulatedLatency.inMilliseconds == 220 ? ' ✓' : ''}',
+                'Network latency: 220 ms (Slow 3G)${server.simulatedLatency.inMilliseconds == 220 ? ' ✓' : ''}',
               ),
             ),
             CupertinoActionSheetAction(
@@ -955,7 +955,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                 setState(() {});
               },
               child: Text(
-                'Giả lập lỗi HTTP 503: ${server.simulateFailure ? 'Đang BẬT' : 'Đang TẮT'}',
+                'Simulate HTTP 503 errors: ${server.simulateFailure ? 'ON' : 'OFF'}',
               ),
             ),
           ],
@@ -980,7 +980,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               widget.onBrightnessChanged?.call(next);
               Navigator.of(ctx).pop();
             },
-            child: Text(_isDark ? 'Chuyển sang Giao diện Sáng' : 'Chuyển sang Giao diện Tối'),
+            child: Text(_isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
@@ -990,7 +990,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               _syncPlayback();
             },
             child: Text(
-              'Giảm chuyển động (Reduce Motion): ${_reduced ? 'Đang BẬT (Tĩnh)' : 'Đang TẮT (Động)'}',
+              'Reduce Motion: ${_reduced ? 'ON (Static)' : 'OFF (Animated)'}',
             ),
           ),
           CupertinoActionSheetAction(
@@ -998,7 +998,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               Navigator.of(ctx).pop();
               unawaited(_showTelemetryDialog());
             },
-            child: const Text('Xem chi tiết Telemetry Server & Cache'),
+            child: const Text('View Server & Cache Telemetry'),
           ),
           CupertinoActionSheetAction(
             isDestructiveAction: true,
@@ -1006,12 +1006,12 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               Navigator.of(ctx).pop();
               unawaited(_clearAllCaches());
             },
-            child: const Text('Xoá sạch URL Cache & .flcache (Tải lại từ HTTP)'),
+            child: const Text('Clear URL Cache & .flcache (Reload over HTTP)'),
           ),
         ],
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(ctx).pop(),
-          child: const Text('Đóng'),
+          child: const Text('Close'),
         ),
       ),
     );
@@ -1102,7 +1102,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         actions: <CupertinoDialogAction>[
           CupertinoDialogAction(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Đóng'),
+            child: const Text('Close'),
           ),
           if (item.kind == TgsItemKind.sticker)
             CupertinoDialogAction(
@@ -1111,7 +1111,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                 Navigator.of(ctx).pop();
                 _sendSticker(item);
               },
-              child: const Text('Gửi Sticker'),
+              child: const Text('Send Sticker'),
             ),
           if (item.kind == TgsItemKind.emoji)
             CupertinoDialogAction(
@@ -1120,7 +1120,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                 Navigator.of(ctx).pop();
                 _insertEmojiShortcode(item);
               },
-              child: Text('Chèn ${item.shortcode ?? 'Emoji'}'),
+              child: Text('Insert ${item.shortcode ?? 'Emoji'}'),
             ),
         ],
       ),
@@ -1129,7 +1129,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   List<(_DrawerTab kind, String id, String label, List<TgsRemoteItem> items)>
   _buildTabs(TgsRemoteCatalog catalog) => [
-    (_DrawerTab.all, '__all__', 'Tất cả', catalog.stickers),
+    (_DrawerTab.all, '__all__', 'All', catalog.stickers),
     (_DrawerTab.emoji, '__emoji__', 'Emoji', catalog.emojis),
     for (final pack in catalog.emojiPacks)
       (_DrawerTab.emoji, pack.id, pack.title, pack.items),
@@ -1217,7 +1217,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                       const CupertinoActivityIndicator(radius: 14),
                       const SizedBox(height: 12),
                       Text(
-                        'Đang khởi tạo Local HTTP TGS Server…',
+                        'Starting local HTTP TGS server…',
                         style: TextStyle(
                           fontSize: 14,
                           color: palette.textSecondary,
@@ -1240,7 +1240,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Không thể kết nối TGS Server:\n$_bootError',
+                          'Could not connect to the TGS server:\n$_bootError',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 14,
@@ -1250,7 +1250,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                         const SizedBox(height: 16),
                         CupertinoButton.filled(
                           onPressed: _bootstrap,
-                          child: const Text('Thử lại'),
+                          child: const Text('Retry'),
                         ),
                       ],
                     ),
@@ -1476,7 +1476,7 @@ class _HeaderStatus extends StatelessWidget {
       final subtitle = catalog == null
           ? 'Connecting…'
           : store.inFlightDownloads > 0 || store.queuedDownloads > 0
-          ? 'HTTP tải ${store.inFlightDownloads + store.queuedDownloads} · ${catalog!.baseUri.authority}'
+          ? 'HTTP loading ${store.inFlightDownloads + store.queuedDownloads} · ${catalog!.baseUri.authority}'
           : 'HTTP ${catalog!.baseUri.authority} · DL ${store.networkDownloads} · Disk ${store.diskSourceHits}';
       return Column(
         mainAxisSize: MainAxisSize.min,
@@ -1641,7 +1641,7 @@ class _ComposerBar extends StatelessWidget {
               },
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => onSend(),
-              placeholder: 'Nhắn tin hoặc chèn emoji động…',
+              placeholder: 'Message or insert animated emoji…',
               placeholderStyle: TextStyle(
                 color: palette.textSecondary.withValues(alpha: 0.75),
                 fontSize: 15,
@@ -2072,6 +2072,8 @@ class _ChatMessageRow extends StatelessWidget {
     double emojiSize,
     Color placeholderColor,
   ) {
+    final stickerOnly = _containsOnlyStickersAndWhitespace(text, catalog);
+    final stickerSize = stickerOnly ? 40.0 : emojiSize;
     final spans = <InlineSpan>[];
     var cursor = 0;
     for (final match in _tokenOrPuaRegex.allMatches(text)) {
@@ -2097,7 +2099,7 @@ class _ChatMessageRow extends StatelessWidget {
             store: store,
             renderer: renderer,
             still: still,
-            size: emojiSize,
+            size: stickerSize,
             placeholderColor: placeholderColor,
           ),
         ),
@@ -2111,6 +2113,31 @@ class _ChatMessageRow extends StatelessWidget {
       spans.add(TextSpan(text: text));
     }
     return spans;
+  }
+
+  bool _containsOnlyStickersAndWhitespace(
+    String text,
+    TgsRemoteCatalog catalog,
+  ) {
+    var cursor = 0;
+    var foundSticker = false;
+    for (final match in _tokenOrPuaRegex.allMatches(text)) {
+      final token = match.group(0)!;
+      final TgsRemoteItem? item;
+      if (token.startsWith(':')) {
+        item = catalog.shortcodeMap[token];
+      } else {
+        final idx = token.codeUnitAt(0) - EmojiComposerController.puaBase;
+        item = (idx >= 0 && idx < catalog.emojis.length)
+            ? catalog.emojis[idx]
+            : null;
+      }
+      if (item == null) continue;
+      if (text.substring(cursor, match.start).trim().isNotEmpty) return false;
+      foundSticker = true;
+      cursor = match.end;
+    }
+    return foundSticker && text.substring(cursor).trim().isEmpty;
   }
 }
 
@@ -2504,7 +2531,7 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Tải thất bại · Chạm để thử lại',
+                      'Download failed · Tap to retry',
                       style: TextStyle(
                         fontSize: 12,
                         color: widget.secondaryTextColor,
@@ -2529,7 +2556,7 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
                   const CupertinoActivityIndicator(radius: 12),
                   const SizedBox(height: 8),
                   Text(
-                    'Đang tải ${(widget.item.bytes / 1024).toStringAsFixed(0)} KB…',
+                    'Loading ${(widget.item.bytes / 1024).toStringAsFixed(0)} KB…',
                     style: TextStyle(
                       fontSize: 11.5,
                       color: widget.secondaryTextColor,

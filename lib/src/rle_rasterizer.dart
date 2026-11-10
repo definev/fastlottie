@@ -28,6 +28,7 @@ class _RasterWorkspace {
   final _layerChain = <_Layer?>[];
   final _trimLengthsPool = <Float64List>[];
   final _Float64Scratch _cumLengths = _Float64Scratch();
+  late final _StrokeScratch _strokeScratch = _StrokeScratch();
 
   Float64List _acquireTrimLengths(int depth, int count) {
     while (_trimLengthsPool.length <= depth) {
@@ -1177,7 +1178,7 @@ void _renderCompilerInto(
     final bh = by1 - by0;
     final boxPixels = bw * bh;
 
-    final layerBuf = ws._acquireScratch(depth * 2, boxPixels);
+    final layerBuf = ws._acquireScratch(depth * 3, boxPixels);
     layerBuf.fillRange(0, boxPixels, 0);
     _renderLayerInto(
       layer,
@@ -1202,7 +1203,7 @@ void _renderCompilerInto(
       depth + 1,
     );
 
-    final matteBuf = ws._acquireScratch(depth * 2 + 1, boxPixels);
+    final matteBuf = ws._acquireScratch(depth * 3 + 1, boxPixels);
     matteBuf.fillRange(0, boxPixels, 0);
     _renderLayerInto(
       matte,
@@ -1397,7 +1398,9 @@ void _renderLayerInto(
 
   final child = layer.child;
   if (child != null) {
-    final childFrame = frame - layer.offset;
+    final childFrame = layer.timeRemap != null
+        ? layer.timeRemap!.scalar(frame) * child.fps - child.start
+        : (frame - layer.offset) / layer.stretch;
     final cw = child.width, ch = child.height;
     // Axis-aligned clip rect when no rotation/skew (cb == 0 && cc == 0), else precomp scratch.
     if (cb.abs() < 1e-9 && cc.abs() < 1e-9) {
@@ -1441,7 +1444,7 @@ void _renderLayerInto(
       final ry1 = math.min(clipY1, _transformedMaxY(Rect.fromLTWH(0, 0, cw, ch), cb, cd, cty).ceil() + 1);
       if (rx0 < rx1 && ry0 < ry1) {
         final bw = rx1 - rx0, bh = ry1 - ry0;
-        final preBuf = ws._acquireScratch(depth * 2 + 2, bw * bh);
+        final preBuf = ws._acquireScratch(depth * 3 + 2, bw * bh);
         preBuf.fillRange(0, bw * bh, 0);
         _renderCompilerInto(
           child,
@@ -1648,6 +1651,7 @@ void _renderStyleInto(
       style.miter,
       localFlatness,
       expanded,
+      ws._strokeScratch,
     );
     finalLocalPoly = expanded;
     if (finalLocalPoly.contourCount == 0) return;
@@ -1865,9 +1869,9 @@ void _flattenLeaf(_PathSource src, double frame, double flatnessSq, _PolyPath ou
     var closed = src.closed;
     var closingCurve = src.closed;
     if (src.closures.isNotEmpty) {
-      if (frame <= src.track.keys.first.time) {
+      if (frame <= src.track.keyframes!.times.first) {
         closed = closingCurve = src.closures.first.$1;
-      } else if (frame >= src.track.keys.last.time) {
+      } else if (frame >= src.track.keyframes!.times.last) {
         closed = closingCurve = src.closures.last.$1;
       } else {
         final (startClosed, endClosed) = src.closures[src.track._cursor];
@@ -2243,6 +2247,15 @@ void _applyDash(
   }
 }
 
+/// One growable SoA scratch set per worker. Contours are expanded sequentially,
+/// so neither point buffers nor tangent buffers need to survive the call.
+class _StrokeScratch {
+  final _Float64Scratch x = _Float64Scratch();
+  final _Float64Scratch y = _Float64Scratch();
+  final _Float64Scratch tx = _Float64Scratch();
+  final _Float64Scratch ty = _Float64Scratch();
+}
+
 void _expandStroke(
   _PolyPath src,
   double hw,
@@ -2251,6 +2264,7 @@ void _expandStroke(
   double miterLimit,
   double flatness,
   _PolyPath dst,
+  _StrokeScratch scratch,
 ) {
   if (hw <= 0) return;
   final miterSq = miterLimit * miterLimit;
@@ -2281,22 +2295,21 @@ void _expandStroke(
     if (nPts <= 0) continue;
     final closed = src.contourClosed[k] == 1;
 
-    // Collect non-duplicate segments (dx, dy, len, tx, ty, nx, ny).
-    final ptsX = <double>[];
-    final ptsY = <double>[];
+    // Compact adjacent duplicate vertices into reusable typed columns.
+    final ptsX = scratch.x.ensure(nPts);
+    final ptsY = scratch.y.ensure(nPts);
+    var n = 0;
     for (var i = start; i < end; i++) {
       final px = src.vx[i], py = src.vy[i];
-      if (ptsX.isEmpty || (px - ptsX.last).abs() + (py - ptsY.last).abs() >= 1e-6) {
-        ptsX.add(px);
-        ptsY.add(py);
+      if (n == 0 || (px - ptsX[n - 1]).abs() + (py - ptsY[n - 1]).abs() >= 1e-6) {
+        ptsX[n] = px;
+        ptsY[n++] = py;
       }
     }
-    if (closed && ptsX.length > 1 &&
-        (ptsX.first - ptsX.last).abs() + (ptsY.first - ptsY.last).abs() < 1e-6) {
-      ptsX.removeLast();
-      ptsY.removeLast();
+    if (closed && n > 1 &&
+        (ptsX[0] - ptsX[n - 1]).abs() + (ptsY[0] - ptsY[n - 1]).abs() < 1e-6) {
+      n--;
     }
-    final n = ptsX.length;
     if (n == 0) continue;
     if (n == 1) {
       final cx = ptsX[0], cy = ptsY[0];
@@ -2321,10 +2334,8 @@ void _expandStroke(
     }
 
     final segCount = closed ? n : n - 1;
-    final tx = Float64List(segCount);
-    final ty = Float64List(segCount);
-    final nx = Float64List(segCount);
-    final ny = Float64List(segCount);
+    final tx = scratch.tx.ensure(segCount);
+    final ty = scratch.ty.ensure(segCount);
     for (var s = 0; s < segCount; s++) {
       final sNext = (s + 1) % n;
       final dx = ptsX[sNext] - ptsX[s];
@@ -2334,8 +2345,9 @@ void _expandStroke(
         final utx = dx / len, uty = dy / len;
         tx[s] = utx;
         ty[s] = uty;
-        nx[s] = -uty;
-        ny[s] = utx;
+      } else {
+        tx[s] = 0;
+        ty[s] = 0;
       }
     }
 
@@ -2399,7 +2411,7 @@ void _expandStroke(
       // Open contour: +N forward side -> end cap -> -N reverse side -> start cap.
       dst.beginContour(true);
       // Start point on +N side.
-      final s0x = ptsX[0] + hw * nx[0], s0y = ptsY[0] + hw * ny[0];
+      final s0x = ptsX[0] + hw * (-ty[0]), s0y = ptsY[0] + hw * tx[0];
       if (cap == 3) {
         dst.addVertex(s0x - hw * tx[0], s0y - hw * ty[0]);
       } else {
@@ -2412,8 +2424,8 @@ void _expandStroke(
       // End cap at vertex n-1.
       final lastS = segCount - 1;
       final ex = ptsX[n - 1], ey = ptsY[n - 1];
-      final ePlusX = ex + hw * nx[lastS], ePlusY = ey + hw * ny[lastS];
-      final eMinusX = ex - hw * nx[lastS], eMinusY = ey - hw * ny[lastS];
+      final ePlusX = ex + hw * (-ty[lastS]), ePlusY = ey + hw * tx[lastS];
+      final eMinusX = ex - hw * (-ty[lastS]), eMinusY = ey - hw * tx[lastS];
       if (cap == 3) {
         dst.addVertex(ePlusX + hw * tx[lastS], ePlusY + hw * ty[lastS]);
         dst.addVertex(eMinusX + hw * tx[lastS], eMinusY + hw * ty[lastS]);
@@ -2433,7 +2445,7 @@ void _expandStroke(
       }
       // Start cap at vertex 0.
       final sx = ptsX[0], sy = ptsY[0];
-      final sMinusX = sx - hw * nx[0], sMinusY = sy - hw * ny[0];
+      final sMinusX = sx - hw * (-ty[0]), sMinusY = sy - hw * tx[0];
       if (cap == 3) {
         dst.addVertex(sMinusX - hw * tx[0], sMinusY - hw * ty[0]);
       } else if (cap == 2) {
@@ -2512,38 +2524,34 @@ final class _ContentKeyHasher {
       }
       return;
     }
-    _mixInt(t.keys.length);
-    for (final k in t.keys) {
-      _mixDouble(k.time);
-      _mixInt(k.hold ? 1 : 0);
-      _mixInt(k.start.length);
-      for (var i = 0; i < k.start.length; i++) {
-        _mixDouble(k.start[i]);
+    final data = t.keyframes!;
+    _mixInt(data.count);
+    final values = data.values;
+    final controls = data.easing;
+    for (var key = 0; key < data.count; key++) {
+      _mixDouble(data.times[key]);
+      _mixInt(data.isHold(key) ? 1 : 0);
+      _mixInt(data.width);
+      final start = key * data.stride;
+      for (var i = 0; i < data.width; i++) {
+        _mixDouble(values[start + i]);
       }
-      final e = k.end;
-      if (e != null) {
-        _mixInt(e.length);
-        for (var i = 0; i < e.length; i++) {
-          _mixDouble(e[i]);
+      if (data.hasEnd(key)) {
+        _mixInt(data.width);
+        final end = data.endOffset(key);
+        for (var i = 0; i < data.width; i++) {
+          _mixDouble(values[end + i]);
         }
       }
-      _mixInt(k.eases.length);
-      for (final ease in k.eases) {
-        _mixDouble(ease.x1);
-        _mixDouble(ease.y1);
-        _mixDouble(ease.x2);
-        _mixDouble(ease.y2);
+      final easeCount = data.easeCount(key);
+      _mixInt(easeCount);
+      final easeStart = data.easeOffset(key);
+      for (var i = easeStart; i < easeStart + 4 * easeCount; i++) {
+        _mixDouble(controls[i]);
       }
-      final to = k.to;
-      if (to != null) {
-        for (var i = 0; i < to.length; i++) {
-          _mixDouble(to[i]);
-        }
-      }
-      final ti = k.ti;
-      if (ti != null) {
-        for (var i = 0; i < ti.length; i++) {
-          _mixDouble(ti[i]);
+      if (data.hasTangents(key)) {
+        for (var i = 0; i < 4; i++) {
+          _mixDouble(data.tangents![key * 4 + i]);
         }
       }
     }

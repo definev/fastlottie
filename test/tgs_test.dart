@@ -25,7 +25,7 @@ Future<List<String>> _compareAgainstLottie(
   final reference = LottieDrawable(
     LottieComposition.parseJsonBytes(raw),
     frameRate: FrameRate.max,
-  );
+  )..enableMergePaths = true;
   final failures = <String>[];
   try {
     for (final fraction in fractions) {
@@ -158,7 +158,7 @@ void main() {
   );
   test('background compilation preserves unsupported-op JSON paths', () async {
     final raw = fixture('icon');
-    raw['layers'][0]['shapes'].add({'ty': 'mm'});
+    raw['layers'][0]['shapes'].add({'ty': 'zz'});
     await expectLater(
       FastLottieComposition.fromBytesAsync(bytes(raw)),
       throwsA(
@@ -231,6 +231,8 @@ void main() {
         final isPrecompOverflow = file.path.endsWith(
           'Topics-1794247486249/file_4798728.tgs',
         );
+        final isDolphinOverflow = file.path.endsWith('emoji_u1f42c.tgs');
+        final isHedgehogOverflow = file.path.endsWith('emoji_u1f994.tgs');
         if (isSpatialMetricOutlier) {
           failures.addAll(
             await _compareAgainstLottie(
@@ -251,17 +253,21 @@ void main() {
               fileName: '${file.uri.pathSegments.last}_linear',
             ),
           );
-        } else if (isPrecompOverflow) {
-          // `file_4798728.tgs` maps precomp `comp_0` via `st=-112` past `op=180`
-          // (`[20, 300]`). `package:lottie` clamps child frames to root `[0, 180)`,
-          // while fastlottie and native `rlottie` match; verify non-clamped fractions
-          // here and all frames (including frame 107 / 0.6) against native `rlottie`
-          // in `test/rlottie_features_test.dart`.
+        } else if (isPrecompOverflow || isDolphinOverflow || isHedgehogOverflow) {
+          // `file_4798728.tgs` maps precomp `comp_0` via `st=-112` past `op=180`,
+          // `emoji_u1f42c.tgs` maps `comp_0` via `sr=0.9` past `op=110`,
+          // and `emoji_u1f994.tgs` maps `comp_0` via `tm` past `op=132`.
+          // `package:lottie` clamps child frames to root duration, while fastlottie
+          // and native `rlottie` match.
           failures.addAll(
             await _compareAgainstLottie(
               file.path,
               raw,
-              fractions: const [0.0, .1, .25, .75, .9, .95],
+              fractions: isHedgehogOverflow
+                  ? const [0.0, .1, .25, .6]
+                  : isDolphinOverflow
+                  ? const [0.0, .1, .25, .75]
+                  : const [0.0, .1, .25, .75, .9, .95],
               saveImagesOnFailure: dump,
               fileName: file.uri.pathSegments.last,
             ),
@@ -322,7 +328,7 @@ void main() {
     }
     // ignore: avoid_print
     print('TGS_AUDIT $accepted native, $rejected unsupported');
-    expect(accepted, 775);
-    expect(rejected, 288);
+    expect(accepted, 959);
+    expect(rejected, 104);
   });
 }

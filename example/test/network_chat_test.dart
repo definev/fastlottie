@@ -411,7 +411,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(find.byType(CupertinoActionSheet), findsOneWidget);
-      await tester.tap(find.text('Chuyển sang Giao diện Sáng'));
+      await tester.tap(find.text('Switch to Light Mode'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(tester.takeException(), isNull);
