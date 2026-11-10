@@ -44,15 +44,21 @@ void main() {
       addTearDown(() => server.close(force: true));
 
       final catalog = await fetchRemoteTgsCatalog(server.baseUri);
-      expect(catalog.packs.length, 5);
+      expect(catalog.packs.length, 6);
       expect(catalog.stickers.length, 94);
-      expect(catalog.emojis.length, 88);
-      expect(catalog.shortcodeMap.length, 88);
+      expect(catalog.emojis.length, 969);
+      expect(catalog.shortcodeMap.length, 969);
+      expect(catalog.emojiPacks.map((p) => p.id), containsAll(['NotoEmoji', 'Topics-1794247486249']));
       expect(catalog.shortcodeMap.containsKey(':studio_microphone:'), isTrue);
       expect(catalog.shortcodeMap.containsKey(':nail_polish:'), isTrue);
       expect(catalog.shortcodeMap.containsKey(':writing_hand:'), isTrue);
       expect(catalog.shortcodeMap.containsKey(':brain:'), isTrue);
       expect(catalog.shortcodeMap.containsKey(':cat2:'), isTrue);
+      expect(catalog.shortcodeMap.containsKey(':smile:'), isTrue);
+      expect(catalog.shortcodeMap.containsKey(':heart_eyes:'), isTrue);
+      expect(catalog.shortcodeMap.containsKey(':partying_face:'), isTrue);
+      expect(catalog.shortcodeMap.containsKey(':thumbs_up:'), isTrue);
+      expect(catalog.shortcodeMap.containsKey(':heart_on_fire:'), isTrue);
       for (final emoji in catalog.emojis) {
         expect(emoji.shortcode, matches(RegExp(r'^:[a-z0-9_]+:$')));
       }
@@ -67,7 +73,7 @@ void main() {
           jsonDecode(await utf8.decodeStream(healthResp)) as Map<String, dynamic>;
       expect(healthJson['ok'], isTrue);
       expect(healthJson['stickers'], 94);
-      expect(healthJson['emojis'], 88);
+      expect(healthJson['emojis'], 969);
 
       final firstUri = catalog.stickers.first.uri;
       final tgsReq = await client.getUrl(firstUri);
@@ -303,6 +309,7 @@ void main() {
       await tester.pump();
       expect(find.byKey(const ValueKey('sticker-picker-panel')), findsOneWidget);
       expect(find.byKey(const ValueKey('sticker-picker-grid')), findsOneWidget);
+      expect(find.byKey(const ValueKey('picker-tab-NotoEmoji')), findsOneWidget);
 
       // Switch to Emoji tab, tap first emoji to insert 1-char PUA token with inline animated sticker.
       await tester.tap(find.byKey(const ValueKey('picker-tab-__emoji__')));
@@ -585,7 +592,7 @@ void main() {
         addTearDown(controller.dispose);
 
         // Verify charForEmoji maps each emoji deterministically to exactly 1 UTF-16 code unit
-        expect(catalog.emojis.length, 88);
+        expect(catalog.emojis.length, 969);
         for (var i = 0; i < catalog.emojis.length; i++) {
           final char = controller.charForEmoji(catalog.emojis[i])!;
           expect(char.length, 1);

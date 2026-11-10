@@ -28,6 +28,7 @@ Future<List<String>> loadTgsCatalog(AssetBundle bundle) async {
             (p) =>
                 p.startsWith('assets/tgs/') &&
                 !p.contains('/Topics-') &&
+                !p.contains('/NotoEmoji/') &&
                 p.endsWith('.tgs'),
           )
           .toList()

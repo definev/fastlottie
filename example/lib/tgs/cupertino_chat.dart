@@ -460,7 +460,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       widget.store ??
       NetworkTgsStore(
         httpConcurrency: 6,
-        decodeConcurrency: 2,
+        decodeConcurrency: 3,
         batchSize: 2,
         framePaced: true,
         maximumEntries: 256,
@@ -632,29 +632,29 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     final earlierSamples = <(bool outgoing, String text)>[
       (
         false,
-        '${sc(':tada:', 0)} Chào mừng đến với màn hình chat TGS qua HTTP local server!',
+        '${sc(':tada:', 0)} Chào mừng đến với màn hình chat TGS qua HTTP local server! ${sc(':partying_face:', 0)}',
       ),
       (
         true,
-        'Mọi file `.tgs` (cả 88 emoji trong Topics pack ${sc(':zap:', 1)} ${sc(':fire:', 2)} và bộ sticker) đều được tải qua mạng từ local HTTP server.',
+        'Mọi file `.tgs` (gồm 60 Noto Emoji ${sc(':smile:', 0)} ${sc(':heart_eyes:', 0)} ${sc(':rofl:', 0)}, 88 Topics Emoji ${sc(':zap:', 1)} ${sc(':fire:', 2)} và bộ sticker) đều được tải qua mạng từ local HTTP server.',
       ),
       (
         false,
-        'Khi cuộn nhanh ở khay sticker: HTTP queue (tối đa 6 luồng) tự abort socket những sticker vừa cuộn khỏi màn hình ${sc(':iphone:', 7)} và giữ giải mã vector tách biệt trên Isolate.',
+        'Khi cuộn nhanh ở khay sticker: HTTP queue (tối đa 6 luồng) tự abort socket những sticker vừa cuộn khỏi màn hình ${sc(':iphone:', 7)} và giữ giải mã vector tách biệt trên Isolate ${sc(':exploding_head:', 0)}.',
       ),
       (
         true,
-        'Thumbnail ở grid & emoji nội tuyến ${sc(':bulb:', 4)} ${sc(':brain:', 37)} chạy qua Ping-Pong RLE + LZ4 `.flcache` ở 30 FPS.',
+        'Thumbnail ở grid & emoji nội tuyến ${sc(':bulb:', 4)} ${sc(':heart_on_fire:', 0)} ${sc(':sparkles:', 0)} chạy qua Ping-Pong RLE + LZ4 `.flcache` ở 30 FPS.',
       ),
       (
         false,
-        'Còn sticker gửi thẳng vào khung chat sẽ nhảy hàng đợi ưu tiên và render bằng Vector Impeller trực tiếp, không đánh đổi độ nét hay FPS ${sc(':trophy:', 12)}',
+        'Còn sticker gửi thẳng vào khung chat sẽ nhảy hàng đợi ưu tiên và render bằng Vector Impeller trực tiếp, không đánh đổi độ nét hay FPS ${sc(':trophy:', 12)} ${sc(':thumbs_up:', 0)}',
       ),
     ];
 
     // Older messages above so the user can scroll up cleanly through chat history.
     const fillerTopics = <String>[
-      'HTTP GET /catalog trả về 5 bộ pack và 88 Topics emoji động.',
+      'HTTP GET /catalog trả về 6 bộ pack cùng 148 Topics & Noto emoji động.',
       'ETag + Cache-Control + URL `.tgsbin` disk cache giúp lần mở lại 0ms mạng.',
       'Trong menu góc phải bạn có thể giả lập mạng chậm 80ms / 220ms để quan sát loading placeholder.',
       'Nhấn giữ bất kỳ sticker hoặc emoji nào trong khay để xem trước kích thước lớn.',
@@ -707,7 +707,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       ChatMessage.text(
         id: 'seed_welcome_${_messageSeq++}',
         text:
-            '${sc(':studio_microphone:', 0)} Thử gõ tin nhắn kèm 88 emoji từ tab Emoji (${sc(':strawberry:', 40)} ${sc(':pizza:', 70)} ${sc(':brain:', 80)} ${sc(':cat2:', 87)}), hoặc chạm nút smiley bên dưới để mở khay sticker và gửi thử ngay nhé! ${sc(':star:', 3)}',
+            '${sc(':studio_microphone:', 0)} Thử gõ tin nhắn kèm Noto Emoji (${sc(':smile:', 0)} ${sc(':heart_eyes:', 0)} ${sc(':partying_face:', 0)} ${sc(':heart_on_fire:', 0)} ${sc(':thumbs_up:', 0)}) hoặc Topics Emoji (${sc(':strawberry:', 40)} ${sc(':pizza:', 70)} ${sc(':cat2:', 87)}), hay chạm nút smiley bên dưới để mở khay chọn nhé! ${sc(':sparkles:', 3)}',
         isOutgoing: true,
         timestamp: now.subtract(const Duration(minutes: 1)),
       ),
@@ -1131,6 +1131,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   _buildTabs(TgsRemoteCatalog catalog) => [
     (_DrawerTab.all, '__all__', 'Tất cả', catalog.stickers),
     (_DrawerTab.emoji, '__emoji__', 'Emoji', catalog.emojis),
+    for (final pack in catalog.emojiPacks)
+      (_DrawerTab.emoji, pack.id, pack.title, pack.items),
     for (final pack in catalog.stickerPacks)
       (_DrawerTab.pack, pack.id, pack.title, pack.items),
   ];
@@ -2212,6 +2214,9 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
       builder: (context, _) {
         final error = widget.sheet.errorFor(widget.item.urlString);
         if (error != null) {
+          if (error is UnsupportedLottieException) {
+            return const SizedBox.shrink();
+          }
           return GestureDetector(
             onTap: () => widget.sheet.retryAsset(widget.item.urlString),
             child: DecoratedBox(
@@ -2477,6 +2482,9 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
       builder: (context, snapshot) {
         final model = _lease.ready;
         if (snapshot.hasError) {
+          if (snapshot.error is UnsupportedLottieException) {
+            return const SizedBox.shrink();
+          }
           return DecoratedBox(
             decoration: BoxDecoration(
               color: widget.placeholderColor,

@@ -196,20 +196,24 @@ class LocalTgsServer {
     final packs = <TgsRemotePack>[];
     final assetMap = <String, _ServedAsset>{};
     final stickerPackLists = <List<TgsRemoteItem>>[];
-    final emojis = <TgsRemoteItem>[];
+    final topicEmojis = <TgsRemoteItem>[];
+    final otherEmojis = <TgsRemoteItem>[];
 
     for (final packId in sortedPackIds) {
       final entries = grouped[packId]!..sort((a, b) => a.$2.compareTo(b.$2));
-      final isEmoji = packId.startsWith('Topics-');
+      final isEmoji = isEmojiPackId(packId);
       final packTitle = friendlyPackTitle(packId);
       final items = <TgsRemoteItem>[];
       for (var i = 0; i < entries.length; i++) {
         final (key, fileName) = entries[i];
         final relativePath = '/tgs/$packId/$fileName';
         final size = await sizeForPath(key);
-        final meta = isEmoji ? topicEmojiMetadataByFile[fileName] : null;
+        final meta = isEmoji
+            ? (topicEmojiMetadataByFile[fileName] ??
+                  notoEmojiMetadataByFile[fileName])
+            : null;
         final shortcode = isEmoji
-            ? (meta?.shortcode ?? ':topic_${i + 1}:')
+            ? (meta?.shortcode ?? ':emoji_${i + 1}:')
             : null;
         final label = isEmoji
             ? (meta?.label ?? shortcode!.replaceAll(':', ''))
@@ -241,11 +245,16 @@ class LocalTgsServer {
         ),
       );
       if (isEmoji) {
-        emojis.addAll(items);
+        if (packId.startsWith('Topics-')) {
+          topicEmojis.addAll(items);
+        } else {
+          otherEmojis.addAll(items);
+        }
       } else {
         stickerPackLists.add(items);
       }
     }
+    final emojis = <TgsRemoteItem>[...topicEmojis, ...otherEmojis];
 
     // Interleave stickers across packs so browsing All showcases every style quickly.
     final stickers = <TgsRemoteItem>[];

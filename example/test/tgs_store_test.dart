@@ -7,7 +7,6 @@ import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie_example/tgs/store.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lottie/lottie.dart';
 
 class MemoryBundle extends CachingAssetBundle {
   final reads = <String>[];
@@ -298,29 +297,29 @@ void main() {
         )
         .map(File.new)
         .toList();
-    expect(files.length, 182);
-    var native = 0, fallback = 0;
+    expect(files.length, 1063);
+    var native = 0, unsupported = 0;
     for (final file in files) {
-      final parsed = await decodeTgs(file.readAsBytesSync(), false);
+      final TgsModel parsed;
+      try {
+        parsed = await decodeTgs(file.readAsBytesSync(), false);
+      } on UnsupportedLottieException {
+        unsupported++;
+        continue;
+      }
       final recorder = ui.PictureRecorder();
       final canvas = ui.Canvas(recorder);
-      if (parsed.fast != null) {
-        native++;
-        final player = FastLottiePlayer(parsed.fast!);
-        player.draw(canvas, const ui.Rect.fromLTWH(0, 0, 64, 64), .3);
-        player.dispose();
-      } else {
-        fallback++;
-        final reference = LottieDrawable(parsed.reference!)..setProgress(.3);
-        reference.draw(canvas, const ui.Rect.fromLTWH(0, 0, 64, 64));
-      }
+      native++;
+      final player = FastLottiePlayer(parsed.fast!);
+      player.draw(canvas, const ui.Rect.fromLTWH(0, 0, 64, 64), .3);
+      player.dispose();
       final picture = recorder.endRecording();
       final image = await picture.toImage(64, 64);
       image.dispose();
       picture.dispose();
     }
-    expect(native, 182);
-    expect(fallback, 0);
+    expect(native, 775);
+    expect(unsupported, 288);
   });
   test(
     'priority acquire jumps ahead of normal queue and promotes coalesced entries',

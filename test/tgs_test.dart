@@ -322,7 +322,7 @@ void main() {
     }
     // ignore: avoid_print
     print('TGS_AUDIT $accepted native, $rejected unsupported');
-    expect(accepted, 182);
-    expect(rejected, 0);
+    expect(accepted, 775);
+    expect(rejected, 288);
   });
 }

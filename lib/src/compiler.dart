@@ -59,10 +59,10 @@ class _Compiler {
     check(
       json,
       r'$',
-      'v fr ip op w h nm ddd assets layers markers meta fonts chars slots tgs comps fitz',
+      'v fr ip op w h nm ddd assets layers markers meta fonts chars slots tgs comps fitz props',
     );
     zero(json, 'ddd', r'$');
-    for (final key in ['fonts', 'chars', 'slots']) {
+    for (final key in ['fonts', 'chars', 'slots', 'props']) {
       empty(json, key, r'$');
     }
     width = number(json['w'], r'$.w');
@@ -98,14 +98,21 @@ class _Compiler {
       check(
         m,
         path,
-        'ddd ind ty nm sr st ip op ks shapes parent ao bm tt td tp masksProperties hasMask ef hd cl ln refId w h',
+        'ddd ind ty nm sr st ip op ks shapes parent ao bm tt td tp masksProperties hasMask ef hd cl ln refId w h ct',
       );
-      for (final key in ['ddd', 'ao', 'bm', 'tp', 'hasMask']) {
+      for (final key in ['ddd', 'ao', 'bm', 'hasMask']) {
         zero(m, key, path);
       }
       final matteType = m['tt'] ?? 0;
       if (matteType is! int || matteType < 0 || matteType > 4) {
         fail('$path.tt', 'Matte type');
+      }
+      if (m['tp'] != null && m['tp'] != 0) {
+        if (matteType == 0 ||
+            i == 0 ||
+            m['tp'] != (list[i - 1]['ind'] ?? (i - 1))) {
+          fail('$path.tp', 'Unsupported nonzero tp');
+        }
       }
       if (m['td'] != null && m['td'] != 0 && m['td'] != 1) {
         fail('$path.td', 'Matte source flag');
@@ -577,7 +584,7 @@ class _Compiler {
         case 'st':
         case 'gf':
         case 'gs':
-          check(m, p, 'ty nm mn ix hd c o r w lc lj ml d bm g s e t h a');
+          check(m, p, 'ty nm mn ix hd c o r w lc lj ml ml2 d bm g s e t h a');
           final stroke = type == 'st' || type == 'gs';
           if (stroke) {
             hasStroke = true;
