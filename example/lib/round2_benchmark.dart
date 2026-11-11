@@ -15,7 +15,6 @@ import 'mobile_benchmark.dart' show cacheStats, cpuTicks, profile;
 import 'tgs/cache_dir.dart';
 import 'tgs/gallery.dart';
 import 'tgs/store.dart';
-import 'tgs/telegram_demo.dart';
 import 'tgs_benchmark.dart' show stats;
 
 Future<Map<String, dynamic>> profileTimings({
@@ -95,7 +94,7 @@ Future<Map<String, dynamic>> benchmark() async {
     lease.release();
   }
   final result = <String, dynamic>{
-    'schema': 1,
+    'schema': 2,
     'release': kReleaseMode,
     'date_utc': DateTime.now().toUtc().toIso8601String(),
   };
@@ -216,132 +215,8 @@ Future<Map<String, dynamic>> benchmark() async {
     scroll.dispose();
   }
 
-  // 3. TelegramStickerDemo idle + sticker sent (320px large sticker)
-  {
-    await clearExampleDiskCache();
-    runApp(
-      MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: TelegramStickerDemo(
-          catalog: Future.value(assets),
-          store: store,
-        ),
-      ),
-    );
-    await WidgetsBinding.instance.endOfFrame;
-    await Future<void>.delayed(const Duration(milliseconds: 2500));
-    result['telegram_demo_idle'] = await profileTimings();
-    // Scroll the 5-column picker grid while topic/sheet warm up
-    final pickerEl = _findKey(
-      WidgetsBinding.instance.rootElement,
-      const Key('sticker-picker-grid'),
-    );
-    final pickerScrollable = _findType<ScrollableState>(pickerEl);
-    result['telegram_demo_picker_scroll'] = await profilePositionTimings(
-      pickerScrollable?.position,
-      scrollDelta: -18,
-    );
-    // Tap sticker to send a 320px large vector sticker
-    final buttonEl = _findKey(
-      WidgetsBinding.instance.rootElement,
-      const ValueKey('send-sticker-0'),
-    );
-    final gesture = buttonEl?.widget as GestureDetector?;
-    gesture?.onTap?.call();
-    await WidgetsBinding.instance.endOfFrame;
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    result['telegram_demo_with_sent_320px'] = await profileTimings();
-    runApp(const SizedBox());
-    await WidgetsBinding.instance.endOfFrame;
-  }
-
   store.dispose();
   return result;
-}
-
-T? _findType<T extends State>(Element? root) {
-  if (root == null) return null;
-  if (root is StatefulElement && root.state is T) return root.state as T;
-  T? match;
-  root.visitChildren((child) {
-    match ??= _findType<T>(child);
-  });
-  return match;
-}
-
-Future<Map<String, dynamic>> profilePositionTimings(
-  ScrollPosition? position, {
-  double scrollDelta = -24,
-}) async {
-  final done = Completer<Map<String, dynamic>>();
-  final build = <double>[],
-      raster = <double>[],
-      total = <double>[],
-      vsync = <int>[];
-  final watch = Stopwatch()..start();
-  final startCpu = cpuTicks();
-  var observed = 0;
-  void timings(List<FrameTiming> batch) {
-    if (done.isCompleted) return;
-    for (final timing in batch) {
-      if (observed++ < 30) continue;
-      build.add(timing.buildDuration.inMicroseconds.toDouble());
-      raster.add(timing.rasterDuration.inMicroseconds.toDouble());
-      total.add(timing.totalSpan.inMicroseconds.toDouble());
-      vsync.add(timing.timestampInMicroseconds(FramePhase.vsyncStart));
-      if (vsync.length == 90) {
-        done.complete({
-          'samples': 90,
-          'warmup_frames': 30,
-          'build': stats(build),
-          'raster': stats(raster),
-          'total': stats(total),
-          'submitted_frames_per_second':
-              (vsync.length - 1) * 1000000 / (vsync.last - vsync.first),
-          'cpu_ticks_including_warmup': startCpu == null
-              ? null
-              : cpuTicks()! - startCpu,
-          'wall_us_including_warmup': watch.elapsedMicroseconds,
-        });
-        return;
-      }
-    }
-  }
-
-  SchedulerBinding.instance.addTimingsCallback(timings);
-  final drag = position?.drag(
-    DragStartDetails(globalPosition: Offset.zero),
-    () {},
-  );
-  final ticker = Ticker((_) {
-    drag?.update(
-      DragUpdateDetails(
-        globalPosition: Offset.zero,
-        delta: Offset(0, scrollDelta),
-        primaryDelta: scrollDelta,
-      ),
-    );
-  })..start();
-  try {
-    return await done.future.timeout(
-      const Duration(seconds: 25),
-      onTimeout: () => {'timeout': true, 'observed': observed},
-    );
-  } finally {
-    ticker.dispose();
-    drag?.cancel();
-    SchedulerBinding.instance.removeTimingsCallback(timings);
-  }
-}
-
-Element? _findKey(Element? root, Key key) {
-  if (root == null) return null;
-  if (root.widget.key == key) return root;
-  Element? match;
-  root.visitChildren((child) {
-    match ??= _findKey(child, key);
-  });
-  return match;
 }
 
 class _EvictionStressGrid extends StatefulWidget {
@@ -435,7 +310,11 @@ class _CellState extends State<_Cell> {
   void _initProgress() {
     final c = lease.ready?.fast;
     if (c != null) {
-      progress = _ClockProgress(widget.clock, c.endFrame - c.startFrame, c.frameRate);
+      progress = _ClockProgress(
+        widget.clock,
+        c.endFrame - c.startFrame,
+        c.frameRate,
+      );
     } else {
       progress = const AlwaysStoppedAnimation(0);
     }

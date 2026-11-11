@@ -4,14 +4,19 @@ import 'dart:typed_data';
 import 'lz4.dart';
 import 'platform_stub.dart' if (dart.library.io) 'platform_io.dart';
 
-/// Deterministic filename-safe cache key for `(contentKey, pixelSize, totalFrames, poster)`.
+/// Deterministic filename-safe cache key for `(contentKey, pixelSize, sourceFrameCount)`.
+///
+/// Keyed by the composition's source frame count (`1` when static, else
+/// `composition.frameCount`) rather than the consumer's `maximumFrameRate` step
+/// or `poster` mode, so poster (`frame 0`), 24 FPS, 30 FPS, and 60 FPS players
+/// at the same pixel resolution share one `.flcache` file and RAM LRU slots.
 String formatBitstreamEntryKey(
   String contentKey,
   int width,
   int height,
-  int totalFrames,
-  bool poster,
-) => '${contentKey}_${width}x${height}_f$totalFrames${poster ? '_p' : ''}';
+  int sourceFrameCount, [
+  bool poster = false,
+]) => '${contentKey}_${width}x${height}_f$sourceFrameCount';
 
 final class _RamFrame {
   _RamFrame({

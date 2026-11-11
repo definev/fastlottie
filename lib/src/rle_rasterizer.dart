@@ -771,6 +771,16 @@ class _FtScanlineRasterizer {
 
 /// 64-bit SWAR premultiplied BGRA8888 (`(A << 24) | (R << 16) | (G << 8) | B`) blenders.
 abstract final class _SwarBlender {
+  /// Exact 16.16 fixed-point reciprocal table for un-premultiplying `0..255`
+  /// channels by `alpha` (`1..255`): `((c * _invAlphaLut[a]) >> 16) == (c * 255) ~/ a`.
+  static final Uint32List _invAlphaLut = () {
+    final lut = Uint32List(256);
+    for (var a = 1; a < 256; a++) {
+      lut[a] = ((255 << 16) + a - 1) ~/ a;
+    }
+    return lut;
+  }();
+
   static int premulBgra(int a, int r, int g, int b) {
     if (a == 0) return 0;
     if (a == 255) return (0xFF << 24) | (r << 16) | (g << 8) | b;
@@ -957,6 +967,15 @@ abstract final class _SwarBlender {
     final ry = ey - sy;
     final radius = math.max(0.001, math.sqrt(rx * rx + ry * ry));
     final invRadius = 1.0 / radius;
+    // Normalize affine step into unit-radius space so t = sqrt(dSq) directly.
+    final nia = ia * invRadius;
+    final nib = ib * invRadius;
+    final nic = ic * invRadius;
+    final nid = id * invRadius;
+    final nitx = (itx - sx) * invRadius;
+    final nity = (ity - sy) * invRadius;
+    final stepSq = nia * nia + nib * nib;
+    final step2 = 2.0 * stepSq;
     final count = spans.spanCount * 2;
     final data = spans.data;
     final modulateAlpha = opacity255 < 255;
@@ -970,19 +989,99 @@ abstract final class _SwarBlender {
       final cov = (w1 & 0xFF) + 1;
       final py = wy + 0.5;
       final px = wx + 0.5;
-      var dx = ia * px + ic * py + itx - sx;
-      var dy = ib * px + id * py + ity - sy;
+      final dx0 = nia * px + nic * py + nitx;
+      final dy0 = nib * px + nid * py + nity;
+      // 2nd-order forward differencing of D^2(k) = (dx0 + k*nia)^2 + (dy0 + k*nib)^2.
+      var dSq = dx0 * dx0 + dy0 * dy0;
+      var step1 = 2.0 * (dx0 * nia + dy0 * nib) + stepSq;
       final row = (wy - dstOriginY) * stride + (wx - dstOriginX);
       final end = row + len;
-      for (var p = row; p < end; p++) {
-        final t = math.sqrt(dx * dx + dy * dy) * invRadius;
-        final clamped = t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt();
-        var c = lut1024[clamped];
-        if (modulateAlpha) c = scalePremul255(c, opacity255);
-        if (cov < 256) c = scalePremul(c, cov);
-        dst[p] = blendSrcOver(c, dst[p]);
-        dx += ia;
-        dy += ib;
+      var p = row;
+      if (cov == 256 && !modulateAlpha) {
+        final simdEnd = end - 3;
+        while (p < simdEnd) {
+          final s0 = dSq > 0.0 ? dSq : 0.0;
+          dSq += step1;
+          step1 += step2;
+          final s1 = dSq > 0.0 ? dSq : 0.0;
+          dSq += step1;
+          step1 += step2;
+          final s2 = dSq > 0.0 ? dSq : 0.0;
+          dSq += step1;
+          step1 += step2;
+          final s3 = dSq > 0.0 ? dSq : 0.0;
+          dSq += step1;
+          step1 += step2;
+          final t4 = Float32x4(s0, s1, s2, s3).sqrt();
+          final t0 = t4.x, t1 = t4.y, t2 = t4.z, t3 = t4.w;
+          final c0 = t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt();
+          final c1 = t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt();
+          final c2 = t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt();
+          final c3 = t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt();
+          dst[p] = blendSrcOver(lut1024[c0], dst[p]);
+          dst[p + 1] = blendSrcOver(lut1024[c1], dst[p + 1]);
+          dst[p + 2] = blendSrcOver(lut1024[c2], dst[p + 2]);
+          dst[p + 3] = blendSrcOver(lut1024[c3], dst[p + 3]);
+          p += 4;
+        }
+        while (p < end) {
+          final t = math.sqrt(dSq > 0.0 ? dSq : 0.0);
+          final clamped = t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt();
+          dst[p] = blendSrcOver(lut1024[clamped], dst[p]);
+          dSq += step1;
+          step1 += step2;
+          p++;
+        }
+      } else {
+        final simdEnd = end - 3;
+        while (p < simdEnd) {
+          final s0 = dSq > 0.0 ? dSq : 0.0;
+          dSq += step1;
+          step1 += step2;
+          final s1 = dSq > 0.0 ? dSq : 0.0;
+          dSq += step1;
+          step1 += step2;
+          final s2 = dSq > 0.0 ? dSq : 0.0;
+          dSq += step1;
+          step1 += step2;
+          final s3 = dSq > 0.0 ? dSq : 0.0;
+          dSq += step1;
+          step1 += step2;
+          final t4 = Float32x4(s0, s1, s2, s3).sqrt();
+          final t0 = t4.x, t1 = t4.y, t2 = t4.z, t3 = t4.w;
+          var c0 = lut1024[t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt()];
+          var c1 = lut1024[t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt()];
+          var c2 = lut1024[t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt()];
+          var c3 = lut1024[t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt()];
+          if (modulateAlpha) {
+            c0 = scalePremul255(c0, opacity255);
+            c1 = scalePremul255(c1, opacity255);
+            c2 = scalePremul255(c2, opacity255);
+            c3 = scalePremul255(c3, opacity255);
+          }
+          if (cov < 256) {
+            c0 = scalePremul(c0, cov);
+            c1 = scalePremul(c1, cov);
+            c2 = scalePremul(c2, cov);
+            c3 = scalePremul(c3, cov);
+          }
+          dst[p] = blendSrcOver(c0, dst[p]);
+          dst[p + 1] = blendSrcOver(c1, dst[p + 1]);
+          dst[p + 2] = blendSrcOver(c2, dst[p + 2]);
+          dst[p + 3] = blendSrcOver(c3, dst[p + 3]);
+          p += 4;
+        }
+        while (p < end) {
+          final t = math.sqrt(dSq > 0.0 ? dSq : 0.0);
+          final clamped = t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt();
+          var c = lut1024[clamped];
+          if (modulateAlpha) c = scalePremul255(c, opacity255);
+          if (cov < 256) c = scalePremul(c, cov);
+          dst[p] = blendSrcOver(c, dst[p]);
+          dSq += step1;
+          step1 += step2;
+          p++;
+        }
       }
     }
   }
@@ -1248,11 +1347,13 @@ void _renderCompilerInto(
             var g = (mPx >>> 8) & 0xFF;
             var b = mPx & 0xFF;
             if (mAlpha != 255) {
-              r = (r * 255) ~/ mAlpha;
-              g = (g * 255) ~/ mAlpha;
-              b = (b * 255) ~/ mAlpha;
+              final inv = _SwarBlender._invAlphaLut[mAlpha];
+              r = (r * inv) >>> 16;
+              g = (g * inv) >>> 16;
+              b = (b * inv) >>> 16;
             }
-            final lum = (0.299 * r + 0.587 * g + 0.114 * b).toInt().clamp(0, 255);
+            // Division-free BT.601 integer luminance: 0.299*65536=19595, 0.587*65536=38470, 0.114*65536=7471.
+            final lum = ((19595 * r + 38470 * g + 7471 * b) >>> 16).clamp(0, 255);
             factor = isDstOut ? (255 - lum) : lum;
           }
         }
@@ -1610,6 +1711,19 @@ void _renderStyleInto(
     if (strokeWidth <= 0) return;
   }
 
+  // Early bounding-box clip culling before Bézier flattening, dash, or stroke expansion.
+  final localBounds = style.drawBounds(frame);
+  if (localBounds == null) return;
+  final bx0 = _transformedMinX(localBounds, ma, mc, mtx).floor() - 2;
+  final by0 = _transformedMinY(localBounds, mb, md, mty).floor() - 2;
+  final bx1 = _transformedMaxX(localBounds, ma, mc, mtx).ceil() + 2;
+  final by1 = _transformedMaxY(localBounds, mb, md, mty).ceil() + 2;
+  final effClipX0 = math.max(clipX0, bx0);
+  final effClipY0 = math.max(clipY0, by0);
+  final effClipX1 = math.min(clipX1, bx1);
+  final effClipY1 = math.min(clipY1, by1);
+  if (effClipX0 >= effClipX1 || effClipY0 >= effClipY1) return;
+
   // Determine screen-aware curve flatness tolerance in local units.
   final scaleX = math.sqrt(ma * ma + mb * mb);
   final scaleY = math.sqrt(mc * mc + md * md);
@@ -1666,10 +1780,10 @@ void _renderStyleInto(
     devicePoly,
     evenOdd,
     ws._spans,
-    clipX0,
-    clipY0,
-    clipX1,
-    clipY1,
+    effClipX0,
+    effClipY0,
+    effClipX1,
+    effClipY1,
   );
   var spans = ws._spans;
   if (clipMask != null) {
@@ -2268,24 +2382,50 @@ void _expandStroke(
 ) {
   if (hw <= 0) return;
   final miterSq = miterLimit * miterLimit;
-  final arcStepsMin = 4;
+  final sagittaTol = math.max(0.12, flatness * 0.5);
 
-  void addArc(double cx, double cy, double x0, double y0, double x1, double y1, bool ccw) {
-    final a0 = math.atan2(y0 - cy, x0 - cx);
-    var sweep = math.atan2(y1 - cy, x1 - cx) - a0;
-    if (ccw) {
-      if (sweep <= 0) sweep += 2 * math.pi;
-    } else {
-      if (sweep >= 0) sweep -= 2 * math.pi;
+  // Trigonometry-free recursive unit-normal bisection for round joins and caps.
+  // Bisects the arc from unit normal (nx0, ny0) to (nx1, ny1) (< 180 degrees)
+  // around (cx, cy) with radius hw without calling atan2, acos, cos, or sin.
+  void addNormalArc(
+    double cx,
+    double cy,
+    double nx0,
+    double ny0,
+    double nx1,
+    double ny1,
+    int depth,
+  ) {
+    var mx = nx0 + nx1;
+    var my = ny0 + ny1;
+    final lenSq = mx * mx + my * my;
+    if (lenSq > 1e-12 && depth < 5) {
+      final invLen = 1.0 / math.sqrt(lenSq);
+      mx *= invLen;
+      my *= invLen;
+      final sagitta = hw * (1.0 - (nx0 * mx + ny0 * my));
+      if (depth < 2 || sagitta > sagittaTol) {
+        addNormalArc(cx, cy, nx0, ny0, mx, my, depth + 1);
+        dst.addVertex(cx + hw * mx, cy + hw * my);
+        addNormalArc(cx, cy, mx, my, nx1, ny1, depth + 1);
+        return;
+      }
     }
-    final chordSteps = (sweep.abs() / (2 * math.acos((1 - flatness / math.max(hw, 0.5)).clamp(-1.0, 1.0))))
-        .ceil()
-        .clamp(arcStepsMin, 32);
-    for (var i = 1; i < chordSteps; i++) {
-      final ang = a0 + sweep * (i / chordSteps);
-      dst.addVertex(cx + hw * math.cos(ang), cy + hw * math.sin(ang));
+    if (depth == 0) {
+      dst.addVertex(cx + hw * nx1, cy + hw * ny1);
     }
-    dst.addVertex(x1, y1);
+  }
+
+  void emitNormalArc(
+    double cx,
+    double cy,
+    double nx0,
+    double ny0,
+    double nx1,
+    double ny1,
+  ) {
+    addNormalArc(cx, cy, nx0, ny0, nx1, ny1, 0);
+    dst.addVertex(cx + hw * nx1, cy + hw * ny1);
   }
 
   for (var k = 0; k < src.contourCount; k++) {
@@ -2314,13 +2454,13 @@ void _expandStroke(
     if (n == 1) {
       final cx = ptsX[0], cy = ptsY[0];
       if (cap == 2) {
-        // Round dot.
-        final steps = (2 * math.pi * hw / math.max(0.25, flatness)).ceil().clamp(8, 32);
+        // Round dot via 4 quadrant normal-bisection arcs (zero trig calls).
         dst.beginContour(true);
-        for (var i = 0; i < steps; i++) {
-          final a = 2 * math.pi * i / steps;
-          dst.addVertex(cx + hw * math.cos(a), cy + hw * math.sin(a));
-        }
+        dst.addVertex(cx + hw, cy);
+        emitNormalArc(cx, cy, 1.0, 0.0, 0.0, 1.0);
+        emitNormalArc(cx, cy, 0.0, 1.0, -1.0, 0.0);
+        emitNormalArc(cx, cy, -1.0, 0.0, 0.0, -1.0);
+        emitNormalArc(cx, cy, 0.0, -1.0, 1.0, 0.0);
         dst.endContour();
       } else if (cap == 3) {
         dst.beginContour(true);
@@ -2383,7 +2523,13 @@ void _expandStroke(
         dst.addVertex(vx + (n0x + n1x) * scale, vy + (n0y + n1y) * scale);
       } else if (join == 2) {
         dst.addVertex(oaX, oaY);
-        addArc(vx, vy, oaX, oaY, obX, obY, false);
+        if (dot < -0.999) {
+          // Near-180 degree U-turn: split into two 90-degree normal arcs via tangent u0.
+          emitNormalArc(vx, vy, n0x, n0y, u0x, u0y);
+          emitNormalArc(vx, vy, u0x, u0y, n1x, n1y);
+        } else {
+          emitNormalArc(vx, vy, n0x, n0y, n1x, n1y);
+        }
       } else {
         dst.addVertex(oaX, oaY);
         dst.addVertex(obX, obY);
@@ -2424,17 +2570,17 @@ void _expandStroke(
       // End cap at vertex n-1.
       final lastS = segCount - 1;
       final ex = ptsX[n - 1], ey = ptsY[n - 1];
-      final ePlusX = ex + hw * (-ty[lastS]), ePlusY = ey + hw * tx[lastS];
-      final eMinusX = ex - hw * (-ty[lastS]), eMinusY = ey - hw * tx[lastS];
+      final utxLast = tx[lastS], utyLast = ty[lastS];
+      final ePlusX = ex + hw * (-utyLast), ePlusY = ey + hw * utxLast;
+      final eMinusX = ex - hw * (-utyLast), eMinusY = ey - hw * utxLast;
       if (cap == 3) {
-        dst.addVertex(ePlusX + hw * tx[lastS], ePlusY + hw * ty[lastS]);
-        dst.addVertex(eMinusX + hw * tx[lastS], eMinusY + hw * ty[lastS]);
+        dst.addVertex(ePlusX + hw * utxLast, ePlusY + hw * utyLast);
+        dst.addVertex(eMinusX + hw * utxLast, eMinusY + hw * utyLast);
       } else if (cap == 2) {
         dst.addVertex(ePlusX, ePlusY);
-        // Round semicircle via two quarter-turn segments or single 180 arc through tip.
-        final tipX = ex + hw * tx[lastS], tipY = ey + hw * ty[lastS];
-        addArc(ex, ey, ePlusX, ePlusY, tipX, tipY, false);
-        addArc(ex, ey, tipX, tipY, eMinusX, eMinusY, false);
+        // Round semicircle via two quarter-turn normal bisections through tip.
+        emitNormalArc(ex, ey, -utyLast, utxLast, utxLast, utyLast);
+        emitNormalArc(ex, ey, utxLast, utyLast, utyLast, -utxLast);
       } else {
         dst.addVertex(ePlusX, ePlusY);
         dst.addVertex(eMinusX, eMinusY);
@@ -2445,14 +2591,14 @@ void _expandStroke(
       }
       // Start cap at vertex 0.
       final sx = ptsX[0], sy = ptsY[0];
-      final sMinusX = sx - hw * (-ty[0]), sMinusY = sy - hw * tx[0];
+      final utx0 = tx[0], uty0 = ty[0];
+      final sMinusX = sx - hw * (-uty0), sMinusY = sy - hw * utx0;
       if (cap == 3) {
-        dst.addVertex(sMinusX - hw * tx[0], sMinusY - hw * ty[0]);
+        dst.addVertex(sMinusX - hw * utx0, sMinusY - hw * uty0);
       } else if (cap == 2) {
         dst.addVertex(sMinusX, sMinusY);
-        final tipX = sx - hw * tx[0], tipY = sy - hw * ty[0];
-        addArc(sx, sy, sMinusX, sMinusY, tipX, tipY, false);
-        addArc(sx, sy, tipX, tipY, s0x, s0y, false);
+        emitNormalArc(sx, sy, uty0, -utx0, -utx0, -uty0);
+        emitNormalArc(sx, sy, -utx0, -uty0, -uty0, utx0);
       } else {
         dst.addVertex(sMinusX, sMinusY);
       }

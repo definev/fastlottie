@@ -44,8 +44,8 @@ track RGB × 8 key, không phải số byte heap của một sticker hay toàn b
 python3 tool/benchmark_data_layout.py \
   --reference /absolute/path/to/before-snapshot \
   --candidate /absolute/path/to/after-snapshot \
-  --output docs/data-layout-kernels.json
-python3 tool/run_benchmark.py --output docs/data-layout-release-after.json
+  --output /tmp/fastlottie-layout-kernels.json
+python3 tool/run_benchmark.py --output /tmp/fastlottie-layout-release.json
 flutter test
 dart analyze lib test/packed_track_test.dart
 ```

@@ -1,5 +1,8 @@
 # Mở rộng feature theo rlottie — 2026-11-09
 
+Ghi chú lịch sử cho mốc 89/94 sticker. Xem [ops được hỗ trợ](supported-ops.md)
+cho phạm vi hiện tại.
+
 Mục tiêu của đợt này là tăng coverage bộ 94 TGS đang có, dựa trên feature thực sự
 được xử lý trong `rlottie-master`. Không nhúng C++/FFI vào runtime Flutter. Các
 feature local rlottie không xử lý sẽ không được triển khai chỉ để tăng số accept.
@@ -75,7 +78,7 @@ feature đầu tiên compiler gặp; một file có thể còn chứa các featu
   được ghi trên ô. Không chỉ kiểm tra compiler accept.
 - Runtime macOS debug: hot restart thành công qua DTD, `get_runtime_errors` trả
   về `No runtime errors found`. Không kiểm tra UI trực tiếp ở đợt này vì Mac đang
-  khóa; kiểm tra scroll bằng UI trong `tgs-grid.md` thuộc đợt triển khai trước.
+  khóa; kiểm tra scroll bằng UI thuộc đợt triển khai trước.
 
 ## Chạy oracle native
 

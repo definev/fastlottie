@@ -16,6 +16,9 @@ import 'network_store.dart';
 import 'pressure.dart';
 import 'sheet.dart';
 import 'store.dart';
+import 'web_support_stub.dart'
+    if (dart.library.js_interop) 'web_support.dart'
+    as web_support;
 
 enum ChatRendererMode { fastlottie, lottie }
 
@@ -541,6 +544,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       final explicitCatalog = widget.initialCatalog;
       if (explicitCatalog != null) {
         catalog = await explicitCatalog;
+      } else if (kIsWeb) {
+        catalog = await web_support.loadBundledTgsCatalog();
       } else {
         const defineUrl = String.fromEnvironment('TGS_SERVER_URL');
         final external =
@@ -632,11 +637,11 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     final earlierSamples = <(bool outgoing, String text)>[
       (
         false,
-        '${sc(':tada:', 0)} Welcome to the TGS chat demo, powered by a local HTTP server! ${sc(':partying_face:', 0)}',
+        '${sc(':tada:', 0)} Welcome to the TGS chat demo! ${sc(':partying_face:', 0)}',
       ),
       (
         true,
-        'Every `.tgs` file (including 60 Noto Emoji ${sc(':smile:', 0)} ${sc(':heart_eyes:', 0)} ${sc(':rofl:', 0)}, 88 Topics Emoji ${sc(':zap:', 1)} ${sc(':fire:', 2)}, and the sticker packs) is served over the network by the local HTTP server.',
+        'This catalog has ${catalog.stickers.length} stickers and ${catalog.emojis.length} animated emoji. Try ${sc(':smile:', 0)} or ${sc(':fire:', 2)} in a message.',
       ),
       (
         false,
@@ -654,7 +659,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
     // Older messages above so the user can scroll up cleanly through chat history.
     const fillerTopics = <String>[
-      'HTTP GET /catalog returns 6 packs and 148 animated Topics and Noto emoji.',
+      'Open the picker to browse sticker packs and animated emoji.',
       'ETag, Cache-Control, and the `.tgsbin` disk cache make repeat visits network-free.',
       'Use the menu in the top-right corner to simulate 80 ms or 220 ms network latency and see the loading placeholders.',
       'Long-press any sticker or emoji in the tray to preview it at full size.',

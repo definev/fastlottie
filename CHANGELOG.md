@@ -1,5 +1,11 @@
 ## Unreleased
 
+- Cupertino chat is the default Flutter example. It loads stickers and
+  animated emoji over HTTP, with a separate asset gallery for benchmarks.
+- Shared raster playback uses double-buffered ping-pong caching, worker
+  rasterization and compressed RAM/disk storage.
+- Precompositions support stretch and time remapping. Solid layers are supported.
+
 - Schedule gallery frames from live consumer sample rates; suppress duplicate
   painter samples, preserve fractional sampling, remove duplicate grid boundaries
   and avoid repeated raster admission scans while budget remains pinned/full.
@@ -18,15 +24,11 @@
 
 - Two explicit renderer choices only: fastlottie/lottie, without automatic fallback.
 - Animated skew/axis, compiled content-property expression references and Layer
-  Control support; all 94 bundled TGS now render natively.
+  Control support; all 94 stickers in the comparison gallery render natively.
 - Raw LoD keeps every visible animation playing while scrolling.
 
-- Shared bounded raster cache, incremental and GPU on-demand strategies, optional
-  fixed spatial LoD via resolutionScale, and one-frame poster caching.
-  Removed per-clip adaptive resolution/maximumEntryBytes; total memory remains bounded.
-- Android/iOS example defaults to LoD for all visible stickers, including during
-  scroll. Minimal UI contains only the fastlottie/lottie selector and grid.
-  Workload presets remain internal; background/reduced-motion suspend playback.
+- The gallery benchmark uses a fixed resolution scale and a bounded cache.
+  Workload presets remain internal; background and reduced motion suspend playback.
 - Physical Pixel 7a release harness with separate UI/raster timings, cache/CPU
   counters, thermal metadata and deterministic benchmark cleanup.
 
@@ -37,16 +39,12 @@
 - Precomp, spatial position, nonuniform stroke and linear/radial gradient support.
 - Trim paths (simultaneous/individual), animated stroke dashes, four adjacent
   matte modes, reversed rectangles and closure-changing morphs following rlottie.
-  Native TGS coverage increases to 89/94; the five expression/skew/effects files
-  keep labelled fallback, since these features are outside local rlottie's scope.
-- Optional native rlottie pixel oracle and 712 TGS differential samples.
+  Pixel checks use a differential TGS suite and an optional native rlottie oracle.
 - Release TGS parsing/cache and warm-grid measurements against lottie 3.8.2.
 
 - Raster preparation accepts logical sizes and an explicit device pixel ratio,
   rounds physical allocations up without stretching fractional content, and
   accounts for the actual pixel allocation in its memory budget.
-- Demo rebuilds raster caches on DPR/size changes and uses picture rendering when
-  a full-resolution raster cache would exceed its budget.
 
 ## 0.1.0
 

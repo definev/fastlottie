@@ -374,4 +374,110 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'canonical source-frame indexing shares .flcache and RAM frames across poster and different frame rates',
+    (tester) async {
+      final tempDir = Directory.systemTemp.createTempSync('fastlottie_canonical_');
+      addTearDown(() {
+        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      });
+
+      final json = fixture('icon')
+        ..['fr'] = 60
+        ..['op'] = 12;
+      final comp = FastLottieComposition.fromJson(json);
+
+      final cache = FastLottieRasterCache.pingPong(
+        diskCacheDirectory: tempDir.path,
+        workerCount: 1,
+      );
+      final posterPlayer = FastLottiePlayer(
+        comp,
+        rasterCache: cache,
+        rasterMode: FastLottieRasterMode.poster,
+      );
+      final halfRatePlayer = FastLottiePlayer(
+        comp,
+        rasterCache: cache,
+        maximumFrameRate: 30,
+      );
+      final fullRatePlayer = FastLottiePlayer(comp, rasterCache: cache);
+      addTearDown(() {
+        posterPlayer.dispose();
+        halfRatePlayer.dispose();
+        fullRatePlayer.dispose();
+        cache.dispose();
+      });
+
+      // 1. Render frame 0 in poster mode -> rasterizes source frame 0 once.
+      _record(posterPlayer, 0.0, size: 48);
+      await _drainPingPong(tester, cache);
+      expect(cache.vectorRasterizedFrames, 1);
+
+      // 2. Render frame 0 in 30 FPS and 60 FPS players -> hits shared compressed cache for source frame 0!
+      final beforeHits = cache.compressedCacheHits;
+      _record(halfRatePlayer, 0.0, size: 48);
+      await _drainPingPong(tester, cache);
+      _record(fullRatePlayer, 0.0, size: 48);
+      await _drainPingPong(tester, cache);
+
+      expect(cache.compressedCacheHits, greaterThan(beforeHits));
+      // Only 1 .flcache file is created on disk for all three modes.
+      final flcacheFiles = tempDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.flcache'))
+          .toList();
+      expect(flcacheFiles.length, 1);
+    },
+  );
+
+  testWidgets(
+    '2-lane priority queue promotes/prioritizes cold frames over low-priority lookahead prefetches under tight queue budget',
+    (tester) async {
+      final compA = FastLottieComposition.fromJson(
+        fixture('icon')..['op'] = 10,
+      );
+      final compB = FastLottieComposition.fromJson(
+        fixture('features')..['op'] = 10,
+      );
+      final compC = FastLottieComposition.fromJson(
+        fixture('many_shapes')..['op'] = 10,
+      );
+
+      final cache = FastLottieRasterCache.pingPong(
+        maximumPendingFrames: 1,
+        workerCount: 1,
+      );
+      final pa = FastLottiePlayer(compA, rasterCache: cache);
+      final pb = FastLottiePlayer(compB, rasterCache: cache);
+      final pc = FastLottiePlayer(compC, rasterCache: cache);
+      addTearDown(() {
+        pa.dispose();
+        pb.dispose();
+        pc.dispose();
+        cache.dispose();
+      });
+
+      // Warm pa so its next draw schedules a low-priority lookahead prefetch,
+      // then immediately request cold frames on pb and pc under maximumPendingFrames: 1.
+      _record(pa, 0.0, size: 48);
+      await _drainPingPong(tester, cache);
+
+      _record(pa, 0.0, size: 48);
+      _record(pb, 0.0, size: 48);
+      _record(pc, 0.0, size: 48);
+      await _drainPingPong(tester, cache);
+
+      // Pump once more so any deferred high-priority entry completes.
+      _record(pb, 0.0, size: 48);
+      _record(pc, 0.0, size: 48);
+      await _drainPingPong(tester, cache);
+
+      expect(cache.lastError, isNull);
+      expect(cache.entries, 3);
+      expect(cache.vectorRasterizedFrames, greaterThanOrEqualTo(3));
+    },
+  );
 }

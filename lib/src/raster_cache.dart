@@ -255,13 +255,15 @@ class FastLottieRasterCache {
       }
     }
     if (!fits()) return null;
+    final sourceFrames = c.isStatic ? 1 : math.max(1, c.frameCount);
     entry = _RasterEntry(
       key,
       weight,
       poster,
       totalFrames: count,
+      sourceFrames: sourceFrames,
       frameStep: step,
-      entryKey: formatBitstreamEntryKey(c.contentKey, pw, ph, count, poster),
+      entryKey: formatBitstreamEntryKey(c.contentKey, pw, ph, sourceFrames),
       composition: c,
     )..lastTouched = ++_touchSeq;
     _entries[key] = entry;
@@ -435,6 +437,7 @@ class _RasterEntry {
     this.weight,
     this.poster, {
     required this.totalFrames,
+    required this.sourceFrames,
     required this.frameStep,
     required this.entryKey,
     required this.composition,
@@ -444,6 +447,7 @@ class _RasterEntry {
   final int weight;
   final bool poster;
   final int totalFrames;
+  final int sourceFrames;
   final double frameStep;
   final String entryKey;
   final FastLottieComposition composition;
@@ -462,4 +466,5 @@ class _RasterEntry {
   int pendingFrameIndex = -1;
   bool hasPlayedAdvance = false;
   bool queuedForPingPong = false;
+  bool queuedHighPriority = false;
 }

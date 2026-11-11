@@ -13,8 +13,8 @@ Từ root:
 python3 tool/generate_fixtures.py
 flutter test
 flutter analyze
-python3 tool/run_benchmark.py --device macos --output docs/benchmark-macos.json
-python3 tool/run_benchmark.py --device DEVICE_ID --output docs/benchmark-device.json
+python3 tool/run_benchmark.py --device macos --output /tmp/fastlottie-macos.json
+python3 tool/run_benchmark.py --device DEVICE_ID --output /tmp/fastlottie-device.json
 ```
 
 Harness bắt buộc Flutter **release/AOT**. File JSON có thông tin Flutter/Dart/OS,
@@ -28,7 +28,15 @@ Code đo nằm trong `example/lib/benchmark/`; asset trong `example/assets/`.
 Kết quả đã lưu bên dưới thuộc source snapshot trước bản sửa DPR (xem SHA-256 trong
 raw JSON), dùng raster resolution cố định 256×256 và DPR context=1 cho cả hai renderer.
 Không dùng các số này để suy ra hiệu năng hoặc memory của cache Retina/DPR 2–3.
-Bản sửa DPR được kiểm tra bằng pixel/widget tests; chưa đo lại benchmark HiDPI.
+Xem [DPR và raster preparation](dpr-raster.md) để tính dung lượng hiện tại.
+
+Benchmark hiện bật SIMD theo mặc định; `fast_scalar_uncached` chạy riêng cho
+fixture `morph`. Các số scalar/SIMD bên dưới thuộc lần đo cũ.
+
+Xem [các target TGS](../example/README.md#comparison-targets) để chạy workload
+sticker. Các snapshot lịch sử gồm [TGS 76/94](tgs-benchmark-macos.json),
+[TGS 89/94](rlottie-features.md#release-benchmark-sau-khi-mở-rộng) và
+[các lần đo Android](android-performance.md).
 
 ## Các phép đo riêng biệt
 
@@ -73,12 +81,8 @@ thiết bị. Những file ngoài subset bị reject, không có số đo có ý
 Picture cache giảm CPU nhưng vẫn raster vector; CPU nhanh hơn không tự động
 nghĩa là tổng frame nhanh hơn. Raster prewarm là đường playback rẻ nhất khi frame
 và resolution nằm trong budget. Đổi lại là latency khởi tạo, memory và giới hạn
-resolution. SIMD opt-in chỉ có ích nếu đo pipeline trên đúng target; giữ scalar
-mặc định cho đến khi lợi ích ổn định.
-
-Pixel 7a được phát hiện khi bắt đầu nhưng đã ngắt kết nối trước khi chạy release
-(`docs/benchmark-pixel7a.log`: No supported devices). Chưa có số đo Android;
-không suy rộng kết quả macOS sang Android/iOS.
+resolution. Đo trên đúng workload và thiết bị khi chọn chế độ cache hoặc
+so sánh SIMD với scalar.
 
 <!-- MEASURED_RESULTS -->
 
@@ -115,6 +119,6 @@ Các mode fastlottie chậm hơn baseline >5% theo total median trong lần đo 
 | many_shapes | 1247 / 1058 | 20.50 | 15.00 MiB |
 | morph | 1074 / 2272 | 19.59 | 15.00 MiB |
 
-SIMD morph: scalar 60.83 µs, Float32x4 56.12 µs (1.08× scalar/SIMD). Giữ scalar mặc định; một lần đo chưa chứng minh lợi ích SIMD ổn định trên toàn pipeline hoặc trên thiết bị khác.
+SIMD morph: scalar 60.83 µs, Float32x4 56.12 µs (1.08× scalar/SIMD). Scalar là mặc định ở snapshot này. Một lần đo chưa chứng minh lợi ích SIMD ổn định trên toàn pipeline hoặc trên thiết bị khác.
 
 Các số này xác nhận có lợi ích CPU ở subset đã đo, đồng thời cho thấy GPU/raster vẫn có thể chi phối. Raster prewarm nên dùng cho vòng lặp ngắn vừa budget; vector phù hợp khi cần subframe, resize linh hoạt hoặc tránh prewarm latency.

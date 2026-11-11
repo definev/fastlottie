@@ -1,41 +1,28 @@
-# LoD cố định
+# Shared raster cache and LoD
 
-Chất lượng không gian chỉ có một tham số: `tgsLodScale` trong
-`example/lib/tgs/gallery.dart`. Giữ giá trị đang cấu hình trong code.
+`FastLottieRasterCache.pingPong` retains up to two images per active animation
+entry: the visible frame and a lookahead frame. Static compositions and
+`FastLottieRasterMode.poster` use a single image. A cold or rejected entry can
+still draw through fastlottie's vector renderer.
 
-```text
-pixel raster = kích thước nội dung hiển thị × DPR × tgsLodScale
-```
+The cache scales the fitted physical size by `resolutionScale`. At scale 0.5
+it uses half the width and height, about one quarter of the pixels. Longer
+clips do not change the scale. Widgets get DPR from `MediaQuery`; direct
+`FastLottiePlayer.draw` callers can pass `devicePixelRatio`.
 
-Scale 0.2 dùng 20% mỗi chiều, khoảng 4% số pixel so với raster đầy đủ. Số frame,
-độ dài clip và cache còn trống không tự thay đổi scale. Đã bỏ API
-`maximumEntryBytes` và tính toán tự giảm nét theo budget từng clip.
+`maximumFrameRate` caps the number of timeline samples per second without
+slowing playback. Omit it to use the source rate. Players can override the
+shared cache's resolution and frame rate. The comparison gallery's LoD preset
+uses scale 0.5 and up to 30 FPS (see
+[gallery.dart](../example/lib/tgs/gallery.dart)).
 
-Cache chung vẫn giới hạn 64 MiB RGBA/reservation. Reserve đủ cycle để tránh xóa
-frame liên tục giữa các vòng lặp; số frame chỉ ảnh hưởng khả năng nhận cache và
-bộ nhớ. Entry đang dùng được pin; entry không còn dùng có thể bị evict. Nếu không
-đủ budget, player vẽ vector bằng cùng renderer. Đây không phải giới hạn toàn bộ
-heap/GPU memory.
+`maximumBytes` defaults to 32 MiB and limits retained image payload and
+reservations. It does not measure total process or GPU memory. Compressed
+frames in RAM and optional `.flcache` files on disk have separate budgets.
+Entries in use are pinned; a player can retry admission after a cache
+invalidation or when budget becomes available. Dispose a caller-owned cache
+when its players are finished.
 
-FPS cache lấy từ `tgsRasterFrameRate`; strategy giữ cấu hình trong gallery.
-Giới hạn FPS cache chỉ lấy mẫu timeline, không làm
-animation chạy chậm. Với incremental, frame chưa cache vẫn vẽ vector trong lúc
-chờ raster, nên scale cố định áp dụng cho ảnh đã cache.
-
-Cache key vẫn cần composition, kích thước pixel, animation/poster và frame để
-không dùng nhầm ảnh. Không còn thêm chiều budget từng clip để quyết định độ nét.
-
-Sau khi chỉnh các hằng số cần restart app để tạo lại cache. Chưa chạy benchmark
-hiệu năng cho thay đổi này; các số đo cũ thuộc cấu hình cũ.
-
-Scroll không điều khiển clock hoặc bật/tắt raster cache ở bất kỳ preset nào.
-LoD không có listener scroll của gallery. Preset Mobile chỉ dùng scroll để cập
-nhật cửa sổ 8 ô đang phát ngay khi đổi hàng; không chờ kết thúc scroll để chạy lại.
-Clock/cache chỉ chịu lifecycle, TickerMode và reduced motion như trước.
-Clock lấy tốc độ cần từ các consumer; progress của raster cache khớp tốc độ lấy
-mẫu để không repaint một bitmap nhiều lần. Xem [render work](flutter-render-work.md).
-
-Kiểm chứng cache trước đó: 8 test raster cache và 21 test example pass. Đợt bỏ
-scroll-clock: 9 test gallery pass, analyzer sạch; test kiểm tra clock/cache tiếp
-tục hoạt động khi kéo/fling, cùng việc cập nhật active window. Hot restart trên
-Pixel 7a thành công.
+For the rendering and storage pipeline, see [architecture](architecture.md).
+For prewarming all frames in one player instead, see [DPR and raster
+preparation](dpr-raster.md).

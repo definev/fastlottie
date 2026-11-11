@@ -1,63 +1,41 @@
 # Ops được hỗ trợ
 
-Phạm vi hiện tại: shape animation 2D, JSON hoặc TGS/gzip. Core không tự động fallback;
-`UnsupportedLottieException` chứa JSON path của feature không được hỗ trợ. Validate
-cả hidden content. Không cần package `lottie` trong runtime dependencies.
+Fastlottie hỗ trợ một phần Lottie 2D ở định dạng JSON và TGS/gzip. Compiler
+validate cả layer ẩn. Feature ngoài phạm vi báo `UnsupportedLottieException`
+kèm JSON path; core không tự chuyển sang renderer khác.
 
 | Nhóm | Hỗ trợ |
 | --- | --- |
-| Layer | Shape (`ty:4`), null (`ty:3`), precomp (`ty:0`) có clip/start offset, stacking, parent transform, hidden, ip/op; adjacent alpha/inverted-alpha/luma/inverted-luma matte (`tt:1..4`) |
-| Group | `gr`, nested group, `tr`, style scope theo thứ tự Lottie; trim path `tm` simultaneous (`m:1`) / individual (`m:2`) |
-| Geometry | `sh`: open/closed cubic Bézier; `rc`: rectangle + corner radius; `el`: ellipse |
-| Paint | `fl`/`st`: solid RGB + opacity, fill rule, stroke width/cap/join/miter; `gf`/`gs`: linear/radial gradient, animated color/opacity stops; animated stroke dash/gap/offset |
-| Transform | anchor, spatial position Bézier, split x/y, rotation, uniform/nonuniform scale, opacity, animated skew/axis; 2D |
-| Keyframe | static, hold, linear, temporal cubic Bézier; point-property easing theo component, transform position/scale dùng easing chung |
-| Morph | path cùng số vertex, interpolate cả v/i/o; closure có thể đổi theo keyframe với ngữ nghĩa segment của rlottie |
-| Color | interpolate sRGB qua linear space; endpoint RGB quantized 8-bit như baseline |
-| Playback | source FPS (default), fractional frames (opt-in), reverse seek, nonzero composition ip |
-| Layout | contain/cover/none/scaleDown/fitWidth/fitHeight/fill; stroke theo Canvas transform như baseline hiện tại |
+| Layer | Shape (`ty:4`), null (`ty:3`), solid (`ty:1`), precomp (`ty:0`); stacking, parent transform, hidden, ip/op; alpha/luma matte thường hoặc đảo từ layer liền trước (`tt:1..4`) |
+| Precomp | Child timeline dùng start offset `st` và stretch `sr` khác 0; `tm` tĩnh hoặc động ánh xạ thời gian tính theo giây và thay thế phép tính offset/stretch |
+| Group | `gr`, nested group, `tr`, style theo thứ tự Lottie; trim path simultaneous (`m:1`) và individual (`m:2`) |
+| Geometry | `sh`: open/closed cubic Bézier; `rc`: rectangle + corner radius; `el`: ellipse; `rc` và `el` hỗ trợ hướng đảo `d:3` |
+| Paint | `fl`/`st`: solid RGB, opacity, fill rule, stroke width/cap/join/miter; `gf`/`gs`: linear/radial gradient với stop màu/opacity động; stroke dash/gap/offset động |
+| Transform | Anchor, spatial position Bézier, split x/y, rotation, scale đều hoặc không đều, opacity, skew/axis động; 2D |
+| Keyframe | Static, hold, linear, temporal cubic Bézier; easing theo component trên một số point property |
+| Morph | Cùng số vertex; nội suy v/i/o; closure có thể đổi tại keyframe |
+| Controls | `ADBE Layer Control`; expression tham chiếu scale hoặc opacity qua `content(...)` trong cùng layer |
+| Playback | Source FPS, cap FPS của cache, subframe (opt-in), seek ngược, composition ip khác 0 |
+| Layout | contain/cover/none/scaleDown/fitWidth/fitHeight/fill; Canvas transform áp dụng cả lên stroke |
 
-Nonuniform stroke scaling được so lại với source lottie 3.8.2: baseline cũng concat
-Canvas matrix khi vẽ stroke. Vì vậy giới hạn uniform stroke của bản đầu đã được gỡ;
-Canvas backend có cùng ngữ nghĩa. Rectangle và ellipse hỗ trợ direction đảo `d=3`.
-Package lottie 3.8.2 bỏ qua rectangle direction và không render luma matte; các case
-này dùng kiểm tra pixel trực tiếp và oracle C++ rlottie, không giả định baseline
-hỗ trợ mọi feature. Xem `rlottie-features.md` để biết khác biệt cụ thể.
+Expression được resolve sang track đã compile; compiler từ chối target thiếu,
+trùng tên hoặc tham chiếu vòng gián tiếp. Parent opacity không nhân vào child
+qua quan hệ parent. Opacity thường áp dụng trên từng paint.
 
-Các ops còn bị từ chối: image/text/font, 3D, layer mask, visual effects (Layer Control có hỗ trợ), blend mode,
-repeater/merge/polystar, expression JavaScript ngoài cú pháp content-reference, slot, radial focal point,
-time remap/stretch, chained/nonadjacent matte và morph thay số vertex. Shape/null layer st là metadata;
-precomp dùng st để map child timeline. sr phải bằng 1. Parent opacity không nhân
-vào child parented layer. Opacity áp trên từng paint, như mặc định baseline
-`isApplyingOpacityToLayersEnabled=false`.
+Các feature ngoài phạm vi gồm image/text/font, 3D, layer mask, visual effects,
+blend mode, repeater/merge/polystar, JavaScript tùy ý, slot, radial focal point,
+matte không liền kề hoặc nối chuỗi, và morph đổi số vertex. Compiler chỉ nhận
+các field đã biết; một file dùng shape quen thuộc vẫn có thể bị từ chối vì
+feature ở layer, modifier hoặc asset khác.
 
-Example chỉ có fastlottie/lottie, không tự chuyển engine khi lỗi. Coverage **94/94
-native**; expression tham chiếu content scale/opacity và Layer Control đã bổ sung.
-Chi tiết ở `no-fallback.md`. Raw LoD vẫn chạy animation khi cuộn.
+## Kiểm tra coverage
 
-Các field metadata được allowlist (`meta`, `cl`, root `fitz`, v.v.); field mới không được biết cũng bị từ chối.
-Đây là subset chủ đích; một file có các shape quen thuộc vẫn có thể bị từ chối
-vì modifier, expression, hoặc dữ liệu asset khác ở root.
-
-## Độ đúng
-
-`test/fastlottie_test.dart` rasterize cùng frame bằng cả hai renderer. Bộ test
-bao gồm 5 fixture tạo trong project và 5 file thực trong rlottie resource:
-`gears`, `tile_grid_loading_animation`, `movie_loading`, `glow_loading`,
-`loading_animation`. Có seek ngược, subframes, cubic easing, color, opacity,
-parenting, fill rules, rounded rectangle, reverse ellipse, open path, sizing.
-
-Ngưỡng differential: mean absolute RGBA error < 0.65/255; tỷ lệ channel lệch hơn
-12/255 < 0.6%. Sai khác nhỏ ở antialiasing và integer rounding được cho phép.
-Raster cache ở đúng pixel size được kiểm tra bằng equality byte với vector output.
-Test corpus riêng compile toàn bộ resource và phân biệt accept/reject; chỉ những
-file trong differential tests mới được khẳng định đã so hình với baseline.
-
-
-Bộ TGS bổ sung: differential cả 94 file native × 8 frame (752 samples), global MAE
-<0.65/255, large-channel error <1.6%, flat-region MAE <0.5/255 để tách AA của artwork
-nhiều outline. Các fixture đơn giản giữ gate <0.6% như trước. Worker test parse và
-raster cả 94 file bằng đúng backend tương ứng, không chỉ audit tên ops.
-Oracle native tùy chọn kiểm tra 12 case × 9 frame trực tiếp với source rlottie.
-`rlottie-corpus-audit.json` ghi 34/93 resource compile/fork được; đây không phải
-khẳng định cả 34 đã có differential pixel tests.
+- Cả 94 sticker trong [gallery so sánh](tgs-grid.md) dùng được fastlottie.
+  Bộ này khác catalog chat, vốn có thêm Topics và Noto emoji.
+- `test/tgs_test.dart` audit 1.063 TGS được khai báo trong example: 959 được
+  chấp nhận, 104 bị từ chối. Differential test so các file được chấp nhận với
+  `lottie` 3.8.2; một số artwork cần ngưỡng hoặc sample riêng do khác biệt
+  giữa renderer.
+- Pixel probes và [oracle rlottie tùy chọn](rlottie-features.md#chạy-oracle-native)
+  kiểm tra các feature mà baseline Flutter không xử lý đầy đủ, như luma matte
+  và rectangle direction.

@@ -9,7 +9,9 @@ import java.util.zip.GZIPInputStream
 internal const val MAX_TGS_JSON_BYTES = 16 * 1024 * 1024
 
 internal fun interleaveTgsPacks(packs: Map<String, List<String>>): List<String> {
-    val sorted = packs.toSortedMap().values.map { files -> files.filter { it.endsWith(".tgs") }.sorted() }
+    val sorted = packs.toSortedMap()
+        .filterKeys { !it.startsWith("Topics-") && it != "NotoEmoji" }
+        .values.map { files -> files.filter { it.endsWith(".tgs") }.sorted() }
     return buildList {
         for (row in 0 until (sorted.maxOfOrNull { it.size } ?: 0)) {
             for (pack in sorted) pack.getOrNull(row)?.let { add(it) }

@@ -285,8 +285,8 @@ final List<String> defaultEmojiShortcodes = List<String>.unmodifiable([
     notoEmojiMetadataByFile[name]!.shortcode,
 ]);
 
-/// All 60 natively supported Google Animated Noto Emoji files (`NotoEmoji`),
-/// verified pixel-differentially against `package:lottie`.
+/// Curated Noto Emoji shortlist for default shortcodes. The server catalogs
+/// the whole bundled `NotoEmoji` directory.
 const List<String> bundledNotoEmojiFileNames = <String>[
   'emoji_u1f192.tgs',
   'emoji_u1f193.tgs',

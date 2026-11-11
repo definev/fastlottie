@@ -17,27 +17,38 @@ final class _PingPongCoordinator {
   final FastLottieRasterCache cache;
   final _RasterWorkerPool workerPool;
 
-  final _pendingQueue = LinkedHashSet<_RasterEntry>.identity();
+  final _highPriorityQueue = LinkedHashSet<_RasterEntry>.identity();
+  final _lowPriorityQueue = LinkedHashSet<_RasterEntry>.identity();
   final _activeDiskKeys = <String>{};
   int _activeJobs = 0;
   bool _disposed = false;
   bool _pumpScheduled = false;
 
   int get activeJobCount => _activeJobs;
-  int get pendingCount => _activeJobs + _pendingQueue.length;
+  int get pendingCount =>
+      _activeJobs + _highPriorityQueue.length + _lowPriorityQueue.length;
 
   void clearPending() {
-    for (final entry in _pendingQueue) {
+    for (final entry in _highPriorityQueue) {
       entry.queuedForPingPong = false;
+      entry.queuedHighPriority = false;
       entry.pendingFrameIndex = -1;
     }
-    _pendingQueue.clear();
+    for (final entry in _lowPriorityQueue) {
+      entry.queuedForPingPong = false;
+      entry.queuedHighPriority = false;
+      entry.pendingFrameIndex = -1;
+    }
+    _highPriorityQueue.clear();
+    _lowPriorityQueue.clear();
   }
 
   void onEntryReleased(_RasterEntry entry) {
     if (entry.queuedForPingPong) {
-      _pendingQueue.remove(entry);
+      _highPriorityQueue.remove(entry);
+      _lowPriorityQueue.remove(entry);
       entry.queuedForPingPong = false;
+      entry.queuedHighPriority = false;
     }
     entry.pendingFrameIndex = -1;
   }
@@ -140,7 +151,7 @@ final class _PingPongCoordinator {
 
     entry.desiredFrameIndex = index;
     if (cache._enabled && cache.lastError == null && !entry.retired) {
-      _requestFrame(entry, index);
+      _requestFrame(entry, index, highPriority: true);
     }
 
     // Once front buffer is valid, never block UI thread falling back to vectors.
@@ -158,10 +169,14 @@ final class _PingPongCoordinator {
       return;
     }
     if (entry.inFlightFrameIndex == nextIndex) return;
-    _requestFrame(entry, nextIndex);
+    _requestFrame(entry, nextIndex, highPriority: false);
   }
 
-  void _requestFrame(_RasterEntry entry, int frameIndex) {
+  void _requestFrame(
+    _RasterEntry entry,
+    int frameIndex, {
+    required bool highPriority,
+  }) {
     if (entry.inFlightFrameIndex == frameIndex) {
       entry.pendingFrameIndex = -1;
       return;
@@ -169,19 +184,33 @@ final class _PingPongCoordinator {
     if (entry.inFlightFrameIndex >= 0) {
       // Latest desire wins without growing a request backlog.
       entry.pendingFrameIndex = frameIndex;
+      if (highPriority) entry.queuedHighPriority = true;
       return;
     }
     if (_activeJobs >= cache.maximumInFlight) {
       entry.pendingFrameIndex = frameIndex;
       if (!entry.queuedForPingPong) {
-        if (_pendingQueue.length >= cache.maximumPendingFrames) {
-          final oldest = _pendingQueue.first;
-          _pendingQueue.remove(oldest);
+        final totalQueued =
+            _highPriorityQueue.length + _lowPriorityQueue.length;
+        if (totalQueued >= cache.maximumPendingFrames) {
+          // Prefer dropping a speculative lookahead prefetch before a cold/active entry.
+          final victimQueue = _lowPriorityQueue.isNotEmpty
+              ? _lowPriorityQueue
+              : _highPriorityQueue;
+          final oldest = victimQueue.first;
+          victimQueue.remove(oldest);
           oldest.queuedForPingPong = false;
+          oldest.queuedHighPriority = false;
           oldest.pendingFrameIndex = -1;
         }
         entry.queuedForPingPong = true;
-        _pendingQueue.add(entry);
+        entry.queuedHighPriority = highPriority;
+        (highPriority ? _highPriorityQueue : _lowPriorityQueue).add(entry);
+      } else if (highPriority && !entry.queuedHighPriority) {
+        // Promote a previously queued lookahead entry to the high-priority lane.
+        _lowPriorityQueue.remove(entry);
+        entry.queuedHighPriority = true;
+        _highPriorityQueue.add(entry);
       }
       return;
     }
@@ -199,7 +228,8 @@ final class _PingPongCoordinator {
     final c = entry.composition;
     final pw = entry.key.$2.width.toInt();
     final ph = entry.key.$2.height.toInt();
-    final sceneFrame = _sourceFrameForIndex(entry, frameIndex);
+    final sourceIndex = _sourceIndexForSample(entry, frameIndex);
+    final sceneFrame = c.startFrame + sourceIndex;
 
     entry.inFlightFrameIndex = frameIndex;
     _activeJobs++;
@@ -210,11 +240,11 @@ final class _PingPongCoordinator {
             composition: c,
             entryKey: entry.entryKey,
             frame: sceneFrame,
-            frameIndex: frameIndex,
+            frameIndex: sourceIndex,
             width: pw,
             height: ph,
-            totalFrames: entry.totalFrames,
-            poster: entry.poster,
+            totalFrames: entry.sourceFrames,
+            poster: false,
           )
           .then<void>(
             (result) {
@@ -356,7 +386,9 @@ final class _PingPongCoordinator {
     if (_activeJobs > 0) _activeJobs--;
     entry.inFlightFrameIndex = -1;
     final nextPending = entry.pendingFrameIndex;
+    final wasHigh = entry.queuedHighPriority;
     entry.pendingFrameIndex = -1;
+    entry.queuedHighPriority = false;
 
     if (scheduleFollowup &&
         !_disposed &&
@@ -368,7 +400,14 @@ final class _PingPongCoordinator {
         nextPending != entry.renderingFrameIndex &&
         !(entry.backgroundImage != null &&
             entry.backgroundFrameIndex == nextPending)) {
-      _requestFrame(entry, nextPending);
+      _requestFrame(
+        entry,
+        nextPending,
+        highPriority:
+            wasHigh ||
+            entry.renderingImage == null ||
+            nextPending == entry.desiredFrameIndex,
+      );
     }
     _pumpPending();
   }
@@ -377,7 +416,7 @@ final class _PingPongCoordinator {
     if (_disposed ||
         !cache._enabled ||
         cache.lastError != null ||
-        _pendingQueue.isEmpty ||
+        (_highPriorityQueue.isEmpty && _lowPriorityQueue.isEmpty) ||
         _activeJobs >= cache.maximumInFlight) {
       return;
     }
@@ -386,10 +425,15 @@ final class _PingPongCoordinator {
     scheduleMicrotask(() {
       _pumpScheduled = false;
       if (_disposed || !cache._enabled || cache.lastError != null) return;
-      while (_pendingQueue.isNotEmpty && _activeJobs < cache.maximumInFlight) {
-        final entry = _pendingQueue.first;
-        _pendingQueue.remove(entry);
+      while ((_highPriorityQueue.isNotEmpty || _lowPriorityQueue.isNotEmpty) &&
+          _activeJobs < cache.maximumInFlight) {
+        final queue = _highPriorityQueue.isNotEmpty
+            ? _highPriorityQueue
+            : _lowPriorityQueue;
+        final entry = queue.first;
+        queue.remove(entry);
         entry.queuedForPingPong = false;
+        entry.queuedHighPriority = false;
         if (entry.retired || entry.users.isEmpty) continue;
         final idx = entry.pendingFrameIndex >= 0
             ? entry.pendingFrameIndex
@@ -416,16 +460,16 @@ final class _PingPongCoordinator {
     }
   }
 
-  double _sourceFrameForIndex(_RasterEntry entry, int index) {
+  int _sourceIndexForSample(_RasterEntry entry, int index) {
     final c = entry.composition;
-    if (entry.poster || c.isStatic) return c.startFrame;
-    final relative = math
+    if (entry.poster || c.isStatic || entry.sourceFrames <= 1) return 0;
+    return math
         .min(
           index * entry.frameStep,
-          math.max(0.0, c.endFrame - c.startFrame - 1),
+          math.max(0.0, entry.sourceFrames - 1.0),
         )
-        .floorToDouble();
-    return c.startFrame + relative;
+        .floor()
+        .clamp(0, entry.sourceFrames - 1);
   }
 
   void clear({bool clearWorkerMemory = false}) {

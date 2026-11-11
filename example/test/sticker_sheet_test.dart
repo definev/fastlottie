@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie_example/tgs/gallery.dart';
-import 'package:fastlottie_example/tgs/rich_messages.dart';
 import 'package:fastlottie_example/tgs/sheet.dart';
 import 'package:fastlottie_example/tgs/store.dart';
 import 'package:flutter/services.dart';
@@ -35,9 +34,11 @@ void main() {
   testWidgets(
     'StickerSheet shares one ping-pong player per duplicate asset and unpins at zero pins',
     (tester) async {
+      final asset = (await tester.runAsync(() => loadTgsCatalog(rootBundle)))!
+          .first;
       final store = TgsStore();
       final sheet = StickerSheet(
-        assets: [topicEmojiAssets.first, topicEmojiAssets.first],
+        assets: [asset, asset],
         pixelSize: 56,
         store: store,
       );
@@ -46,7 +47,6 @@ void main() {
         store.dispose();
       });
 
-      final asset = topicEmojiAssets.first;
       sheet.acquirePin(asset);
       sheet.acquirePin(asset);
       for (var i = 0; i < 40 && sheet.activePlayers == 0; i++) {

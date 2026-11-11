@@ -7,10 +7,9 @@ import 'clock.dart';
 import 'store.dart';
 
 // Spatial and temporal quality caps for inline emojis and 5-column picker cells.
-final stickerThumbnailPixels = (56 * 2).toInt();
+const stickerThumbnailPixels = 112;
 const stickerThumbnailFrameRate = 30.0;
 const stickerSheetBytes = 64 * 1024 * 1024;
-const stickerSheetCount = 100;
 
 /// Coordinates ping-pong players and lazy TGS model acquisition per unique asset.
 /// All animations sharing the same asset/size deduplicate to a single double-buffered

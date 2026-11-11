@@ -94,7 +94,7 @@ sequenceDiagram
         PP-->>Player: Trả về renderingImage cũ (nếu có) hoặc null (để Tier C vẽ vector)
     end
 
-    PP->>Pool: renderFrame(entryKey, frame=N hoặc N+1)
+    PP->>Pool: renderFrame(entryKey, chỉ số frame nguồn từ mẫu N hoặc N+1)
     Pool->>Worker: Send [_opRenderFrame] (Shard = FNV1a(entryKey) % W)
     
     Worker->>Store: tryReadFrame(entryKey, frameIndex)
@@ -247,3 +247,85 @@ Vì các đối tượng `dart:ui` (`Canvas`, `Path`, `Picture`) không thể kh
 | `lib/src/isolate_io.dart` / `isolate_stub.dart` | Giao tiếp Worker Isolate qua `SendPort`/`ReceivePort` và `TransferableTypedData` (hoặc fallback trên Web). |
 | `lib/src/platform_io.dart` / `platform_stub.dart` | Truy cập file ngẫu nhiên đồng bộ (`PlatformFileHandle`) và quản lý thư mục cho `.flcache`. |
 | `lib/src/network_io.dart` / `network_stub.dart` / `network_types.dart` | Tải mạng HTTP/HTTPS có hỗ trợ hủy tức thì (`FastLottieCancelToken`) và cache đĩa nguyên bản `.tgsbin`. |
+
+---
+
+## 5. Lộ trình Tối ưu hóa Hiệu năng, Nhiệt lượng & Tài nguyên
+
+Phần này tổng hợp 12 hướng tiếp cận tối ưu hóa chuyên sâu cho `fastlottie`, kết hợp đồng thời 3 mục tiêu:
+1. **Giảm nhiệt lượng & tiêu thụ pin (Thermal & Power Efficiency)**: Giảm số chu kỳ CPU/GPU đánh thức trên mỗi giây, cắt bỏ công việc thừa khi vùng vẽ không đổi hoặc khuất tầm nhìn.
+2. **Tận dụng tài nguyên phần cứng & bộ nhớ đệm tốt hơn (Resource Utilization)**: Khử cấp phát tạm thời, chia sẻ khung hình chuẩn hóa giữa các tốc độ phát khác nhau và điều phối hàng đợi ưu tiên hai làn.
+3. **Tối ưu thuật toán & cấu trúc dữ liệu (Algorithmic & SIMD Optimization)**: Loại bỏ hàm lượng giác đắt đỏ, cắt tỉa sớm theo khung bao (Early AABB Clip Culling), sai phân tiến kết hợp SIMD `Float32x4` và toán học nguyên không phép chia.
+
+### 5.1. Ma trận Tổng hợp 12 Hướng Tối ưu
+
+| Mã | Hạng mục tối ưu | Nhóm mục tiêu | Trạng thái | Tác động chính |
+| :---: | :--- | :--- | :---: | :--- |
+| **#1** | **Sub-tree Static Layer Memoization** trong `_RasterWorkspace` | Giảm nhiệt / Thuật toán | Đề xuất | Tránh vẽ lại các nền tĩnh bên dưới các lớp động ở mỗi frame trên Worker Isolate. |
+| **#2** | **Adaptive Frame Deduplication (Bitwise Hash / Dirty-Rect Skip)** | Giảm nhiệt / GPU | Đề xuất | Phát hiện hai frame liên tiếp có đầu ra pixel giống hệt nhau để tái sử dụng `ui.Image` mà không gọi `decodeImageFromPixels`. |
+| **#3** | **Loại bỏ lượng giác (`atan2`/`acos`/`cos`/`sin`) trong `_expandStroke`** | Thuật toán / Giảm nhiệt | **Đã triển khai** | Thay bằng đệ quy chia đôi pháp tuyến đơn vị (Recursive Unit-Normal Bisection) dựa trên sai số dây cung (sagitta), giảm ~3–4× chi phí CPU khi mở rộng nét vẽ tròn (`round join`/`round cap`). |
+| **#4** | **Cắt tỉa sớm theo khung bao (`Early Bounding-Box Clip Culling`) trong `_renderStyleInto`** | Thuật toán / Giảm nhiệt | **Đã triển khai** | Kiểm tra giao cắt giữa `style.drawBounds(frame)` (sau biến đổi affine) với vùng clip hiện tại trước khi làm phẳng đường cong Bézier, cắt nét đứt hay mở rộng độ dày nét, đồng thời thu hẹp vùng quét scanline. |
+| **#5** | **Hàng đợi Ưu tiên 2 Làn (2-Lane Priority Queue) trong `_PingPongCoordinator`** | Tài nguyên / Độ trễ | **Đã triển khai** | Tách biệt hàng đợi khung hình hiện tại (`_highPriorityQueue`, `isPrefetch: false`) và hàng đợi dự đoán (`_lowPriorityQueue`, `isPrefetch: true`), hỗ trợ thăng cấp tại chỗ và ưu tiên loại bỏ prefetch trước khi đầy tải. |
+| **#6** | **Chuẩn hóa Khóa Cache theo Khung hình Nguồn (`Canonical Source-Frame Indexing`)** | Tài nguyên / Đĩa & RAM | **Đã triển khai** | Định danh `.flcache` và mục LRU RAM theo `sourceFrameCount` thay vì số lượng mẫu phụ thuộc FPS, giúp chế độ `poster`, `24fps`, `30fps`, `60fps` dùng chung duy nhất một file `.flcache` và các frame nén LZ4 trong RAM. |
+| **#7** | **Nén Spans Đen/Trong suốt (Sparse Tile / Row-Directory) trước LZ4** | Tài nguyên / Băng thông | Đề xuất | Ghi trực tiếp danh sách span hoặc chỉ số dòng có điểm ảnh khác `0` cho các sticker thưa, giảm lượng dữ liệu phải quét qua LZ4 và `decodeImageFromPixels`. |
+| **#8** | **Gộp biến đổi Affine ngay trong bước Flatten Bézier (`Fused Transform + Flatten`)** | Thuật toán / Bộ nhớ | Đề xuất | Biến đổi các điểm điều khiển Bézier sang không gian thiết bị trước khi chia nhỏ De Casteljau cho các style chỉ tô đặc (`fill` không có `dash`/`stroke`), bỏ qua bước copy qua `_workPolyB`. |
+| **#9** | **Sai phân tiến bậc 2 + SIMD `Float32x4` cho Radial Gradient & Luma Matte nguyên không phép chia** | Thuật toán / SIMD | **Đã triển khai** | Dùng sai phân tiến bậc 2 ($\Delta^2 D^2 = 2(\text{nia}^2 + \text{nib}^2)$) kết hợp `Float32x4.sqrt()` xử lý 4 pixel/nhịp cho Radial Gradient, và bảng nghịch đảo `_invAlphaLut` 16.16 fixed-point kết hợp hệ số nguyên BT.601 cho Luma Matte. |
+| **#10** | **Tự động điều chỉnh FPS theo kích thước hiển thị (Perceptual Screen-Size FPS Scaling)** | Giảm nhiệt / Pin | Đề xuất | Hạ tần số lấy mẫu hợp lý khi diện tích hiển thị vật lý rất nhỏ (ví dụ icon `< 32×32` logical px) mà mắt người không phân biệt được chuyển động dưới pixel. |
+| **#11** | **Tự động đóng băng Ticker khi khuất tầm nhìn (`Visibility / Viewport Gating`)** | Giảm nhiệt / Pin | Đề xuất | Tạm dừng `AnimationController` khi `RenderBox` nằm ngoài viewport cuộn hoặc bị che khuất hoàn toàn. |
+| **#12** | **Chế độ Nén Delta-Frame (XOR + LZ4) cho Chuỗi Khung hình Liên tiếp** | Tài nguyên / RAM | Đề xuất | XOR hai khung hình liên tiếp trước khi đưa vào LZ4 cho các cảnh có phần nền lớn đứng yên để tăng tỷ lệ nén trong RAM. |
+
+---
+
+### 5.2. Chi tiết Thiết kế các Tối ưu Đã Triển khai (#3, #4, #5, #6, #9)
+
+#### 1. Tối ưu #3: Khử hàm lượng giác trong `_expandStroke` bằng Đệ quy Chia đôi Pháp tuyến Đơn vị (`lib/src/rle_rasterizer.dart`)
+- **Vấn đề trước đây**: Mỗi khớp nối tròn (`join == 2`) và đầu mút tròn (`cap == 2`) gọi `math.atan2` hai lần, `math.acos` một lần và vòng lặp `math.cos` + `math.sin` cho từng điểm chia cung tròn. Trên các sticker nhiều nét vẽ cong, các lệnh siêu việt (transcendental functions) này chiếm tỷ trọng lớn chu kỳ CPU trên Worker Isolate.
+- **Giải pháp**:
+  - Vì `_expandStroke` đã tính sẵn tiếp tuyến đơn vị `(tx[s], ty[s])` và pháp tuyến đơn vị `(n0x, n0y)`, `(n1x, n1y)` cho từng đoạn thẳng, hàm `addNormalArc` thực hiện chia đôi trực tiếp hai pháp tuyến đơn vị:
+    $$\vec{m} = \frac{\vec{n}_0 + \vec{n}_1}{\|\vec{n}_0 + \vec{n}_1\|}$$
+  - Sai số dây cung (sagitta) của cung tròn bán kính $hw$ được tính thuần túy bằng tích vô hướng:
+    $$\text{sagitta} = hw \cdot (1 - (\vec{n}_0 \cdot \vec{m}))$$
+  - Nếu $\text{sagitta} > \text{sagittaTol}$ (hoặc ở các mức chia cơ sở `depth < 2`), cung được chia đôi đệ quy về hai phía $(\vec{n}_0 \to \vec{m})$ và $(\vec{m} \to \vec{n}_1)$ mà **không cần bất kỳ lệnh `atan2`, `acos`, `cos`, `sin` nào**.
+  - Các đầu mút tròn (`cap == 2`) được biểu diễn bằng 2 cung 90° qua đỉnh tiếp tuyến $\vec{u}$, và chấm tròn đơn điểm (`n == 1 && cap == 2`) được dựng từ 4 góc phần tư đơn vị.
+
+#### 2. Tối ưu #4: Cắt tỉa sớm theo Khung bao (`Early Bounding-Box Clip Culling`) trong `_renderStyleInto` (`lib/src/rle_rasterizer.dart`)
+- **Vấn đề trước đây**: `_renderStyleInto` luôn làm phẳng toàn bộ đường cong Bézier (`_appendSourceLocal`), tính độ dài cắt nét đứt (`_applyDash`), mở rộng đa giác nét vẽ (`_expandStroke`) và biến đổi toàn bộ đỉnh sang tọa độ thiết bị trước khi bộ quét scanline cắt bỏ các cạnh nằm ngoài vùng clip `(clipX0, clipY0, clipX1, clipY1)`.
+- **Giải pháp**:
+  - Ngay đầu `_renderStyleInto`, gọi `style.drawBounds(frame)` để lấy khung bao cục bộ (đã tính cả độ nở `strokeWidth` và `miterLimit`), sau đó ánh xạ qua ma trận affine `(ma, mb, mc, md, mtx, mty)` sang khung bao thiết bị `(bx0, by0, bx1, by1)` (cộng biên an toàn `2px` cho khử răng cưa).
+  - Giao cắt `(bx0, by0, bx1, by1)` với `(clipX0, clipY0, clipX1, clipY1)` thành `(effClipX0, effClipY0, effClipX1, effClipY1)`.
+  - Nếu `effClipX0 >= effClipX1 || effClipY0 >= effClipY1`, hàm thoát ngay lập tức với chi phí $O(1)$, bỏ qua toàn bộ quá trình chia nhỏ Bézier, dash, stroke và scanline.
+  - Nếu còn giao cắt, truyền khung thu hẹp `(effClipX0, effClipY0, effClipX1, effClipY1)` vào `rasterizePolyPath` để giảm số dòng quét phải khởi tạo và duyệt.
+
+#### 3. Tối ưu #5: Hàng đợi Ưu tiên 2 Làn (`2-Lane Priority Queue`) trong `_PingPongCoordinator` (`lib/src/ping_pong.dart`)
+- **Vấn đề trước đây**: Các yêu cầu vẽ khung hình đang cần hiển thị ngay (`renderingImage == null`) và các yêu cầu nạp trước cho khung hình kế tiếp (`lookahead prefetch`) nằm chung trong một hàng đợi FIFO `_pendingQueue`. Khi nhiều sticker cuộn vào màn hình cùng lúc, các tác vụ prefetch của sticker trước làm trễ khung hình đầu tiên của các sticker sau, và khi chạm ngưỡng `maximumPendingFrames`, cả yêu cầu hiển thị tức thời cũng có thể bị từ chối như prefetch.
+- **Giải pháp**:
+  - Tách `_pendingQueue` thành hai hàng đợi `Queue<_RasterEntry>`:
+    - `_highPriorityQueue`: Dành cho các mục cần hiển thị ngay (`isPrefetch: false`, gắn cờ `entry.queuedHighPriority = true`).
+    - `_lowPriorityQueue`: Dành cho các mục nạp trước (`isPrefetch: true`).
+  - `_pumpQueue()` luôn lấy từ `_highPriorityQueue` trước; chỉ khi làn ưu tiên cao rỗng mới lấy từ `_lowPriorityQueue`.
+  - **Thăng cấp tại chỗ (In-place Promotion)**: Nếu một mục đang nằm chờ trong `_lowPriorityQueue` nhưng bước sang frame mới cần hiển thị ngay (`!isPrefetch`), nó được chuyển thẳng sang `_highPriorityQueue`.
+  - **Chống tràn thông minh (Priority Eviction)**: Khi tổng số mục chờ đạt `maximumPendingFrames`, nếu có một yêu cầu ưu tiên cao mới đến, bộ điều phối sẽ loại bỏ mục cũ nhất trong `_lowPriorityQueue` để nhường chỗ thay vì làm rơi khung hình đang cần vẽ.
+
+#### 4. Tối ưu #6: Chuẩn hóa Khóa Cache theo Khung hình Nguồn (`Canonical Source-Frame Indexing`) (`lib/src/bitstream_cache.dart`, `lib/src/raster_cache.dart`, `lib/src/ping_pong.dart`)
+- **Vấn đề trước đây**: Khóa định danh của `BitstreamStore` và tên file `.flcache` sử dụng `entry.frames` (số mẫu phụ thuộc vào `maximumFrameRate` và chế độ `poster`) cùng hậu tố `_p`. Do đó, cùng một composition ở cùng kích thước pixel nhưng hiển thị ở chế độ `poster` (1 frame), `30 FPS` và `60 FPS` bị tách thành 3 file `.flcache` riêng biệt và phải rasterize lại frame 0 nhiều lần.
+- **Giải pháp**:
+  - Bổ sung trường `sourceFrames` trên `_RasterEntry` (`1` nếu composition tĩnh, ngược lại là `max(1, composition.frameCount)`).
+  - Hàm `formatBitstreamEntryKey` định danh khóa chuẩn hóa `${contentKey}_${width}x${height}_f$sourceFrameCount`.
+  - Khi gửi yêu cầu tới `_RasterWorkerPool.renderFrame`, `_PingPongCoordinator` ánh xạ chỉ số mẫu `frameIndex` (`0 .. entry.frames - 1`) sang chỉ số khung hình nguồn chuẩn hóa `sourceIndex = _sourceIndexForSample(entry, frameIndex)` (`0 .. entry.sourceFrames - 1`), trong khi vẫn giữ các con trỏ trạng thái giao diện (`renderingFrameIndex`, `backgroundFrameIndex`, `inFlightFrameIndex`) theo không gian mẫu của từng entry.
+  - Kết quả: Chế độ `poster`, `24 FPS`, `30 FPS` và `60 FPS` ở cùng độ phân giải dùng chung khóa RAM/đĩa và tái sử dụng các frame nguồn trùng nhau.
+
+#### 5. Tối ưu #9: Sai phân tiến bậc 2 + SIMD `Float32x4` cho Radial Gradient & Luma Matte nguyên không phép chia (`lib/src/rle_rasterizer.dart`)
+- **Radial Gradient (`_SwarBlender.fillRadialGradientSpans`)**:
+  - Thay vì nhân ma trận nghịch đảo và nhân `invRadius` cho từng pixel, các hệ số bước nhảy `(nia, nib, nic, nid, nitx, nity)` được chuẩn hóa sẵn theo `invRadius = 1.0 / radius` ngay đầu hàm.
+  - Bình phương khoảng cách $D^2(k) = (dx_0 + k \cdot \text{nia})^2 + (dy_0 + k \cdot \text{nib})^2$ dọc theo mỗi span ngang được cập nhật bằng sai phân tiến bậc 2 chỉ với 2 phép cộng mỗi pixel:
+    $$D^2 \leftarrow D^2 + \text{step}_1, \quad \text{step}_1 \leftarrow \text{step}_1 + \text{step}_2 \quad (\text{với } \text{step}_2 = 2(\text{nia}^2 + \text{nib}^2))$$
+  - Với các span dài $\ge 4$ pixel, 4 giá trị $D^2$ liên tiếp được nạp vào thanh ghi SIMD `Float32x4` và khai căn đồng thời bằng một lệnh phần cứng `Float32x4.sqrt()`.
+- **Luma Matte nguyên không phép chia (`_renderCompilerInto` & `_SwarBlender._invAlphaLut`)**:
+  - Thay thế 3 phép chia nguyên `(r * 255) ~/ mAlpha` và biểu thức dấu phẩy động `(0.299 * r + 0.587 * g + 0.114 * b).toInt()` ở mỗi điểm ảnh bằng bảng tra nghịch đảo 16.16 fixed-point `_invAlphaLut[mAlpha] = ((255 << 16) + mAlpha - 1) ~/ mAlpha` (khớp tuyệt đối `(c * 255) ~/ mAlpha` với mọi $c \in [0, 255], \alpha \in [1, 255]$) kết hợp hệ số nguyên BT.601 (`19595`, `38470`, `7471`):
+    ```dart
+    final inv = _SwarBlender._invAlphaLut[mAlpha];
+    r = (r * inv) >>> 16;
+    g = (g * inv) >>> 16;
+    b = (b * inv) >>> 16;
+    final lum = ((19595 * r + 38470 * g + 7471 * b) >>> 16).clamp(0, 255);
+    ```

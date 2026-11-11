@@ -3,7 +3,7 @@
 Android example có thêm launcher **TGS Compose**, mở
 `com.example.fastlottie_example.compose.ComposeTgsActivity`. Activity extends
 `ComponentActivity`, hiển thị bằng Compose và `lottie-compose:6.7.1`; Activity này
-không tạo FlutterEngine. Launcher Flutter hiện có vẫn mở `MainActivity`.
+không tạo FlutterEngine. Launcher Flutter mở Cupertino chat qua `MainActivity`.
 
 ## Giao diện và dữ liệu
 
@@ -12,7 +12,8 @@ không tạo FlutterEngine. Launcher Flutter hiện có vẫn mở `MainActivity
 - `LazyVerticalGrid` 4 cột, spacing và padding ngoài 8 dp, ô vuông, padding sticker
   (6, 18, 6, 18) dp như Flutter.
 - Dùng chính 94 TGS đã đóng gói dưới `flutter_assets/assets/tgs`, không copy asset
-  sang bộ riêng. Sort pack/file và round-robin từng pack giống Dart catalog.
+  sang bộ riêng. Bỏ Topics và Noto emoji; sort pack/file và round-robin giống
+  catalog của gallery benchmark Flutter.
 - Index modulo catalog để lặp, tối đa `Int.MAX_VALUE - 3` item (chia hết cho 4 để
   tránh overflow khi tính số hàng); chỉ compose/load các ô gần viewport.
 - Mỗi cell có drawable/progress riêng, dùng chung composition đã parse. Progress
@@ -74,7 +75,7 @@ example), compiler plugin khớp Kotlin 2.4.20, activity-compose 1.10.1. Tham kh
 [Compose compiler setup](https://developer.android.com/develop/ui/compose/setup-compose-dependencies-and-compiler)
 và [Lottie Compose](https://github.com/airbnb/lottie/blob/master/android-compose.md).
 
-Đã kiểm chứng: build debug/profile thành công; 5 unit test và 2 instrumentation
+Ở lần kiểm chứng ban đầu: build debug/profile thành công; 5 unit test và 2 instrumentation
 test trên Pixel 7a / Android 17 pass (0 failures), native Lottie parse đủ 94 TGS.
 Đã cài APK profile, cold-start `ComposeTgsActivity` và xác nhận grid hiển thị trên
 máy thật. Không chạy benchmark FPS trong đợt này.

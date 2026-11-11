@@ -39,10 +39,14 @@ for name,value in j['fixtures'].items():
  m=value['modes']['fast_raster']
  lines.append(f"| {name} | {value['parse_compile_fast']['median_us']:.0f} / {value['parse_lottie']['median_us']:.0f} | {m['prepare_us']/1000:.2f} | {m['rgba_bytes']/1024/1024:.2f} MiB |")
 m=j['fixtures']['morph']['modes']
-a=m['fast_uncached']['warm_record']['median_us'];b=m['fast_simd_uncached']['warm_record']['median_us']
+if 'fast_scalar_uncached' in m:
+ scalar=m['fast_scalar_uncached']; simd=m['fast_uncached']; default='SIMD'
+else:
+ scalar=m['fast_uncached']; simd=m['fast_simd_uncached']; default='Scalar'
+a=scalar['warm_record']['median_us'];b=simd['warm_record']['median_us']
 lines += ['',f'SIMD morph: scalar {a:.2f} µs, Float32x4 {b:.2f} µs '
- f'({a/b:.2f}× scalar/SIMD). Giữ scalar mặc định; một lần đo chưa chứng minh '
- 'lợi ích SIMD ổn định trên toàn pipeline hoặc trên thiết bị khác.', '',
+ f'({a/b:.2f}× scalar/SIMD). {default} là mặc định ở snapshot này. '
+ 'Một lần đo chưa chứng minh lợi ích SIMD ổn định trên toàn pipeline hoặc trên thiết bị khác.', '',
  'Các số này xác nhận có lợi ích CPU ở subset đã đo, đồng thời cho thấy GPU/raster '
  'vẫn có thể chi phối. Raster prewarm nên dùng cho vòng lặp ngắn vừa budget; '
  'vector phù hợp khi cần subframe, resize linh hoạt hoặc tránh prewarm latency.', '']

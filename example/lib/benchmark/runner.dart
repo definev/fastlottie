@@ -34,7 +34,7 @@ Future<Map<String, dynamic>> runBenchmarks({
 }) async {
   final fixtures = const ['static', 'icon', 'many_shapes', 'morph'];
   final result = <String, dynamic>{
-    'schema': 1,
+    'schema': 2,
     'date_utc': DateTime.now().toUtc().toIso8601String(),
     'release': kReleaseMode,
     'os': Platform.operatingSystemVersion,
@@ -130,19 +130,20 @@ Future<Map<String, dynamic>> runBenchmarks({
       );
     }
     if (name == 'morph') {
-      final simd = FastLottiePlayer(
+      // The normal modes use SIMD by default. Keep a scalar control.
+      final scalar = FastLottiePlayer(
         FastLottieComposition.fromBytes(
           bytes,
-          options: const FastLottieOptions(useSimd: true),
+          options: const FastLottieOptions(useSimd: false),
         ),
         cache: FastLottieCache.none,
       );
       modes.add(
         BenchMode(
-          'fast_simd_uncached',
+          'fast_scalar_uncached',
           (c, f) =>
-              simd.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256), f / 60),
-          simd.dispose,
+              scalar.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256), f / 60),
+          scalar.dispose,
         ),
       );
     }

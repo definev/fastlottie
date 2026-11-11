@@ -71,7 +71,7 @@ Future<Map<String, dynamic>> benchmark() async {
     maximumSourceBytes: 64 * 1024 * 1024,
   );
   final result = <String, dynamic>{
-    'schema': 1,
+    'schema': 2,
     'release': kReleaseMode,
     'date_utc': DateTime.now().toUtc().toIso8601String(),
     'os': Platform.operatingSystemVersion,
@@ -98,7 +98,6 @@ Future<Map<String, dynamic>> benchmark() async {
   result['fastlottie_cold_wall_us'] = cold.elapsedMicroseconds;
   result['ui_timer_gap'] = stats(gaps);
   result['native'] = models.where((m) => m.fast != null).length;
-  result['fallback'] = models.where((m) => m.fast == null).length;
   result['inflate'] = stats([for (final m in models) m.inflateUs.toDouble()]);
   result['fastlottie_parse_compile'] = stats([
     for (final m in models) m.parseUs.toDouble(),
@@ -115,15 +114,15 @@ Future<Map<String, dynamic>> benchmark() async {
   result['warm_catalog_wall_us'] = warm.elapsedMicroseconds;
   result['warm_extra_decodes'] = store.decodes - before;
   result['cached_after_fastlottie'] = store.cached;
-  final forks = <double>[];
+  final playerCreation = <double>[];
   for (final model in models.where((m) => m.fast != null)) {
     final sw = Stopwatch()..start();
     final player = FastLottiePlayer(model.fast!);
     sw.stop();
-    forks.add(sw.elapsedTicks * 1000000 / sw.frequency);
+    playerCreation.add(sw.elapsedTicks * 1000000 / sw.frequency);
     player.dispose();
   }
-  result['player_fork'] = stats(forks);
+  result['player_create'] = stats(playerCreation);
 
   final fused = <double>[], string = <double>[];
   final jsonBytesCodec = json.fuse(utf8);
@@ -178,7 +177,7 @@ Future<Map<String, dynamic>> benchmark() async {
     for (var i = 0; i < assets.length; i++)
       {
         'asset': assets[i],
-        'backend': models[i].fast != null ? 'fastlottie' : 'lottie',
+        'backend': 'fastlottie',
         'json_bytes': models[i].sourceBytes,
         'inflate_us': models[i].inflateUs,
         'fastlottie_parse_us': models[i].parseUs,

@@ -5,6 +5,9 @@ import 'package:fastlottie/fastlottie.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'web_support_stub.dart'
+    if (dart.library.js_interop) 'web_support.dart'
+    as web_support;
 import 'store.dart';
 
 enum _NetStage {
@@ -60,7 +63,7 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
     TgsDecoder? decoder,
     TgsBatchDecoder? batchDecoder,
   }) : batchSize = decoder == null ? batchSize : 1,
-       _fetcher = fetcher ?? _defaultFetcher,
+       _fetcher = fetcher ?? web_support.networkByteFetcher ?? _defaultFetcher,
        _decodeBatch =
            batchDecoder ??
            (decoder == null ? decodeTgsBatch : _singleDecoder(decoder)) {
