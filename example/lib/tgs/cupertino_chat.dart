@@ -1285,8 +1285,6 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                 physics: const BouncingScrollPhysics(
                                   parent: AlwaysScrollableScrollPhysics(),
                                 ),
-                                scrollCacheExtent:
-                                    const ScrollCacheExtent.pixels(0),
                                 addAutomaticKeepAlives: false,
                                 padding: const EdgeInsets.fromLTRB(
                                   12,
@@ -1798,7 +1796,6 @@ class _StickerPickerDrawer extends StatelessWidget {
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
-                    scrollCacheExtent: const ScrollCacheExtent.pixels(0),
                     addAutomaticKeepAlives: false,
                     addRepaintBoundaries: false,
                     itemCount: items.length,

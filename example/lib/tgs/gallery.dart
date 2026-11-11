@@ -195,7 +195,6 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
                     final grid = GridView.builder(
                       key: const ValueKey('tgs-grid'),
                       controller: scroll,
-                      scrollCacheExtent: const ScrollCacheExtent.pixels(0),
                       padding: const EdgeInsets.all(8),
                       addAutomaticKeepAlives: false,
                       // Both renderers already isolate their own canvas.
