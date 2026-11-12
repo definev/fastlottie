@@ -13,7 +13,10 @@ const int _repDeleted = 2;
 const int _repSceneMissing = 3;
 const int _repStripReady = 4;
 
-const int _maxWorkerScenes = 64;
+// A scene is only needed while a vector miss is in flight. Eight covers the
+// jobs one worker can overlap; a finished entry is dropped once every frame
+// is in the compressed cache.
+const int _maxWorkerScenes = 8;
 
 int _shardForKey(String entryKey, int shardCount) {
   if (shardCount <= 1) return 0;
@@ -77,6 +80,18 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
     }
   }
 
+  void releaseSceneIfCached(
+    String contentKey,
+    String entryKey,
+    int totalFrames,
+  ) {
+    if (!store.hasAllFrames(entryKey, totalFrames)) return;
+    if (scenes.remove(contentKey) == null) return;
+    // Coverage entries keep the compiled styles alive after the scene map
+    // drops them.
+    ws.resetCaches();
+  }
+
   endpoint.messages.listen((Object? raw) {
     switch (raw) {
       case null:
@@ -126,6 +141,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
           );
 
           if (cacheHit) {
+            releaseSceneIfCached(contentKey, entryKey, totalFrames);
             final packed = packBytesForIsolate(dstBytes);
             endpoint.send((
               _repFrameReady,
@@ -178,6 +194,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
             store.ramBytes,
           ));
           recordPixelUse(pxCount);
+          releaseSceneIfCached(contentKey, entryKey, totalFrames);
         } catch (error) {
           endpoint.send((_repFrameError, reqId, error.toString()));
         }
@@ -300,6 +317,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
             stripHeight,
           ));
           recordPixelUse(pxCount);
+          releaseSceneIfCached(contentKey, entryKey, totalFrames);
           if (!poster && warmPage != null) {
             store.preparePlaybackPage(
               entryKey: entryKey,

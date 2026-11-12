@@ -480,7 +480,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         decodeConcurrency: 2,
         batchSize: 2,
         framePaced: true,
-        maximumEntries: 256,
+        // Visible cells stay pinned. This only bounds models that have
+        // already scrolled off; compiling them again reads the disk cache.
+        maximumEntries: 48,
       );
 
   late FastLottieRasterStrategy _rasterStrategy = widget.rasterStrategy;

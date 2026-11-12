@@ -148,6 +148,20 @@ class BitstreamStore {
 
   int recoveredCorruptions = 0;
   int get ramBytes => _ramBytes + _tileBytes;
+
+  /// True when every frame of [entryKey] can be read back without the
+  /// compiled scene, either from compressed RAM or a completed disk file.
+  bool hasAllFrames(String entryKey, int totalFrames) {
+    if (totalFrames <= 0) return false;
+    final cached = _ramFramesByEntry[entryKey];
+    if (cached != null && cached.length >= totalFrames) return true;
+    final file = _openFiles[entryKey];
+    return file != null &&
+        file.completed &&
+        file.frameCount == totalFrames &&
+        file.writtenCount >= totalFrames;
+  }
+
   String? get diskCacheDirectory => _diskDir;
 
   void setDiskDirectory(String? dir) {
