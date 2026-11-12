@@ -18,17 +18,15 @@ String formatBitstreamEntryKey(
   bool poster = false,
 ]) => '${contentKey}_${width}x${height}_f$sourceFrameCount';
 
+typedef _RamKey = (String, int);
+
 final class _RamFrame {
   _RamFrame({
-    required this.ramKey,
-    required this.entryKey,
     required this.payload,
     required this.isRaw,
     required this.crc31,
   });
 
-  final String ramKey;
-  final String entryKey;
   final Uint8List payload;
   final bool isRaw;
   final int crc31;
@@ -128,14 +126,18 @@ class BitstreamStore {
   int maximumRamBytes;
   final int maximumOpenFiles;
 
-  final _ramLru = <String, _RamFrame>{};
-  final _ramKeysByEntry = <String, Set<String>>{};
+  final _ramLru = <_RamKey, _RamFrame>{};
+  final _ramFramesByEntry = <String, Set<int>>{};
   int _ramBytes = 0;
+
+  static const int _defaultIoScratchBytes = 64 * 1024;
+  static const int _softIoScratchLimit = 512 * 1024;
 
   final _openFiles = <String, _OpenFlCacheFile>{};
   final _headerScratch = Uint8List(headerSize);
   final _slotScratch = Uint8List(slotSize);
-  Uint8List _ioScratch = Uint8List(64 * 1024);
+  Uint8List _ioScratch = Uint8List(_defaultIoScratchBytes);
+  int _smallIoCount = 0;
 
   int recoveredCorruptions = 0;
   int get ramBytes => _ramBytes;
@@ -157,7 +159,52 @@ class BitstreamStore {
     while (next < needed) {
       next *= 2;
     }
+    _smallIoCount = 0;
     return _ioScratch = Uint8List(next);
+  }
+
+  void _recordIoUse(int usedBytes) {
+    if (_ioScratch.length <= _softIoScratchLimit) {
+      _smallIoCount = 0;
+      return;
+    }
+    if (usedBytes <= _defaultIoScratchBytes) {
+      if (++_smallIoCount >= 16) {
+        _ioScratch = Uint8List(_defaultIoScratchBytes);
+        _smallIoCount = 0;
+      }
+    } else {
+      _smallIoCount = 0;
+    }
+  }
+
+  void shrinkScratch([int targetCapacity = _defaultIoScratchBytes]) {
+    _smallIoCount = 0;
+    if (_ioScratch.length > targetCapacity) {
+      _ioScratch = Uint8List(targetCapacity);
+    }
+  }
+
+  _OpenFlCacheFile? _lookupOpenFile(
+    String entryKey,
+    int width,
+    int height,
+    int frameCount,
+    bool poster,
+  ) {
+    final existing = _openFiles.remove(entryKey);
+    if (existing == null) return null;
+    if (existing.width == width &&
+        existing.height == height &&
+        existing.frameCount == frameCount &&
+        existing.poster == poster) {
+      _openFiles[entryKey] = existing;
+      return existing;
+    }
+    try {
+      existing.handle.close();
+    } catch (_) {}
+    return null;
   }
 
   /// Tries to read and decode `[frameIndex]` from compressed RAM or disk `.flcache`
@@ -179,7 +226,7 @@ class BitstreamStore {
     }
 
     // 1. Hot compressed-RAM LRU check.
-    final ramKey = '$entryKey#$frameIndex';
+    final ramKey = (entryKey, frameIndex);
     final ram = _ramLru.remove(ramKey);
     if (ram != null) {
       _ramLru[ramKey] = ram;
@@ -200,19 +247,23 @@ class BitstreamStore {
     // 2. Disk `.flcache` check.
     final dir = _diskDir;
     if (dir == null || !isDiskCacheSupported) return false;
-    final path = joinPath(dir, '$entryKey.flcache');
-    if (!_openFiles.containsKey(entryKey) && !PlatformDiskFs.exists(path)) {
-      return false;
+    var file = _lookupOpenFile(entryKey, width, height, totalFrames, poster);
+    if (file == null) {
+      final path = joinPath(dir, '$entryKey.flcache');
+      if (!PlatformDiskFs.exists(path)) {
+        return false;
+      }
+      file = _openOrCreateFile(
+        entryKey: entryKey,
+        width: width,
+        height: height,
+        frameCount: totalFrames,
+        poster: poster,
+        createIfMissing: false,
+        resolvedPath: path,
+      );
+      if (file == null) return false;
     }
-    final file = _openOrCreateFile(
-      entryKey: entryKey,
-      width: width,
-      height: height,
-      frameCount: totalFrames,
-      poster: poster,
-      createIfMissing: false,
-    );
-    if (file == null) return false;
 
     final offset = file.offsets[frameIndex];
     if (offset == 0) return false;
@@ -253,13 +304,13 @@ class BitstreamStore {
     // Warm compressed RAM LRU on disk hit for repeated loops.
     _putRam(
       ramKey: ramKey,
-      entryKey: entryKey,
       bytes: buf,
       start: 0,
       length: storedLen,
       isRaw: isRaw,
       crc31: expectedCrc,
     );
+    _recordIoUse(storedLen);
     return true;
   }
 
@@ -304,16 +355,15 @@ class BitstreamStore {
       payloadLen = written;
     }
     final check = crc31(srcPayload, 0, payloadLen);
-    final ramKey = '$entryKey#$frameIndex';
     _putRam(
-      ramKey: ramKey,
-      entryKey: entryKey,
+      ramKey: (entryKey, frameIndex),
       bytes: srcPayload,
       start: 0,
       length: payloadLen,
       isRaw: isRaw,
       crc31: check,
     );
+    scratch.recordOutputUse(maxOut);
 
     var diskSize = 0;
     final dir = _diskDir;
@@ -353,10 +403,10 @@ class BitstreamStore {
   }
 
   void evictEntryRam(String entryKey) {
-    final keys = _ramKeysByEntry.remove(entryKey);
-    if (keys == null) return;
-    for (final k in keys) {
-      final evicted = _ramLru.remove(k);
+    final frames = _ramFramesByEntry.remove(entryKey);
+    if (frames == null) return;
+    for (final frameIndex in frames) {
+      final evicted = _ramLru.remove((entryKey, frameIndex));
       if (evicted != null) {
         _ramBytes -= evicted.payload.length;
       }
@@ -374,8 +424,9 @@ class BitstreamStore {
 
   void clearRam() {
     _ramLru.clear();
-    _ramKeysByEntry.clear();
+    _ramFramesByEntry.clear();
     _ramBytes = 0;
+    shrinkScratch();
   }
 
   void dispose() {
@@ -413,8 +464,7 @@ class BitstreamStore {
   }
 
   void _putRam({
-    required String ramKey,
-    required String entryKey,
+    required _RamKey ramKey,
     required Uint8List bytes,
     required int start,
     required int length,
@@ -424,30 +474,27 @@ class BitstreamStore {
     if (maximumRamBytes <= 0 || length > maximumRamBytes) return;
     _removeRamKey(ramKey);
     while (_ramBytes + length > maximumRamBytes && _ramLru.isNotEmpty) {
-      final oldestKey = _ramLru.keys.first;
-      _removeRamKey(oldestKey);
+      _removeRamKey(_ramLru.keys.first);
     }
-    final copy = Uint8List.fromList(bytes.sublist(start, start + length));
+    final copy = Uint8List(length)..setRange(0, length, bytes, start);
     final frame = _RamFrame(
-      ramKey: ramKey,
-      entryKey: entryKey,
       payload: copy,
       isRaw: isRaw,
       crc31: crc31,
     );
     _ramLru[ramKey] = frame;
-    (_ramKeysByEntry[entryKey] ??= <String>{}).add(ramKey);
+    (_ramFramesByEntry[ramKey.$1] ??= <int>{}).add(ramKey.$2);
     _ramBytes += length;
   }
 
-  void _removeRamKey(String ramKey) {
+  void _removeRamKey(_RamKey ramKey) {
     final removed = _ramLru.remove(ramKey);
     if (removed == null) return;
     _ramBytes -= removed.payload.length;
-    final set = _ramKeysByEntry[removed.entryKey];
+    final set = _ramFramesByEntry[ramKey.$1];
     if (set != null) {
-      set.remove(ramKey);
-      if (set.isEmpty) _ramKeysByEntry.remove(removed.entryKey);
+      set.remove(ramKey.$2);
+      if (set.isEmpty) _ramFramesByEntry.remove(ramKey.$1);
     }
   }
 
@@ -458,25 +505,23 @@ class BitstreamStore {
     required int frameCount,
     required bool poster,
     required bool createIfMissing,
+    String? resolvedPath,
   }) {
-    final existing = _openFiles.remove(entryKey);
-    if (existing != null) {
-      if (existing.width == width &&
-          existing.height == height &&
-          existing.frameCount == frameCount &&
-          existing.poster == poster) {
-        _openFiles[entryKey] = existing;
-        return existing;
-      }
-      try {
-        existing.handle.close();
-      } catch (_) {}
-    }
+    final existing = _lookupOpenFile(
+      entryKey,
+      width,
+      height,
+      frameCount,
+      poster,
+    );
+    if (existing != null) return existing;
 
     final dir = _diskDir;
     if (dir == null) return null;
-    final path = joinPath(dir, '$entryKey.flcache');
-    if (!createIfMissing && !PlatformDiskFs.exists(path)) return null;
+    final path = resolvedPath ?? joinPath(dir, '$entryKey.flcache');
+    if (!createIfMissing && resolvedPath == null && !PlatformDiskFs.exists(path)) {
+      return null;
+    }
 
     while (_openFiles.length >= maximumOpenFiles) {
       final oldestKey = _openFiles.keys.first;

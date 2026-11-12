@@ -6,7 +6,7 @@ final class _DefaultPingPongScope {
 
   static FastLottieRasterCache acquire() {
     _refCount++;
-    return _shared ??= FastLottieRasterCache.pingPong(
+    return _shared ??= FastLottieRasterCache.miniStrip(
       diskCacheDirectory: FastLottieRasterCache.defaultDiskDirectory,
     );
   }

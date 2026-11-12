@@ -36,8 +36,9 @@ For a connected Android device, run `adb reverse tcp:8787 tcp:8787` before
 launching and pass the same URL. The app reads the server's catalog and fetches
 sticker bytes as needed. The download queue can cancel unused requests, and
 raw TGS bytes and rendered frames use separate disk caches. With fastlottie,
-picker thumbnails and inline emoji share a 30 FPS ping-pong cache; large
-sticker messages use vector rendering.
+picker thumbnails and inline emoji share a 30 FPS Mini-Strip Ping-Pong cache by
+default (switchable to single-frame Ping-Pong `K=1` from the options menu);
+large sticker messages use vector rendering.
 
 ## Comparison targets
 

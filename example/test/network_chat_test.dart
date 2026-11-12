@@ -406,11 +406,48 @@ void main() {
         expect(hero.cache.maximumFrames, FastLottieCache.unbounded.maximumFrames);
       }
 
-      // Open CupertinoActionSheet options & verify theme toggle renders cleanly.
+      // Open CupertinoActionSheet options & verify Mini-Strip -> Ping-Pong toggle & telemetry.
       await tester.tap(find.byKey(const ValueKey('chat-options-button')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(find.byType(CupertinoActionSheet), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('toggle-raster-strategy-action')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.byKey(const ValueKey('chat-options-button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(
+        find.text('Raster Strategy: Ping-Pong K=1 (Switch to Mini-Strip)'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('toggle-raster-strategy-action')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      await tester.tap(find.byKey(const ValueKey('chat-options-button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.tap(find.text('View Server & Cache Telemetry'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(
+        find.descendant(
+          of: find.byType(CupertinoAlertDialog),
+          matching: find.textContaining('Strategy: Mini-Strip (Adaptive K)'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Worker Dispatches (IPC):'), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      await tester.tap(find.byKey(const ValueKey('chat-options-button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
       await tester.tap(find.text('Switch to Light Mode'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
@@ -473,7 +510,7 @@ void main() {
       });
 
       final store = NetworkTgsStore(framePaced: false);
-      final rasterCache = FastLottieRasterCache.pingPong(
+      final rasterCache = FastLottieRasterCache.miniStrip(
         maximumBytes: 16 * 1024 * 1024,
         maximumFrameRate: 30,
       );
@@ -541,9 +578,11 @@ void main() {
       }
 
       expect(sheet.activePlayers, 1);
+      expect(rasterCache.strategy, FastLottieRasterStrategy.miniStrip);
       expect(rasterCache.entries, 1);
       expect(rasterCache.debugAdmissionAttempts, 1);
       expect(rasterCache.renderedFrames, greaterThan(0));
+      expect(rasterCache.workerDispatches, greaterThanOrEqualTo(1));
 
       await tester.pumpWidget(const SizedBox());
     },

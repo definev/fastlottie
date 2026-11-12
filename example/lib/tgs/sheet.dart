@@ -11,9 +11,10 @@ const stickerThumbnailPixels = 112;
 const stickerThumbnailFrameRate = 30.0;
 const stickerSheetBytes = 64 * 1024 * 1024;
 
-/// Coordinates ping-pong players and lazy TGS model acquisition per unique asset.
-/// All animations sharing the same asset/size deduplicate to a single double-buffered
-/// GPU entry (`renderingImage` + `backgroundImage`) and LZ4 `.flcache` disk stream.
+/// Coordinates ping-pong / Mini-Strip players and lazy TGS model acquisition
+/// per unique asset. All animations sharing the same asset/size deduplicate to
+/// a single double-buffered GPU entry (`renderingImage` + `backgroundImage`,
+/// packed as Mini-Strips by default) and LZ4 `.flcache` disk stream.
 class StickerSheet extends ChangeNotifier {
   StickerSheet({
     required this.assets,
@@ -22,30 +23,44 @@ class StickerSheet extends ChangeNotifier {
     FastLottieRasterCache? rasterCache,
     this.maximumBytes = stickerSheetBytes,
     this.frameRate = stickerThumbnailFrameRate,
+    this.rasterStrategy = FastLottieRasterStrategy.miniStrip,
+    this.stripFrames,
   }) : store =
            store ??
            TgsStore(concurrency: 1, maximumEntries: 64, framePaced: true),
        _ownsStore = store == null,
        rasterCache =
            rasterCache ??
-           FastLottieRasterCache.pingPong(
-             maximumBytes: maximumBytes,
-             maximumFrameRate: frameRate,
-           ),
+           switch (rasterStrategy) {
+             FastLottieRasterStrategy.miniStrip =>
+               FastLottieRasterCache.miniStrip(
+                 maximumBytes: maximumBytes,
+                 maximumFrameRate: frameRate,
+                 stripFrames: stripFrames,
+               ),
+             FastLottieRasterStrategy.pingPong =>
+               FastLottieRasterCache.pingPong(
+                 maximumBytes: maximumBytes,
+                 maximumFrameRate: frameRate,
+               ),
+           },
        _ownsCache = rasterCache == null;
 
   final List<String> assets;
   final int pixelSize, maximumBytes;
   final double frameRate;
+  final FastLottieRasterStrategy rasterStrategy;
+  final int? stripFrames;
   final TgsStoreBase store;
   final bool _ownsStore;
   final FastLottieRasterCache rasterCache;
   final bool _ownsCache;
 
   final _entries = <String, _SheetAsset>{};
+  final _pendingNotifyAssets = <_SheetAsset>{};
   final errors = <String, Object>{};
   bool constrained = false;
-  bool _disposed = false, _active = true;
+  bool _disposed = false, _active = true, _notifyScheduled = false;
 
   bool get active => _active;
   set active(bool value) {
@@ -72,11 +87,15 @@ class StickerSheet extends ChangeNotifier {
 
   Object? errorFor(String asset) => _entries[asset]?.error;
 
+  ValueListenable<Object?> errorListenableFor(String asset) =>
+      _entries.putIfAbsent(asset, () => _SheetAsset(asset)).errorNotifier;
+
   void retryAsset(String asset) {
     if (_disposed) return;
     final entry = _entries[asset];
     if (entry == null) return;
     entry.error = null;
+    entry.errorNotifier.value = null;
     errors.remove(asset);
     if (entry.pins > 0 &&
         entry.composition == null &&
@@ -98,6 +117,7 @@ class StickerSheet extends ChangeNotifier {
       pendingLease?.release();
       entry.composition = null;
       entry.error = null;
+      entry.errorNotifier.value = null;
       entry.notifyAssetChanged();
     }
     errors.clear();
@@ -161,7 +181,7 @@ class StickerSheet extends ChangeNotifier {
     entry.lease = lease;
     final ready = lease.ready;
     if (ready != null) {
-      _onLoaded(entry, lease, ready);
+      _onLoaded(entry, lease, ready, deferNotify: true);
       return;
     }
     lease.future.then(
@@ -174,6 +194,7 @@ class StickerSheet extends ChangeNotifier {
         }
         if (error is! TgsLoadCancelled) {
           entry.error = error;
+          entry.errorNotifier.value = error;
           errors[entry.asset] = error;
           entry.notifyAssetChanged();
           notifyListeners();
@@ -182,7 +203,33 @@ class StickerSheet extends ChangeNotifier {
     );
   }
 
-  void _onLoaded(_SheetAsset entry, TgsLease lease, TgsModel model) {
+  void _scheduleDeferredNotify(_SheetAsset entry) {
+    _pendingNotifyAssets.add(entry);
+    if (_notifyScheduled) return;
+    _notifyScheduled = true;
+    scheduleMicrotask(() {
+      _notifyScheduled = false;
+      if (_disposed) {
+        _pendingNotifyAssets.clear();
+        return;
+      }
+      final batch = _pendingNotifyAssets.toList(growable: false);
+      _pendingNotifyAssets.clear();
+      for (final assetEntry in batch) {
+        if (!assetEntry.disposed) {
+          assetEntry.notifyAssetChanged();
+        }
+      }
+      notifyListeners();
+    });
+  }
+
+  void _onLoaded(
+    _SheetAsset entry,
+    TgsLease lease,
+    TgsModel model, {
+    bool deferNotify = false,
+  }) {
     if (_disposed) {
       lease.release();
       return;
@@ -196,8 +243,12 @@ class StickerSheet extends ChangeNotifier {
     entry.composition = comp;
     if (entry.pins > 0 && entry.player == null) {
       _attachPlayer(entry);
-      entry.notifyAssetChanged();
-      notifyListeners();
+      if (deferNotify) {
+        _scheduleDeferredNotify(entry);
+      } else {
+        entry.notifyAssetChanged();
+        notifyListeners();
+      }
     }
   }
 
@@ -217,6 +268,7 @@ class StickerSheet extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _pendingNotifyAssets.clear();
     for (final entry in _entries.values) {
       entry.dispose();
     }
@@ -231,6 +283,7 @@ final class _SheetAsset {
   _SheetAsset(this.asset);
   final String asset;
   final ChangeNotifier notifier = ChangeNotifier();
+  final ValueNotifier<Object?> errorNotifier = ValueNotifier<Object?>(null);
   final _clockMerges = <StickerClock, _MergedAssetClock>{};
 
   TgsLease? lease;
@@ -238,10 +291,12 @@ final class _SheetAsset {
   FastLottiePlayer? player;
   Object? error;
   int pins = 0;
+  bool disposed = false;
 
   void _onPlayerFrame() => notifyAssetChanged();
 
   void notifyAssetChanged() {
+    if (disposed) return;
     // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
     notifier.notifyListeners();
   }
@@ -267,6 +322,8 @@ final class _SheetAsset {
   );
 
   void dispose() {
+    if (disposed) return;
+    disposed = true;
     detachPlayer();
     final pendingLease = lease;
     lease = null;
@@ -275,6 +332,7 @@ final class _SheetAsset {
       merge.dispose();
     }
     _clockMerges.clear();
+    errorNotifier.dispose();
     notifier.dispose();
   }
 }
@@ -283,13 +341,26 @@ class _MergedAssetClock extends ChangeNotifier {
   _MergedAssetClock(this.assetNotifier, this.clock);
   final ChangeNotifier assetNotifier;
   final StickerClock clock;
-  void _forward() => notifyListeners();
+  bool _subscribed = false;
+  bool _disposed = false;
+
+  void _forward() {
+    if (!_disposed) notifyListeners();
+  }
+
+  void _unsubscribe() {
+    if (!_subscribed) return;
+    _subscribed = false;
+    assetNotifier.removeListener(_forward);
+    clock.removeListener(_forward);
+  }
 
   @override
   void addListener(VoidCallback listener) {
-    final first = !hasListeners;
+    if (_disposed) return;
     super.addListener(listener);
-    if (first) {
+    if (!_subscribed && hasListeners) {
+      _subscribed = true;
       assetNotifier.addListener(_forward);
       clock.addListener(_forward);
     }
@@ -297,10 +368,18 @@ class _MergedAssetClock extends ChangeNotifier {
 
   @override
   void removeListener(VoidCallback listener) {
+    if (_disposed) return;
     super.removeListener(listener);
-    if (!hasListeners) {
-      assetNotifier.removeListener(_forward);
-      clock.removeListener(_forward);
+    if (_subscribed && !hasListeners) {
+      _unsubscribe();
     }
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _unsubscribe();
+    _disposed = true;
+    super.dispose();
   }
 }

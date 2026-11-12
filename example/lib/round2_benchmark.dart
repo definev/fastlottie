@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'mobile_benchmark.dart' show cacheStats, cpuTicks, profile;
 import 'tgs/cache_dir.dart';
@@ -84,6 +85,46 @@ Future<Map<String, dynamic>> profileTimings({
   }
 }
 
+Future<Map<String, dynamic>> _runRasterCacheStress({
+  required List<String> assets,
+  required TgsStore store,
+  required FastLottieRasterCache cache,
+}) async {
+  await clearExampleDiskCache();
+  await attachExampleDiskCache(cache);
+  final scroll = ScrollController();
+  runApp(
+    MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: AbsorbPointer(
+        child: _EvictionStressGrid(
+          assets: assets,
+          store: store,
+          scroll: scroll,
+          rasterCache: cache,
+        ),
+      ),
+    ),
+  );
+  await WidgetsBinding.instance.endOfFrame;
+  await Future<void>.delayed(const Duration(milliseconds: 100));
+  final coldIdle = await profileTimings(scroll: null);
+  await Future<void>.delayed(const Duration(seconds: 6));
+  final beforeScroll = cacheStats(cache);
+  final scrolling = await profileTimings(scroll: scroll, scrollDelta: -24);
+  final afterScroll = cacheStats(cache);
+  runApp(const SizedBox());
+  await WidgetsBinding.instance.endOfFrame;
+  cache.dispose();
+  scroll.dispose();
+  return {
+    'cold_idle': coldIdle,
+    'before_scroll': beforeScroll,
+    'scrolling': scrolling,
+    'after_scroll': afterScroll,
+  };
+}
+
 Future<Map<String, dynamic>> benchmark() async {
   await clearExampleDiskCache();
   final assets = await loadTgsCatalog(rootBundle);
@@ -94,7 +135,7 @@ Future<Map<String, dynamic>> benchmark() async {
     lease.release();
   }
   final result = <String, dynamic>{
-    'schema': 2,
+    'schema': 3,
     'release': kReleaseMode,
     'date_utc': DateTime.now().toUtc().toIso8601String(),
   };
@@ -127,93 +168,53 @@ Future<Map<String, dynamic>> benchmark() async {
     scroll.dispose();
   }
 
-  // 2. Ping-pong tight 2 MiB GPU budget (forces active eviction + LZ4/.flcache reload while scrolling)
-  {
-    await clearExampleDiskCache();
-    final scroll = ScrollController();
-    final cache = FastLottieRasterCache.pingPong(
+  // 2. Mini-Strip adaptive software RLE + LZ4 cache under 2 MiB & 42 MiB budgets
+  result['ministrip_tight_2mib'] = await _runRasterCacheStress(
+    assets: assets,
+    store: store,
+    cache: FastLottieRasterCache.miniStrip(
       maximumBytes: 2 * 1024 * 1024,
       maximumFrameRate: 30,
       resolutionScale: 0.5,
       maximumCompressedMemoryBytes: 8 * 1024 * 1024,
       maximumDiskBytes: 32 * 1024 * 1024,
-    );
-    await attachExampleDiskCache(cache);
-    runApp(
-      MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: AbsorbPointer(
-          child: _EvictionStressGrid(
-            assets: assets,
-            store: store,
-            scroll: scroll,
-            rasterCache: cache,
-          ),
-        ),
-      ),
-    );
-    await WidgetsBinding.instance.endOfFrame;
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    final coldIdle = await profileTimings(scroll: null);
-    await Future<void>.delayed(const Duration(seconds: 6));
-    final beforeScroll = cacheStats(cache);
-    final scrolling = await profileTimings(scroll: scroll, scrollDelta: -24);
-    final afterScroll = cacheStats(cache);
-    result['pingpong_tight_2mib'] = {
-      'cold_idle': coldIdle,
-      'before_scroll': beforeScroll,
-      'scrolling': scrolling,
-      'after_scroll': afterScroll,
-    };
-    runApp(const SizedBox());
-    await WidgetsBinding.instance.endOfFrame;
-    cache.dispose();
-    scroll.dispose();
-  }
-
-  // 2b. Ping-pong software RLE + LZ4 cache under 42 MiB GPU budget
-  {
-    await clearExampleDiskCache();
-    final scroll = ScrollController();
-    final cache = FastLottieRasterCache.pingPong(
+    ),
+  );
+  result['ministrip_42mib'] = await _runRasterCacheStress(
+    assets: assets,
+    store: store,
+    cache: FastLottieRasterCache.miniStrip(
       maximumBytes: 42 * 1024 * 1024,
       maximumFrameRate: 30,
       resolutionScale: 0.5,
       maximumCompressedMemoryBytes: 8 * 1024 * 1024,
       maximumDiskBytes: 32 * 1024 * 1024,
-    );
-    await attachExampleDiskCache(cache);
-    runApp(
-      MaterialApp(
-        debugShowCheckedModeBanner: false,
-        home: AbsorbPointer(
-          child: _EvictionStressGrid(
-            assets: assets,
-            store: store,
-            scroll: scroll,
-            rasterCache: cache,
-          ),
-        ),
-      ),
-    );
-    await WidgetsBinding.instance.endOfFrame;
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    final coldIdle = await profileTimings(scroll: null);
-    await Future<void>.delayed(const Duration(seconds: 6));
-    final beforeScroll = cacheStats(cache);
-    final scrolling = await profileTimings(scroll: scroll, scrollDelta: -24);
-    final afterScroll = cacheStats(cache);
-    result['pingpong_42mib'] = {
-      'cold_idle': coldIdle,
-      'before_scroll': beforeScroll,
-      'scrolling': scrolling,
-      'after_scroll': afterScroll,
-    };
-    runApp(const SizedBox());
-    await WidgetsBinding.instance.endOfFrame;
-    cache.dispose();
-    scroll.dispose();
-  }
+    ),
+  );
+
+  // 3. Classic ping-pong (K=1) baseline under the same 2 MiB & 42 MiB budgets
+  result['pingpong_tight_2mib'] = await _runRasterCacheStress(
+    assets: assets,
+    store: store,
+    cache: FastLottieRasterCache.pingPong(
+      maximumBytes: 2 * 1024 * 1024,
+      maximumFrameRate: 30,
+      resolutionScale: 0.5,
+      maximumCompressedMemoryBytes: 8 * 1024 * 1024,
+      maximumDiskBytes: 32 * 1024 * 1024,
+    ),
+  );
+  result['pingpong_42mib'] = await _runRasterCacheStress(
+    assets: assets,
+    store: store,
+    cache: FastLottieRasterCache.pingPong(
+      maximumBytes: 42 * 1024 * 1024,
+      maximumFrameRate: 30,
+      resolutionScale: 0.5,
+      maximumCompressedMemoryBytes: 8 * 1024 * 1024,
+      maximumDiskBytes: 32 * 1024 * 1024,
+    ),
+  );
 
   store.dispose();
   return result;
@@ -392,6 +393,12 @@ void main() {
   WidgetsBinding.instance.addPostFrameCallback((_) async {
     try {
       final payload = jsonEncode(await benchmark());
+      if (Platform.isIOS) {
+        final docs = await getApplicationDocumentsDirectory();
+        File('${docs.path}/fastlottie_benchmark.json')
+          ..parent.createSync(recursive: true)
+          ..writeAsStringSync(payload);
+      }
       for (var i = 0; i < payload.length; i += 512) {
         // ignore: avoid_print
         print(
@@ -400,8 +407,17 @@ void main() {
       }
       // ignore: avoid_print
       print('FASTLOTTIE_DONE');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       exit(0);
     } catch (error, stack) {
+      if (Platform.isIOS) {
+        try {
+          final docs = await getApplicationDocumentsDirectory();
+          File('${docs.path}/fastlottie_benchmark_error.txt')
+            ..parent.createSync(recursive: true)
+            ..writeAsStringSync('$error\n$stack');
+        } catch (_) {}
+      }
       // ignore: avoid_print
       print('FASTLOTTIE_ERROR:$error\n$stack');
       exit(1);

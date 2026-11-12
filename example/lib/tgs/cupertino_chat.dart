@@ -6,6 +6,7 @@ import 'package:fastlottie/fastlottie.dart';
 // ignore: deprecated_member_use
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
 
@@ -434,7 +435,8 @@ class _Palette {
 /// Complete pure-Cupertino chat screen powered by HTTP `.tgs` delivery:
 /// - Auto-starts an embedded local HTTP `.tgs` server (or connects to `--dart-define=TGS_SERVER_URL`).
 /// - Uses [NetworkTgsStore] (bounded HTTP queue + socket abort on scroll + raw `.tgsbin` disk cache
-///   + isolate compile) feeding [FastLottieRasterCache.pingPong] for the 5-column picker & inline emojis.
+///   + isolate compile) feeding [FastLottieRasterCache.miniStrip] (or [FastLottieRasterCache.pingPong])
+///   for the 5-column picker & inline emojis.
 /// - Renders sent/received large sticker messages at zero trade-off direct vector quality (`usePipeline: false`,
 ///   [FastLottieCache.unbounded]).
 class CupertinoChatScreen extends StatefulWidget {
@@ -445,6 +447,8 @@ class CupertinoChatScreen extends StatefulWidget {
     this.store,
     this.isDark = true,
     this.onBrightnessChanged,
+    this.rasterStrategy = FastLottieRasterStrategy.miniStrip,
+    this.stripFrames,
   });
 
   final Uri? externalServerUri;
@@ -452,6 +456,8 @@ class CupertinoChatScreen extends StatefulWidget {
   final NetworkTgsStore? store;
   final bool isDark;
   final ValueChanged<bool>? onBrightnessChanged;
+  final FastLottieRasterStrategy rasterStrategy;
+  final int? stripFrames;
 
   @override
   State<CupertinoChatScreen> createState() => _CupertinoChatScreenState();
@@ -469,12 +475,25 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         maximumEntries: 256,
       );
 
-  final FastLottieRasterCache _rasterCache = FastLottieRasterCache.pingPong(
-    maximumBytes: 48 * 1024 * 1024,
-    maximumCompressedMemoryBytes: 16 * 1024 * 1024,
-    maximumDiskBytes: 128 * 1024 * 1024,
-    maximumFrameRate: stickerThumbnailFrameRate,
-  );
+  late FastLottieRasterStrategy _rasterStrategy = widget.rasterStrategy;
+  late FastLottieRasterCache _rasterCache = _createRasterCache(_rasterStrategy);
+
+  FastLottieRasterCache _createRasterCache(FastLottieRasterStrategy strategy) =>
+      switch (strategy) {
+        FastLottieRasterStrategy.miniStrip => FastLottieRasterCache.miniStrip(
+          maximumBytes: 48 * 1024 * 1024,
+          maximumCompressedMemoryBytes: 16 * 1024 * 1024,
+          maximumDiskBytes: 128 * 1024 * 1024,
+          maximumFrameRate: stickerThumbnailFrameRate,
+          stripFrames: widget.stripFrames,
+        ),
+        FastLottieRasterStrategy.pingPong => FastLottieRasterCache.pingPong(
+          maximumBytes: 48 * 1024 * 1024,
+          maximumCompressedMemoryBytes: 16 * 1024 * 1024,
+          maximumDiskBytes: 128 * 1024 * 1024,
+          maximumFrameRate: stickerThumbnailFrameRate,
+        ),
+      };
 
   final StickerClock _clock = StickerClock();
   late final StickerPressure _pressure = StickerPressure()
@@ -494,6 +513,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   TgsRemoteCatalog? _catalog;
   StickerSheet? _stickerSheet;
   StickerSheet? _emojiSheet;
+  final List<StickerSheet> _disposingSheets = <StickerSheet>[];
+  final List<FastLottieRasterCache> _disposingCaches = <FastLottieRasterCache>[];
   Object? _bootError;
   bool _booting = true;
 
@@ -575,9 +596,43 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     }
   }
 
-  void _setupCatalog(TgsRemoteCatalog catalog) {
-    _stickerSheet?.dispose();
-    _emojiSheet?.dispose();
+  void _scheduleDisposeStale({
+    StickerSheet? stickerSheet,
+    StickerSheet? emojiSheet,
+    FastLottieRasterCache? cache,
+  }) {
+    if (stickerSheet != null) {
+      stickerSheet.active = false;
+      _disposingSheets.add(stickerSheet);
+    }
+    if (emojiSheet != null) {
+      emojiSheet.active = false;
+      _disposingSheets.add(emojiSheet);
+    }
+    if (cache != null) {
+      cache.enabled = false;
+      _disposingCaches.add(cache);
+    }
+    if (stickerSheet == null && emojiSheet == null && cache == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (stickerSheet != null && _disposingSheets.remove(stickerSheet)) {
+        stickerSheet.dispose();
+      }
+      if (emojiSheet != null && _disposingSheets.remove(emojiSheet)) {
+        emojiSheet.dispose();
+      }
+      if (cache != null && _disposingCaches.remove(cache)) {
+        cache.dispose();
+      }
+    });
+  }
+
+  void _setupCatalog(
+    TgsRemoteCatalog catalog, {
+    FastLottieRasterCache? staleCache,
+  }) {
+    final oldStickerSheet = _stickerSheet;
+    final oldEmojiSheet = _emojiSheet;
 
     _catalog = catalog;
     _stickerSheet = StickerSheet(
@@ -586,6 +641,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       store: _store,
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
+      rasterStrategy: _rasterStrategy,
+      stripFrames: widget.stripFrames,
     )..constrained = _pressure.constrained;
 
     _emojiSheet = StickerSheet(
@@ -594,10 +651,11 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       store: _store,
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
+      rasterStrategy: _rasterStrategy,
+      stripFrames: widget.stripFrames,
     )..constrained = _pressure.constrained;
 
     _composerController.catalog = catalog;
-    _composerController.sheet = _emojiSheet;
     _composerController.clock = _clock;
     _composerController.store = _store;
     _composerController.renderer = _renderer;
@@ -616,11 +674,16 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       _seedInitialConversation(catalog);
     }
 
-    _syncPlayback();
+    _syncPlayback(forceComposerNotify: !identical(oldEmojiSheet, _emojiSheet));
     setState(() {
       _booting = false;
       _bootError = null;
     });
+    _scheduleDisposeStale(
+      stickerSheet: oldStickerSheet,
+      emojiSheet: oldEmojiSheet,
+      cache: staleCache,
+    );
   }
 
   void _seedInitialConversation(TgsRemoteCatalog catalog) {
@@ -649,7 +712,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       ),
       (
         true,
-        'Grid thumbnails and inline emoji ${sc(':bulb:', 4)} ${sc(':heart_on_fire:', 0)} ${sc(':sparkles:', 0)} use Ping-Pong RLE + LZ4 `.flcache` at 30 FPS.',
+        'Grid thumbnails and inline emoji ${sc(':bulb:', 4)} ${sc(':heart_on_fire:', 0)} ${sc(':sparkles:', 0)} use Mini-Strip Ping-Pong RLE + LZ4 `.flcache` at 30 FPS.',
       ),
       (
         false,
@@ -752,7 +815,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     }
   }
 
-  void _syncPlayback() {
+  void _syncPlayback({bool forceComposerNotify = false}) {
     final active = _foreground && TickerMode.valuesOf(context).enabled;
     final sheetEnabled =
         active &&
@@ -769,6 +832,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _rasterCache.enabled = fastEnabled;
     final nextStill = _reduced || _pressure.constrained;
     final composerVisualChanged =
+        forceComposerNotify ||
+        !identical(_composerController.sheet, _emojiSheet) ||
         _composerController.renderer != _renderer ||
         _composerController.still != nextStill;
     _composerController.catalog = _catalog;
@@ -778,8 +843,17 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _composerController.renderer = _renderer;
     _composerController.still = nextStill;
     if (composerVisualChanged && _composerController.text.isNotEmpty) {
-      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
-      _composerController.notifyListeners();
+      if (WidgetsBinding.instance.schedulerPhase ==
+          SchedulerPhase.persistentCallbacks) {
+        scheduleMicrotask(() {
+          if (!mounted) return;
+          // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+          _composerController.notifyListeners();
+        });
+      } else {
+        // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+        _composerController.notifyListeners();
+      }
     }
   }
 
@@ -795,6 +869,38 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     if (oldWidget.isDark != widget.isDark) {
       _isDark = widget.isDark;
     }
+    if (oldWidget.rasterStrategy != widget.rasterStrategy ||
+        oldWidget.stripFrames != widget.stripFrames) {
+      final nextStrategy = widget.rasterStrategy;
+      final force = oldWidget.stripFrames != widget.stripFrames;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_setRasterStrategy(nextStrategy, forceRebuild: force));
+        }
+      });
+    }
+  }
+
+  Future<void> _setRasterStrategy(
+    FastLottieRasterStrategy next, {
+    bool forceRebuild = false,
+  }) async {
+    if (!mounted) return;
+    if (!forceRebuild && _rasterStrategy == next) return;
+    final oldCache = _rasterCache;
+    final nextCache = _createRasterCache(next);
+    oldCache.enabled = false;
+    _rasterStrategy = next;
+    _rasterCache = nextCache;
+    final cat = _catalog;
+    if (cat != null) {
+      _setupCatalog(cat, staleCache: oldCache);
+    } else {
+      setState(() {});
+      _scheduleDisposeStale(cache: oldCache);
+    }
+    _syncPlayback();
+    await attachExampleDiskCache(nextCache);
   }
 
   @override
@@ -910,6 +1016,14 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _emojiSheet?.resumePreparation();
   }
 
+  String get _strategyLabel => switch (_rasterStrategy) {
+    FastLottieRasterStrategy.miniStrip =>
+      widget.stripFrames != null
+          ? 'Mini-Strip (K=${widget.stripFrames})'
+          : 'Mini-Strip (Adaptive K)',
+    FastLottieRasterStrategy.pingPong => 'Ping-Pong (K=1)',
+  };
+
   Future<void> _showOptionsSheet() async {
     final server = _embeddedServer;
     await showCupertinoModalPopup<void>(
@@ -918,6 +1032,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         title: const Text('Server & Cache Options'),
         message: Text(
           'Endpoint: ${_catalog?.baseUri ?? '-'}\n'
+          'Cache: $_strategyLabel · IPC: ${_rasterCache.workerDispatches} | '
+          'GPU: ${(_rasterCache.gpuBytes / (1024 * 1024)).toStringAsFixed(1)} MiB\n'
           'Net DL: ${_store.networkDownloads} | URL Disk Hits: ${_store.diskSourceHits} | '
           'Aborted: ${_store.cancelledFetches}',
         ),
@@ -975,9 +1091,25 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               _syncPlayback();
             },
             child: Text(
-              'Renderer: ${_renderer == ChatRendererMode.fastlottie ? 'FastLottie (Hero Vector + PingPong)' : 'Lottie Reference'}',
+              'Renderer: ${_renderer == ChatRendererMode.fastlottie ? 'FastLottie (Hero Vector + ${_rasterStrategy == FastLottieRasterStrategy.miniStrip ? 'Mini-Strip' : 'PingPong'})' : 'Lottie Reference'}',
             ),
           ),
+          if (_renderer == ChatRendererMode.fastlottie)
+            CupertinoActionSheetAction(
+              key: const ValueKey('toggle-raster-strategy-action'),
+              onPressed: () {
+                final next = _rasterStrategy == FastLottieRasterStrategy.miniStrip
+                    ? FastLottieRasterStrategy.pingPong
+                    : FastLottieRasterStrategy.miniStrip;
+                Navigator.of(ctx).pop();
+                unawaited(_setRasterStrategy(next));
+              },
+              child: Text(
+                _rasterStrategy == FastLottieRasterStrategy.miniStrip
+                    ? 'Raster Strategy: Mini-Strip (Switch to Ping-Pong K=1)'
+                    : 'Raster Strategy: Ping-Pong K=1 (Switch to Mini-Strip)',
+              ),
+            ),
           CupertinoActionSheetAction(
             onPressed: () {
               final next = !_isDark;
@@ -1038,7 +1170,12 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
             'URL Disk Cache Hits: ${_store.diskSourceHits}\n'
             'RAM Model Hits: ${_store.hits}\n'
             'Aborted Sockets: ${_store.cancelledFetches}\n'
-            'PingPong GPU: ${(_rasterCache.gpuBytes / (1024 * 1024)).toStringAsFixed(2)} MiB\n'
+            'Strategy: $_strategyLabel\n'
+            'GPU VRAM: ${(_rasterCache.gpuBytes / (1024 * 1024)).toStringAsFixed(2)} MiB '
+            '(Resv ${(_rasterCache.reservedBytes / (1024 * 1024)).toStringAsFixed(2)})\n'
+            'Worker Dispatches (IPC): ${_rasterCache.workerDispatches}\n'
+            'Strip/Buffer Swaps: ${_rasterCache.pingPongSwaps}\n'
+            'Cache Hits / Misses: ${_rasterCache.hits} / ${_rasterCache.misses}\n'
             'LZ4 .flcache Hits: ${_rasterCache.compressedCacheHits}\n'
             'Vector RLE Frames: ${_rasterCache.vectorRasterizedFrames}',
           ),
@@ -1154,7 +1291,15 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _pressure.dispose();
     _stickerSheet?.dispose();
     _emojiSheet?.dispose();
+    for (final stale in _disposingSheets) {
+      stale.dispose();
+    }
+    _disposingSheets.clear();
     _rasterCache.dispose();
+    for (final stale in _disposingCaches) {
+      stale.dispose();
+    }
+    _disposingCaches.clear();
     _clock.dispose();
     if (widget.store == null) {
       _store.dispose();
@@ -2144,7 +2289,7 @@ class _ChatMessageRow extends StatelessWidget {
 }
 
 /// Inline emoji and sticker-grid thumbnail backed by [StickerSheet] +
-/// [FastLottieRasterCache.pingPong] + [NetworkTgsStore].
+/// [FastLottieRasterCache.miniStrip] + [NetworkTgsStore].
 class InlineNetworkSticker extends StatefulWidget {
   const InlineNetworkSticker({
     super.key,
@@ -2238,10 +2383,9 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
       widget.clock,
     );
 
-    final paint = ListenableBuilder(
-      listenable: widget.sheet,
-      builder: (context, _) {
-        final error = widget.sheet.errorFor(widget.item.urlString);
+    final paint = ValueListenableBuilder<Object?>(
+      valueListenable: widget.sheet.errorListenableFor(widget.item.urlString),
+      builder: (context, error, _) {
         if (error != null) {
           if (error is UnsupportedLottieException) {
             return const SizedBox.shrink();
@@ -2301,6 +2445,8 @@ class _NetworkInlinePainter extends CustomPainter {
     required Listenable repaint,
   }) : super(repaint: repaint);
 
+  static final Paint _placeholderPaint = Paint();
+
   final String url;
   final StickerSheet sheet;
   final StickerClock clock;
@@ -2348,9 +2494,10 @@ class _NetworkInlinePainter extends CustomPainter {
 
   void _drawPlaceholder(Canvas canvas, Size size, [Offset origin = Offset.zero]) {
     final r = math.min(size.width, size.height) * 0.28;
+    _placeholderPaint.color = placeholderColor;
     canvas.drawRRect(
       RRect.fromRectAndRadius(origin & size, Radius.circular(r)),
-      Paint()..color = placeholderColor,
+      _placeholderPaint,
     );
   }
 

@@ -47,6 +47,8 @@ void main() {
         store.dispose();
       });
 
+      expect(sheet.rasterCache.strategy, FastLottieRasterStrategy.miniStrip);
+
       sheet.acquirePin(asset);
       sheet.acquirePin(asset);
       for (var i = 0; i < 40 && sheet.activePlayers == 0; i++) {

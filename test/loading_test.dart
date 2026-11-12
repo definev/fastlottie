@@ -142,4 +142,32 @@ void main() {
     cache.dispose();
     await tester.pump();
   });
+
+  testWidgets('player releases vector scene state after drawing from warm rasterCache', (
+    tester,
+  ) async {
+    final c = await tester.runAsync(
+      () => FastLottieComposition.fromBytesAsync(bytes(fixture('icon'))),
+    );
+    final cache = FastLottieRasterCache.miniStrip(workerCount: 2);
+    final player = FastLottiePlayer(
+      c!,
+      rasterCache: cache,
+      cache: FastLottieCache.none,
+    );
+    addTearDown(() {
+      player.dispose();
+      cache.dispose();
+    });
+
+    // Cold draw without fallback builds _sceneState so the frame paints immediately.
+    record(player, .2);
+    expect(player.debugHasScene, isTrue);
+
+    // Once worker finishes and a warm frame draws from rasterCache, _sceneState releases.
+    await drain(tester, cache);
+    record(player, .2);
+    expect(cache.hits, greaterThanOrEqualTo(1));
+    expect(player.debugHasScene, isFalse);
+  });
 }

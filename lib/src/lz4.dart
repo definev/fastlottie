@@ -6,12 +6,16 @@ import 'dart:typed_data';
 /// Designed for repeated per-frame raster buffers: callers can reuse
 /// [Lz4Scratch] across frames for zero heap allocations on worker isolates.
 class Lz4Scratch {
-  Lz4Scratch({int initialOutputCapacity = 128 * 1024})
+  Lz4Scratch({int initialOutputCapacity = defaultOutputCapacity})
     : hashTable = Int32List(Lz4Codec._hashTableSize),
       outputBuffer = Uint8List(initialOutputCapacity);
 
+  static const int defaultOutputCapacity = 128 * 1024;
+  static const int defaultSoftLimit = 512 * 1024;
+
   final Int32List hashTable;
   Uint8List outputBuffer;
+  int _smallUseCount = 0;
 
   Uint8List ensureOutputCapacity(int minBytes) {
     if (outputBuffer.length >= minBytes) return outputBuffer;
@@ -19,7 +23,32 @@ class Lz4Scratch {
     while (next < minBytes) {
       next = next * 2;
     }
+    _smallUseCount = 0;
     return outputBuffer = Uint8List(next);
+  }
+
+  /// Releases oversized temporary output buffers after repeated small encodes.
+  void recordOutputUse(int neededBytes, {int softLimit = defaultSoftLimit}) {
+    if (outputBuffer.length <= softLimit) {
+      _smallUseCount = 0;
+      return;
+    }
+    if (neededBytes <= defaultOutputCapacity) {
+      if (++_smallUseCount >= 16) {
+        outputBuffer = Uint8List(defaultOutputCapacity);
+        _smallUseCount = 0;
+      }
+    } else {
+      _smallUseCount = 0;
+    }
+  }
+
+  /// Immediately shrinks an expanded [outputBuffer] back to [targetCapacity].
+  void shrinkScratch([int targetCapacity = defaultOutputCapacity]) {
+    _smallUseCount = 0;
+    if (outputBuffer.length > targetCapacity) {
+      outputBuffer = Uint8List(targetCapacity);
+    }
   }
 }
 
@@ -312,7 +341,8 @@ abstract final class Lz4Codec {
     if (written < 0) {
       throw StateError('Unexpected LZ4 output capacity shortfall');
     }
-    return Uint8List.fromList(dst.sublist(0, written));
+    if (written == 0) return Uint8List(0);
+    return Uint8List(written)..setRange(0, written, dst);
   }
 
   static Uint8List decompress(Uint8List src, int expectedLength) {

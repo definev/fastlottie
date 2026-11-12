@@ -329,3 +329,30 @@ Phần này tổng hợp 12 hướng tiếp cận tối ưu hóa chuyên sâu ch
     b = (b * inv) >>> 16;
     final lum = ((19595 * r + 38470 * g + 7471 * b) >>> 16).clamp(0, 255);
     ```
+
+---
+
+## 6. Kiến trúc Mini-Strip ($K$-Frame Strip Ping-Pong) (`lib/src/raster_cache.dart`, `lib/src/ping_pong.dart`, `lib/src/worker_pool.dart`)
+
+`FastLottieRasterCache.miniStrip` mở rộng mô hình Double-Buffered Ping-Pong truyền thống ($K = 1$) thành **Double-Buffered Strip Ping-Pong**, đóng gói tối đa $K$ khung hình liên tiếp theo chiều dọc vào một `ui.Image` duy nhất:
+
+1. **Bố cục Strip Dọc & Zero-Copy SublistView**:
+   - Trên `_softwareWorkerEntry` ([`lib/src/worker_pool.dart`](file:///Users/vsf/source/github.com/definev/fastlottie/lib/src/worker_pool.dart)), toàn bộ strip gồm $m \le K$ khung hình được cấp phát liên tục trên một buffer duy nhất có chiều cao $H_{\text{strip}} = m \cdot H + (m - 1) \cdot \text{padY}$.
+   - Mỗi slot $j \in [0, m - 1]$ tương ứng trực tiếp với hai lát cắt `Uint8List.sublistView` / `Uint32List.sublistView` không sao chép trung gian: `BitstreamStore.tryReadFrame` giải nén LZ4 trực tiếp vào slot nếu có trong cache, hoặc `_renderSceneSoftware` kết xuất trực tiếp vào lát cắt đó.
+   - Chiều dọc luôn chèn **1 dòng đệm trong suốt (`padY = 1`)** giữa hai slot liền kề khi $m > 1$, triệt tiêu hiện tượng rò màu biên (texture bleeding) khi GPU lấy mẫu nội suy song tuyến (`FilterQuality.low`).
+   - Toàn bộ strip $m$ khung hình chỉ cần **1 thông điệp IPC**, **1 `TransferableTypedData`**, và **1 lệnh GPU `ui.decodeImageFromPixels`**.
+
+2. **Chọn $K$ Thích ứng theo Working-Set & Hạ cấp Động (Adaptive $K$-Sizing & Dynamic Demotion)**:
+   - `_resolveStripFrames` tự động chọn $K$ theo dung lượng byte của mỗi khung hình ($W \times H \times 4$) và ngân sách khả dụng của mục nhập (`entryBudget`):
+     - $\le 64\text{ KiB}$: $K = 4$ (hoặc gom toàn bộ clip nếu $\text{totalFrames} \le 6$).
+     - $\le 256\text{ KiB}$: $K = 4$.
+     - $\le 1\text{ MiB}$: $K = 2$.
+     - $> 1\text{ MiB}$ hoặc tĩnh/poster: $K = 1$.
+   - Tự động chặn chiều cao strip $\le 4096\text{ px}$ để tương thích mọi giới hạn phần cứng texture trên di động.
+   - **Tỉ lệ hóa theo tập đang hoạt động & hạ cấp động (`_demoteEntry`)**: Khi tập entry đang được ghim (`users.isNotEmpty`) vượt nửa ngân sách (tối thiểu 4 entry), `_acquire` giới hạn `entryBudget` theo phần công bằng $\lfloor \text{budget} / (\text{pinnedCount} + 1) \rfloor$. Nếu entry mới vẫn thiếu chỗ sau khi xả hết LRU chưa ghim, thay vì từ chối về Vector, bộ điều phối hạ cấp vòng tròn các entry đang giữ $K > 1$ ($K \to \lfloor K/2 \rfloor \to 1$, bỏ qua các bước 1-buffer $\to$ 2-buffer tiết kiệm ít hơn 1 frame) và khớp lại thế hệ `stripGeneration` để bỏ qua upload texture quá kích thước trước đó mà vẫn giữ nguyên kết quả LZ4/đĩa.
+   - Khi $\text{totalFrames} \le K$, hệ thống chỉ giữ duy nhất **1 buffer VRAM**, giúp các vòng lặp tiếp theo chạy hoàn toàn với **0 IPC, 0 GPU upload và 0 texture swap**.
+
+3. **Vẽ lát cắt `srcRect` và Bảo toàn định dạng `.flcache`**:
+   - `_PingPongCoordinator.lookup` trả về `(image, entry, slotOffsetY)` với `slotOffsetY = (index - renderingStripStart) * (ph + 1)` để [`FastLottiePlayer.draw`](file:///Users/vsf/source/github.com/definev/fastlottie/lib/fastlottie.dart) cắt đúng khung cần vẽ bằng một lệnh `canvas.drawImageRect`.
+   - Khi chuyển sang khung kế tiếp trong cùng strip, UI hit trực tiếp tại chỗ và phát prefetch cho strip tiếp theo `(renderingStripStart + renderingStripCount) % totalFrames`, kéo dài cửa sổ thời gian chuẩn bị cho Worker lên $K \times$ thời lượng khung hình.
+   - Do `BitstreamStore` lưu và lập chỉ mục theo **từng frame nguồn chuẩn hóa** (Tối ưu #6), `FastLottieRasterCache.miniStrip` và `FastLottieRasterCache.pingPong` dùng chung 100% file `.flcache` trên đĩa và dữ liệu LZ4 trong RAM giữa các phiên làm việc.

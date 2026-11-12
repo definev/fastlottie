@@ -59,6 +59,8 @@ class TgsGallery extends StatefulWidget {
     this.initialRenderer = TgsRenderer.fastlottie,
     this.scrollController,
     this.initialWorkload,
+    this.initialStrategy = FastLottieRasterStrategy.miniStrip,
+    this.stripFrames,
     this.onRasterCacheCreated,
   });
   final TgsStore? store;
@@ -66,6 +68,8 @@ class TgsGallery extends StatefulWidget {
   final TgsRenderer initialRenderer;
   final ScrollController? scrollController;
   final TgsWorkload? initialWorkload;
+  final FastLottieRasterStrategy initialStrategy;
+  final int? stripFrames;
   final ValueChanged<FastLottieRasterCache>? onRasterCacheCreated;
   @override
   State<TgsGallery> createState() => _TgsGalleryState();
@@ -83,7 +87,9 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
       defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
   late TgsWorkload workload = widget.initialWorkload ?? TgsWorkload.lod;
+  late FastLottieRasterStrategy strategy = widget.initialStrategy;
   late FastLottieRasterCache rasterCache;
+  final List<FastLottieRasterCache> _disposingCaches = [];
   late final ScrollController scroll =
       widget.scrollController ?? ScrollController();
   bool foreground = true;
@@ -109,12 +115,36 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
   }
 
   void _createRasterCache() {
-    rasterCache = FastLottieRasterCache.pingPong(
-      maximumFrameRate: tgsRasterFrameRate,
-      resolutionScale: lod ? tgsLodScale : 1,
-    );
+    rasterCache = switch (strategy) {
+      FastLottieRasterStrategy.miniStrip => FastLottieRasterCache.miniStrip(
+        maximumFrameRate: tgsRasterFrameRate,
+        resolutionScale: lod ? tgsLodScale : 1,
+        stripFrames: widget.stripFrames,
+      ),
+      FastLottieRasterStrategy.pingPong => FastLottieRasterCache.pingPong(
+        maximumFrameRate: tgsRasterFrameRate,
+        resolutionScale: lod ? tgsLodScale : 1,
+      ),
+    };
     unawaited(attachExampleDiskCache(rasterCache));
     widget.onRasterCacheCreated?.call(rasterCache);
+  }
+
+  void _switchStrategy(FastLottieRasterStrategy next) {
+    if (strategy == next) return;
+    final previous = rasterCache;
+    previous.enabled = false;
+    setState(() {
+      strategy = next;
+      _createRasterCache();
+      _syncPlayback();
+    });
+    _disposingCaches.add(previous);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposingCaches.remove(previous)) {
+        previous.dispose();
+      }
+    });
   }
 
   void _syncPlayback() {
@@ -150,6 +180,10 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     clock.dispose();
     rasterCache.dispose();
+    for (final stale in _disposingCaches) {
+      stale.dispose();
+    }
+    _disposingCaches.clear();
     if (widget.scrollController == null) scroll.dispose();
     if (widget.store == null) store.dispose();
     super.dispose();
@@ -162,18 +196,46 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
         children: [
           SizedBox(
             height: 48,
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<TgsRenderer>(
-                value: renderer,
-                items: [
-                  for (final r in TgsRenderer.values)
-                    DropdownMenuItem(value: r, child: Text(r.name)),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<TgsRenderer>(
+                    value: renderer,
+                    items: [
+                      for (final r in TgsRenderer.values)
+                        DropdownMenuItem(value: r, child: Text(r.name)),
+                    ],
+                    onChanged: (r) {
+                      setState(() => renderer = r!);
+                      _syncPlayback();
+                    },
+                  ),
+                ),
+                if (renderer == TgsRenderer.fastlottie &&
+                    workload != TgsWorkload.full) ...[
+                  const SizedBox(width: 12),
+                  DropdownButtonHideUnderline(
+                    child: DropdownButton<FastLottieRasterStrategy>(
+                      key: const ValueKey('gallery-strategy-dropdown'),
+                      value: strategy,
+                      items: const [
+                        DropdownMenuItem(
+                          value: FastLottieRasterStrategy.miniStrip,
+                          child: Text('Mini-Strip'),
+                        ),
+                        DropdownMenuItem(
+                          value: FastLottieRasterStrategy.pingPong,
+                          child: Text('Ping-Pong'),
+                        ),
+                      ],
+                      onChanged: (next) {
+                        if (next != null) _switchStrategy(next);
+                      },
+                    ),
+                  ),
                 ],
-                onChanged: (r) {
-                  setState(() => renderer = r!);
-                  _syncPlayback();
-                },
-              ),
+              ],
             ),
           ),
           Expanded(

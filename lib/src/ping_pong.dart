@@ -2,20 +2,23 @@ part of '../fastlottie.dart';
 
 /// Coordinates Telegram-style Double-Buffered Ping-Pong GPU textures (`ui.Image`),
 /// persistent worker Isolate decoding, LZ4 disk/RAM caching, and UI repaint hints.
-final class _PingPongCoordinator {
+final class _PingPongCoordinator implements _RasterWorkerListener {
   _PingPongCoordinator(
     this.cache, {
     String? diskCacheDirectory,
     int? workerCount,
-  }) : workerPool = _RasterWorkerPool(
-         workerCount: defaultWorkerCount(workerCount),
-         maximumCompressedMemoryBytes: cache.maximumCompressedMemoryBytes,
-         maximumDiskBytes: cache.maximumDiskBytes,
-         diskCacheDirectory: diskCacheDirectory,
-       );
+  }) {
+    workerPool = _RasterWorkerPool(
+      listener: this,
+      workerCount: defaultWorkerCount(workerCount),
+      maximumCompressedMemoryBytes: cache.maximumCompressedMemoryBytes,
+      maximumDiskBytes: cache.maximumDiskBytes,
+      diskCacheDirectory: diskCacheDirectory,
+    );
+  }
 
   final FastLottieRasterCache cache;
-  final _RasterWorkerPool workerPool;
+  late final _RasterWorkerPool workerPool;
 
   final _highPriorityQueue = LinkedHashSet<_RasterEntry>.identity();
   final _lowPriorityQueue = LinkedHashSet<_RasterEntry>.identity();
@@ -32,12 +35,14 @@ final class _PingPongCoordinator {
     for (final entry in _highPriorityQueue) {
       entry.queuedForPingPong = false;
       entry.queuedHighPriority = false;
-      entry.pendingFrameIndex = -1;
+      entry.pendingStripStart = -1;
+      entry.pendingStripCount = 0;
     }
     for (final entry in _lowPriorityQueue) {
       entry.queuedForPingPong = false;
       entry.queuedHighPriority = false;
-      entry.pendingFrameIndex = -1;
+      entry.pendingStripStart = -1;
+      entry.pendingStripCount = 0;
     }
     _highPriorityQueue.clear();
     _lowPriorityQueue.clear();
@@ -50,7 +55,71 @@ final class _PingPongCoordinator {
       entry.queuedForPingPong = false;
       entry.queuedHighPriority = false;
     }
-    entry.pendingFrameIndex = -1;
+    entry.pendingStripStart = -1;
+    entry.pendingStripCount = 0;
+  }
+
+  void onEntryDemoted(_RasterEntry entry) {
+    if (entry.pendingStripStart >= 0) {
+      if (entry.desiredFrameIndex >= 0 &&
+          (entry.queuedHighPriority || entry.renderingImage == null)) {
+        final start = _stripStartFor(entry, entry.desiredFrameIndex);
+        entry.pendingStripStart = start;
+        entry.pendingStripCount = _stripCountFor(entry, start, entry.totalFrames);
+        if (entry.queuedForPingPong && !entry.queuedHighPriority) {
+          _lowPriorityQueue.remove(entry);
+          entry.queuedHighPriority = true;
+          _highPriorityQueue.add(entry);
+        }
+      } else {
+        final start = _stripStartFor(entry, entry.pendingStripStart);
+        entry.pendingStripStart = start;
+        entry.pendingStripCount = _stripCountFor(entry, start, entry.totalFrames);
+      }
+    }
+    if (entry.renderingImage == null &&
+        entry.inFlightStripStart < 0 &&
+        !entry.queuedForPingPong &&
+        entry.desiredFrameIndex >= 0 &&
+        cache._enabled &&
+        cache.lastError == null &&
+        !entry.retired &&
+        entry.users.isNotEmpty) {
+      final start = _stripStartFor(entry, entry.desiredFrameIndex);
+      final count = _stripCountFor(entry, start, entry.totalFrames);
+      _requestStrip(entry, start, count, highPriority: true);
+    }
+  }
+
+  static bool _stripContains(int stripStart, int stripCount, int frameIndex) =>
+      stripCount > 0 &&
+      frameIndex >= stripStart &&
+      frameIndex < stripStart + stripCount;
+
+  int _stripStartFor(_RasterEntry entry, int frameIndex) {
+    if (entry.stripFrames <= 1 || entry.poster || entry.totalFrames <= 1) {
+      return frameIndex;
+    }
+    return (frameIndex ~/ entry.stripFrames) * entry.stripFrames;
+  }
+
+  int _stripCountFor(_RasterEntry entry, int stripStart, int total) {
+    if (entry.stripFrames <= 1 || entry.poster || total <= 1) {
+      return 1;
+    }
+    return math.min(entry.stripFrames, total - stripStart);
+  }
+
+  int _nextStripStart(
+    _RasterEntry entry,
+    int currentStart,
+    int currentCount,
+    int total,
+  ) {
+    if (entry.stripFrames <= 1 || entry.poster || total <= 1) {
+      return (currentStart + 1) % total;
+    }
+    return (currentStart + currentCount) % total;
   }
 
   (ui.Image?, _RasterEntry?, int) lookup(
@@ -77,7 +146,7 @@ final class _PingPongCoordinator {
           player._rasterRejectedKey == (keySize, rateKey) &&
           player._rasterRejectedGeneration == cache._admissionGeneration) {
         cache.misses++;
-        return (null, null, -1);
+        return (null, null, 0);
       }
       cache._release(player);
       entry = cache._acquire(player, keySize);
@@ -91,7 +160,7 @@ final class _PingPongCoordinator {
     }
     if (entry == null) {
       cache.misses++;
-      return (null, null, -1);
+      return (null, null, 0);
     }
 
     final total = entry.totalFrames;
@@ -101,25 +170,46 @@ final class _PingPongCoordinator {
 
     workerPool.touchDiskEntry(entry.entryKey);
 
+    int offsetYForSlot(int slot) => entry!.stripFrames <= 1 ? 0 : slot * (ph + 1);
+
     // 1. Exact front-buffer hit.
-    if (entry.renderingImage != null && entry.renderingFrameIndex == index) {
-      entry.desiredFrameIndex = index;
-      cache.hits++;
-      if (!entry.poster && total > 1 && entry.hasPlayedAdvance) {
-        _ensurePrefetch(entry, (index + 1) % total);
+    if (entry.renderingImage != null &&
+        _stripContains(entry.renderingStripStart, entry.renderingStripCount, index)) {
+      if (entry.desiredFrameIndex >= 0 && index != entry.desiredFrameIndex) {
+        entry.hasPlayedAdvance = true;
       }
-      return (entry.renderingImage, entry, index);
+      entry.desiredFrameIndex = index;
+      final slot = index - entry.renderingStripStart;
+      entry.lastRenderingSlot = slot;
+      cache.hits++;
+      if (!entry.poster &&
+          total > entry.renderingStripCount &&
+          entry.hasPlayedAdvance) {
+        final nextStart = _nextStripStart(
+          entry,
+          entry.renderingStripStart,
+          entry.renderingStripCount,
+          total,
+        );
+        _ensurePrefetch(entry, nextStart);
+      }
+      return (entry.renderingImage, entry, offsetYForSlot(slot));
     }
 
-    // 2. O(1) Back-buffer pointer swap when lookahead frame matches.
-    if (entry.backgroundImage != null && entry.backgroundFrameIndex == index) {
+    // 2. O(1) Back-buffer pointer swap when lookahead strip matches.
+    if (entry.backgroundImage != null &&
+        _stripContains(entry.backgroundStripStart, entry.backgroundStripCount, index)) {
       final promoted = entry.backgroundImage!;
       final displaced = entry.renderingImage;
       entry.renderingImage = promoted;
-      entry.renderingFrameIndex = index;
+      entry.renderingStripStart = entry.backgroundStripStart;
+      entry.renderingStripCount = entry.backgroundStripCount;
       entry.backgroundImage = null;
-      entry.backgroundFrameIndex = -1;
+      entry.backgroundStripStart = -1;
+      entry.backgroundStripCount = 0;
       entry.desiredFrameIndex = index;
+      final slot = index - entry.renderingStripStart;
+      entry.lastRenderingSlot = slot;
       entry.hasPlayedAdvance = true;
       cache._pingPongSwaps++;
       cache.hits++;
@@ -129,21 +219,30 @@ final class _PingPongCoordinator {
         cache._bytes -= dBytes;
         cache._enqueueDisposal(displaced, dBytes);
       }
-      if (!entry.poster && total > 1) {
-        _ensurePrefetch(entry, (index + 1) % total);
+      if (!entry.poster && total > entry.renderingStripCount) {
+        final nextStart = _nextStripStart(
+          entry,
+          entry.renderingStripStart,
+          entry.renderingStripCount,
+          total,
+        );
+        _ensurePrefetch(entry, nextStart);
       }
-      return (promoted, entry, index);
+      return (promoted, entry, offsetYForSlot(slot));
     }
 
     // 3. Miss on exact index (seek, startup, or worker still in flight).
     cache.misses++;
-    if (entry.renderingImage != null && entry.renderingFrameIndex != index) {
+    if (entry.renderingImage != null &&
+        !_stripContains(entry.renderingStripStart, entry.renderingStripCount, index)) {
       entry.hasPlayedAdvance = true;
     }
-    if (entry.backgroundImage != null && entry.backgroundFrameIndex != index) {
+    if (entry.backgroundImage != null &&
+        !_stripContains(entry.backgroundStripStart, entry.backgroundStripCount, index)) {
       final stale = entry.backgroundImage!;
       entry.backgroundImage = null;
-      entry.backgroundFrameIndex = -1;
+      entry.backgroundStripStart = -1;
+      entry.backgroundStripCount = 0;
       final sBytes = stale.width * stale.height * 4;
       cache._bytes -= sBytes;
       cache._enqueueDisposal(stale, sBytes);
@@ -151,44 +250,55 @@ final class _PingPongCoordinator {
 
     entry.desiredFrameIndex = index;
     if (cache._enabled && cache.lastError == null && !entry.retired) {
-      _requestFrame(entry, index, highPriority: true);
+      final stripStart = _stripStartFor(entry, index);
+      final stripCount = _stripCountFor(entry, stripStart, total);
+      _requestStrip(entry, stripStart, stripCount, highPriority: true);
     }
 
     // Once front buffer is valid, never block UI thread falling back to vectors.
-    return (entry.renderingImage, entry, index);
+    final fallbackSlot = entry.renderingImage != null && entry.renderingStripCount > 0
+        ? entry.lastRenderingSlot.clamp(0, entry.renderingStripCount - 1)
+        : 0;
+    return (entry.renderingImage, entry, offsetYForSlot(fallbackSlot));
   }
 
-  void _ensurePrefetch(_RasterEntry entry, int nextIndex) {
+  void _ensurePrefetch(_RasterEntry entry, int nextStart) {
     if (!cache._enabled ||
         cache.lastError != null ||
         entry.retired ||
         entry.users.isEmpty) {
       return;
     }
-    if (entry.backgroundImage != null && entry.backgroundFrameIndex == nextIndex) {
+    if (entry.backgroundImage != null &&
+        _stripContains(entry.backgroundStripStart, entry.backgroundStripCount, nextStart)) {
       return;
     }
-    if (entry.inFlightFrameIndex == nextIndex) return;
-    _requestFrame(entry, nextIndex, highPriority: false);
+    if (entry.inFlightStripStart == nextStart) return;
+    final nextCount = _stripCountFor(entry, nextStart, entry.totalFrames);
+    _requestStrip(entry, nextStart, nextCount, highPriority: false);
   }
 
-  void _requestFrame(
+  void _requestStrip(
     _RasterEntry entry,
-    int frameIndex, {
+    int stripStart,
+    int stripCount, {
     required bool highPriority,
   }) {
-    if (entry.inFlightFrameIndex == frameIndex) {
-      entry.pendingFrameIndex = -1;
+    if (entry.inFlightStripStart == stripStart) {
+      entry.pendingStripStart = -1;
+      entry.pendingStripCount = 0;
       return;
     }
-    if (entry.inFlightFrameIndex >= 0) {
+    if (entry.inFlightStripStart >= 0) {
       // Latest desire wins without growing a request backlog.
-      entry.pendingFrameIndex = frameIndex;
+      entry.pendingStripStart = stripStart;
+      entry.pendingStripCount = stripCount;
       if (highPriority) entry.queuedHighPriority = true;
       return;
     }
     if (_activeJobs >= cache.maximumInFlight) {
-      entry.pendingFrameIndex = frameIndex;
+      entry.pendingStripStart = stripStart;
+      entry.pendingStripCount = stripCount;
       if (!entry.queuedForPingPong) {
         final totalQueued =
             _highPriorityQueue.length + _lowPriorityQueue.length;
@@ -201,7 +311,8 @@ final class _PingPongCoordinator {
           victimQueue.remove(oldest);
           oldest.queuedForPingPong = false;
           oldest.queuedHighPriority = false;
-          oldest.pendingFrameIndex = -1;
+          oldest.pendingStripStart = -1;
+          oldest.pendingStripCount = 0;
         }
         entry.queuedForPingPong = true;
         entry.queuedHighPriority = highPriority;
@@ -214,10 +325,10 @@ final class _PingPongCoordinator {
       }
       return;
     }
-    _dispatchEntryFrame(entry, frameIndex);
+    _dispatchEntryStrip(entry, stripStart, stripCount);
   }
 
-  void _dispatchEntryFrame(_RasterEntry entry, int frameIndex) {
+  void _dispatchEntryStrip(_RasterEntry entry, int stripStart, int stripCount) {
     if (_disposed ||
         !cache._enabled ||
         cache.lastError != null ||
@@ -228,112 +339,221 @@ final class _PingPongCoordinator {
     final c = entry.composition;
     final pw = entry.key.$2.width.toInt();
     final ph = entry.key.$2.height.toInt();
-    final sourceIndex = _sourceIndexForSample(entry, frameIndex);
-    final sceneFrame = c.startFrame + sourceIndex;
+    final effectiveStep =
+        entry.poster || c.isStatic || entry.sourceFrames <= 1
+            ? 0.0
+            : entry.frameStep;
 
-    entry.inFlightFrameIndex = frameIndex;
+    entry.inFlightStripStart = stripStart;
+    entry.inFlightStripCount = stripCount;
+    final dispatchedGen = entry.stripGeneration;
     _activeJobs++;
 
-    unawaited(
-      workerPool
-          .renderFrame(
-            composition: c,
-            entryKey: entry.entryKey,
-            frame: sceneFrame,
-            frameIndex: sourceIndex,
-            width: pw,
-            height: ph,
-            totalFrames: entry.sourceFrames,
-            poster: false,
-          )
-          .then<void>(
-            (result) {
-              if (_disposed ||
-                  result == null ||
-                  entry.retired ||
-                  entry.users.isEmpty ||
-                  cache.lastError != null) {
-                _finishJob(entry, scheduleFollowup: false);
-                return;
-              }
-              if (result.vectorRendered) cache._vectorRasterizedFrames++;
-              if (result.compressedHit) cache._compressedCacheHits++;
-              if (result.entryDiskBytes > 0) {
-                _activeDiskKeys.clear();
-                for (final e in cache._entries.values) {
-                  if (e.users.isNotEmpty) {
-                    _activeDiskKeys.add(e.entryKey);
-                  }
-                }
-                workerPool.enforceDiskBudget(_activeDiskKeys);
-              }
-
-              // Skip expensive GPU upload if a front buffer already exists and
-              // caller moved past this frame (unless it matches next lookahead).
-              final total = entry.totalFrames;
-              final expectedLookahead = entry.renderingImage != null &&
-                      !entry.poster &&
-                      total > 1
-                  ? (entry.renderingFrameIndex + 1) % total
-                  : -1;
-              final wantedNow = frameIndex == entry.desiredFrameIndex;
-              final queuedOverride = entry.pendingFrameIndex >= 0 &&
-                  entry.pendingFrameIndex != frameIndex &&
-                  frameIndex != expectedLookahead;
-              if (entry.renderingImage != null && queuedOverride && !wantedNow) {
-                _finishJob(entry, scheduleFollowup: true);
-                return;
-              }
-
-              try {
-                ui.decodeImageFromPixels(
-                  result.bgraBytes,
-                  pw,
-                  ph,
-                  ui.PixelFormat.bgra8888,
-                  (image) => _onImageDecoded(entry, frameIndex, image),
-                );
-              } catch (error) {
-                _finishJob(entry, scheduleFollowup: false);
-                cache._failed(error);
-              }
-            },
-            onError: (Object error, StackTrace _) {
-              _finishJob(entry, scheduleFollowup: false);
-              if (!_disposed && cache.lastError == null) {
-                cache._failed(error);
-              }
-            },
-          ),
+    workerPool.dispatchStrip(
+      entry: entry,
+      dispatchedGen: dispatchedGen,
+      composition: c,
+      entryKey: entry.entryKey,
+      stripStart: stripStart,
+      stripCount: stripCount,
+      startFrame: c.startFrame,
+      frameStep: effectiveStep,
+      width: pw,
+      height: ph,
+      totalFrames: entry.sourceFrames,
+      poster: false,
     );
   }
 
-  void _onImageDecoded(_RasterEntry entry, int frameIndex, ui.Image image) {
+  @override
+  void onStripReady(
+    _RasterEntry entry,
+    int dispatchedGen, {
+    required String entryKey,
+    required int stripStart,
+    required int stripCount,
+    required int stripWidth,
+    required int stripHeight,
+    required Uint8List bgraBytes,
+    required bool vectorRendered,
+    required int vectorCount,
+    required bool compressedHit,
+    required int compressedCount,
+    required int entryDiskBytes,
+  }) {
     if (_disposed ||
         entry.retired ||
         entry.users.isEmpty ||
         cache.lastError != null) {
-      image.dispose();
       _finishJob(entry, scheduleFollowup: false);
+      return;
+    }
+    if (vectorRendered) {
+      cache._vectorRasterizedFrames += vectorCount;
+    }
+    if (compressedHit) {
+      cache._compressedCacheHits += compressedCount;
+    }
+    if (entryDiskBytes > 0 && workerPool.needsDiskBudgetEnforcement) {
+      _activeDiskKeys.clear();
+      for (final e in cache._entries.values) {
+        if (e.users.isNotEmpty) {
+          _activeDiskKeys.add(e.entryKey);
+        }
+      }
+      workerPool.enforceDiskBudget(_activeDiskKeys);
+    }
+
+    // If the entry was demoted to a smaller strip size while in flight,
+    // skip GPU upload of the oversized texture (worker LZ4/disk cache
+    // already recorded the rendered frames) and schedule the new strip.
+    if (dispatchedGen != entry.stripGeneration) {
+      if (entry.pendingStripStart < 0 && entry.desiredFrameIndex >= 0) {
+        final desired = entry.desiredFrameIndex;
+        if (entry.renderingImage == null ||
+            !_stripContains(
+              entry.renderingStripStart,
+              entry.renderingStripCount,
+              desired,
+            )) {
+          final start = _stripStartFor(entry, desired);
+          entry.pendingStripStart = start;
+          entry.pendingStripCount =
+              _stripCountFor(entry, start, entry.totalFrames);
+          entry.queuedHighPriority = true;
+        }
+      }
+      _finishJob(entry, scheduleFollowup: true);
+      return;
+    }
+
+    // Skip expensive GPU upload if a front buffer already exists and
+    // caller moved past this strip (unless it matches next lookahead).
+    final total = entry.totalFrames;
+    final expectedLookahead = entry.renderingImage != null &&
+            !entry.poster &&
+            total > entry.renderingStripCount
+        ? _nextStripStart(
+            entry,
+            entry.renderingStripStart,
+            entry.renderingStripCount,
+            total,
+          )
+        : -1;
+    final wantedNow = _stripContains(
+      stripStart,
+      stripCount,
+      entry.desiredFrameIndex,
+    );
+    final queuedOverride = entry.pendingStripStart >= 0 &&
+        entry.pendingStripStart != stripStart &&
+        stripStart != expectedLookahead;
+    if (entry.renderingImage != null && queuedOverride && !wantedNow) {
+      _finishJob(entry, scheduleFollowup: true);
+      return;
+    }
+
+    try {
+      ui.decodeImageFromPixels(
+        bgraBytes,
+        stripWidth,
+        stripHeight,
+        ui.PixelFormat.bgra8888,
+        (image) => _onImageDecoded(
+          entry,
+          stripStart,
+          stripCount,
+          dispatchedGen,
+          image,
+        ),
+      );
+    } catch (error) {
+      _finishJob(entry, scheduleFollowup: false);
+      cache._failed(error);
+    }
+  }
+
+  @override
+  void onStripError(_RasterEntry entry, Object error) {
+    _finishJob(entry, scheduleFollowup: false);
+    if (!_disposed && cache.lastError == null) {
+      cache._failed(error);
+    }
+  }
+
+  void _onImageDecoded(
+    _RasterEntry entry,
+    int stripStart,
+    int stripCount,
+    int dispatchedGen,
+    ui.Image image,
+  ) {
+    if (_disposed ||
+        entry.retired ||
+        entry.users.isEmpty ||
+        cache.lastError != null ||
+        dispatchedGen != entry.stripGeneration) {
+      image.dispose();
+      final active = !_disposed &&
+          !entry.retired &&
+          entry.users.isNotEmpty &&
+          cache.lastError == null;
+      if (active &&
+          dispatchedGen != entry.stripGeneration &&
+          entry.pendingStripStart < 0 &&
+          entry.desiredFrameIndex >= 0 &&
+          (entry.renderingImage == null ||
+              !_stripContains(
+                entry.renderingStripStart,
+                entry.renderingStripCount,
+                entry.desiredFrameIndex,
+              ))) {
+        final start = _stripStartFor(entry, entry.desiredFrameIndex);
+        entry.pendingStripStart = start;
+        entry.pendingStripCount = _stripCountFor(entry, start, entry.totalFrames);
+        entry.queuedHighPriority = true;
+      }
+      _finishJob(entry, scheduleFollowup: active);
       return;
     }
 
     final imgBytes = image.width * image.height * 4;
     final total = entry.totalFrames;
-    final wantedNow = frameIndex == entry.desiredFrameIndex;
+    final wantedNow = _stripContains(
+      stripStart,
+      stripCount,
+      entry.desiredFrameIndex,
+    );
     final isEmptyFront = entry.renderingImage == null;
+    final expectedNext = entry.renderingImage != null &&
+            !entry.poster &&
+            total > entry.renderingStripCount
+        ? _nextStripStart(
+            entry,
+            entry.renderingStripStart,
+            entry.renderingStripCount,
+            total,
+          )
+        : -1;
     final isLookahead = !entry.poster &&
         total > 1 &&
         entry.renderingImage != null &&
-        frameIndex == (entry.renderingFrameIndex + 1) % total &&
+        stripStart == expectedNext &&
         !wantedNow;
 
     if (isEmptyFront || wantedNow) {
       final displaced = entry.renderingImage;
       entry.renderingImage = image;
-      entry.renderingFrameIndex = frameIndex;
+      entry.renderingStripStart = stripStart;
+      entry.renderingStripCount = stripCount;
+      if (wantedNow) {
+        entry.lastRenderingSlot =
+            (entry.desiredFrameIndex - stripStart).clamp(0, stripCount - 1);
+      } else {
+        entry.lastRenderingSlot = 0;
+      }
       cache._bytes += imgBytes;
-      cache.renderedFrames++;
+      cache.renderedFrames += stripCount;
       if (displaced != null) {
         cache._pingPongSwaps++;
         final dBytes = displaced.width * displaced.height * 4;
@@ -343,31 +563,41 @@ final class _PingPongCoordinator {
       _notifyUsers(entry);
 
       if (!entry.poster &&
-          total > 1 &&
+          total > entry.renderingStripCount &&
           entry.hasPlayedAdvance &&
-          entry.pendingFrameIndex < 0 &&
-          (entry.backgroundImage == null ||
-              entry.backgroundFrameIndex != (frameIndex + 1) % total)) {
-        entry.pendingFrameIndex = (frameIndex + 1) % total;
+          entry.pendingStripStart < 0) {
+        final nextStart = _nextStripStart(entry, stripStart, stripCount, total);
+        if (entry.backgroundImage == null ||
+            !_stripContains(
+              entry.backgroundStripStart,
+              entry.backgroundStripCount,
+              nextStart,
+            )) {
+          entry.pendingStripStart = nextStart;
+          entry.pendingStripCount = _stripCountFor(entry, nextStart, total);
+        }
       }
     } else if (isLookahead) {
       final oldBack = entry.backgroundImage;
       entry.backgroundImage = image;
-      entry.backgroundFrameIndex = frameIndex;
+      entry.backgroundStripStart = stripStart;
+      entry.backgroundStripCount = stripCount;
       cache._bytes += imgBytes;
-      cache.renderedFrames++;
+      cache.renderedFrames += stripCount;
       if (oldBack != null) {
         final oBytes = oldBack.width * oldBack.height * 4;
         cache._bytes -= oBytes;
         cache._enqueueDisposal(oldBack, oBytes);
       }
-    } else if (entry.pendingFrameIndex < 0 ||
-        entry.pendingFrameIndex == frameIndex) {
+    } else if (entry.pendingStripStart < 0 ||
+        entry.pendingStripStart == stripStart) {
       final displaced = entry.renderingImage;
       entry.renderingImage = image;
-      entry.renderingFrameIndex = frameIndex;
+      entry.renderingStripStart = stripStart;
+      entry.renderingStripCount = stripCount;
+      entry.lastRenderingSlot = 0;
       cache._bytes += imgBytes;
-      cache.renderedFrames++;
+      cache.renderedFrames += stripCount;
       if (displaced != null) {
         cache._pingPongSwaps++;
         final dBytes = displaced.width * displaced.height * 4;
@@ -384,10 +614,13 @@ final class _PingPongCoordinator {
 
   void _finishJob(_RasterEntry entry, {required bool scheduleFollowup}) {
     if (_activeJobs > 0) _activeJobs--;
-    entry.inFlightFrameIndex = -1;
-    final nextPending = entry.pendingFrameIndex;
+    entry.inFlightStripStart = -1;
+    entry.inFlightStripCount = 0;
+    final nextPending = entry.pendingStripStart;
+    final nextPendingCount = entry.pendingStripCount;
     final wasHigh = entry.queuedHighPriority;
-    entry.pendingFrameIndex = -1;
+    entry.pendingStripStart = -1;
+    entry.pendingStripCount = 0;
     entry.queuedHighPriority = false;
 
     if (scheduleFollowup &&
@@ -397,16 +630,28 @@ final class _PingPongCoordinator {
         !entry.retired &&
         entry.users.isNotEmpty &&
         nextPending >= 0 &&
-        nextPending != entry.renderingFrameIndex &&
+        !_stripContains(
+          entry.renderingStripStart,
+          entry.renderingStripCount,
+          nextPending,
+        ) &&
         !(entry.backgroundImage != null &&
-            entry.backgroundFrameIndex == nextPending)) {
-      _requestFrame(
+            _stripContains(
+              entry.backgroundStripStart,
+              entry.backgroundStripCount,
+              nextPending,
+            ))) {
+      final resolvedCount = nextPendingCount > 0
+          ? nextPendingCount
+          : _stripCountFor(entry, nextPending, entry.totalFrames);
+      _requestStrip(
         entry,
         nextPending,
+        resolvedCount,
         highPriority:
             wasHigh ||
             entry.renderingImage == null ||
-            nextPending == entry.desiredFrameIndex,
+            _stripContains(nextPending, resolvedCount, entry.desiredFrameIndex),
       );
     }
     _pumpPending();
@@ -435,17 +680,29 @@ final class _PingPongCoordinator {
         entry.queuedForPingPong = false;
         entry.queuedHighPriority = false;
         if (entry.retired || entry.users.isEmpty) continue;
-        final idx = entry.pendingFrameIndex >= 0
-            ? entry.pendingFrameIndex
-            : entry.desiredFrameIndex;
-        entry.pendingFrameIndex = -1;
+        final idx = entry.pendingStripStart >= 0
+            ? entry.pendingStripStart
+            : _stripStartFor(entry, entry.desiredFrameIndex);
+        final count = entry.pendingStripCount > 0
+            ? entry.pendingStripCount
+            : _stripCountFor(entry, idx, entry.totalFrames);
+        entry.pendingStripStart = -1;
+        entry.pendingStripCount = 0;
         if (idx < 0 ||
-            idx == entry.renderingFrameIndex ||
+            _stripContains(
+              entry.renderingStripStart,
+              entry.renderingStripCount,
+              idx,
+            ) ||
             (entry.backgroundImage != null &&
-                entry.backgroundFrameIndex == idx)) {
+                _stripContains(
+                  entry.backgroundStripStart,
+                  entry.backgroundStripCount,
+                  idx,
+                ))) {
           continue;
         }
-        _dispatchEntryFrame(entry, idx);
+        _dispatchEntryStrip(entry, idx, count);
       }
     });
   }
@@ -458,18 +715,6 @@ final class _PingPongCoordinator {
         user._rasterReady();
       }
     }
-  }
-
-  int _sourceIndexForSample(_RasterEntry entry, int index) {
-    final c = entry.composition;
-    if (entry.poster || c.isStatic || entry.sourceFrames <= 1) return 0;
-    return math
-        .min(
-          index * entry.frameStep,
-          math.max(0.0, entry.sourceFrames - 1.0),
-        )
-        .floor()
-        .clamp(0, entry.sourceFrames - 1);
   }
 
   void clear({bool clearWorkerMemory = false}) {

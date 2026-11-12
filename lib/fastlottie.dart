@@ -420,6 +420,9 @@ class FastLottiePlayer extends ChangeNotifier {
         picture.dispose();
       }
       _pictures.clear();
+      if (_pictures.isEmpty) {
+        _sceneState = null;
+      }
     } finally {
       for (final image in images) {
         image.dispose();
@@ -431,7 +434,7 @@ class FastLottiePlayer extends ChangeNotifier {
   int get cacheHits => _hits;
   int get cacheMisses => _misses;
   int get estimatedCachedCommands =>
-      _pictures.isEmpty ? 0 : _pictures.length * _scene.commands;
+      _pictures.isEmpty ? 0 : _pictures.length * composition._template.commands;
 
   // Shared by drawing and repaint filtering so a 60 Hz controller driving a
   // 30 FPS raster cache cannot repaint the same image twice per sample.
@@ -507,26 +510,31 @@ class FastLottiePlayer extends ChangeNotifier {
         c.width * target.width / source.width * devicePixelRatio * scale,
         c.height * target.height / source.height * devicePixelRatio * scale,
       );
-      final (image, _, _) = shared._lookup(
+      final (image, entry, slotOffsetY) = shared._lookup(
         this,
         pixels,
         rasterRelative,
       );
       if (image != null) {
-        final sx = image.width / c.width;
-        final sy = image.height / c.height;
+        final pw = entry?.key.$2.width ?? image.width.toDouble();
+        final ph = entry?.key.$2.height ?? image.height.toDouble();
+        final sx = pw / c.width;
+        final sy = ph / c.height;
         try {
           canvas.drawImageRect(
             image,
             Rect.fromLTRB(
               source.left * sx,
-              source.top * sy,
+              slotOffsetY + source.top * sy,
               source.right * sx,
-              source.bottom * sy,
+              slotOffsetY + source.bottom * sy,
             ),
             target,
             shared._paintForScale(scale, filterQuality),
           );
+          if (_pictures.isEmpty) {
+            _sceneState = null;
+          }
           return;
         } catch (error) {
           shared._failed(error);
@@ -589,6 +597,7 @@ class FastLottiePlayer extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     clearCache();
+    _sceneState = null;
     _disposed = true;
     super.dispose();
   }

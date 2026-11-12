@@ -12,6 +12,12 @@ class _RasterWorkspace {
       _scratchMatte = Uint32List(initialWidth * initialHeight),
       _scratchPrecomp = Uint32List(initialWidth * initialHeight);
 
+  static const int maxStaticPaths = 512;
+  static const int maxStaticMetrics = 256;
+  static const int maxStaticLuts = 256;
+  static const int _smallFramePixels = 256 * 256;
+  static const int _softScratchPixels = 512 * 512;
+
   final _FtScanlineRasterizer _scanline;
   final _RleSpans _spans = _RleSpans();
   final _RleSpans _clipSpans = _RleSpans();
@@ -28,7 +34,9 @@ class _RasterWorkspace {
   final _layerChain = <_Layer?>[];
   final _trimLengthsPool = <Float64List>[];
   final _Float64Scratch _cumLengths = _Float64Scratch();
-  late final _StrokeScratch _strokeScratch = _StrokeScratch();
+  _StrokeScratch? _strokeScratchState;
+  _StrokeScratch get _strokeScratch =>
+      _strokeScratchState ??= _StrokeScratch();
 
   Float64List _acquireTrimLengths(int depth, int count) {
     while (_trimLengthsPool.length <= depth) {
@@ -77,26 +85,119 @@ class _RasterWorkspace {
   Uint32List _scratchMatte;
   Uint32List _scratchPrecomp;
   final _scratchDepthBuffers = <Uint32List>[];
+  int _framePeakScratchPixels = 0;
+  int _smallFrameStreak = 0;
 
   // Cached static geometry / gradient tables owned by this single-threaded
   // worker workspace so repeated frames never re-flatten static paths.
   final Map<Object, _PolyPath> staticPaths = Map<Object, _PolyPath>.identity();
-  final Map<Object, _StaticTrimMetrics> staticTrimMetrics =
-      Map<Object, _StaticTrimMetrics>.identity();
+  final Map<Object, double> staticTrimMetrics = Map<Object, double>.identity();
   final Map<_GradientSpec, Uint32List> staticGradientLuts =
       Map<_GradientSpec, Uint32List>.identity();
-  final Map<_GradientSpec, Uint32List> scratchGradientLuts =
-      Map<_GradientSpec, Uint32List>.identity();
+  final Uint32List scratchGradientLut = Uint32List(1024);
   final _matrixStack = <Float64List>[];
 
   void resetCaches() {
     staticPaths.clear();
     staticTrimMetrics.clear();
     staticGradientLuts.clear();
-    scratchGradientLuts.clear();
+  }
+
+  void trimScratch({bool aggressive = false}) {
+    _framePeakScratchPixels = 0;
+    if (aggressive) {
+      _smallFrameStreak = 0;
+    }
+    final cap = aggressive ? _smallFramePixels : _softScratchPixels;
+    if (_scratchLayer.length > cap) {
+      _scratchLayer = Uint32List(_smallFramePixels);
+    }
+    if (_scratchMatte.length > cap) {
+      _scratchMatte = Uint32List(_smallFramePixels);
+    }
+    if (_scratchPrecomp.length > cap) {
+      _scratchPrecomp = Uint32List(_smallFramePixels);
+    }
+    if (aggressive) {
+      _scratchDepthBuffers.clear();
+      _trimPolyPool.clear();
+      _trimOutPool.clear();
+      _measurePolyPool.clear();
+      _trimLengthsPool.clear();
+      _groupMatrixPool.clear();
+      _layerChain.clear();
+      _matrixStack.clear();
+      _strokeScratchState = null;
+    } else {
+      if (_scratchDepthBuffers.length > 2) {
+        _scratchDepthBuffers.length = 2;
+      }
+      for (var i = 0; i < _scratchDepthBuffers.length; i++) {
+        if (_scratchDepthBuffers[i].length > cap) {
+          _scratchDepthBuffers[i] = Uint32List(_smallFramePixels);
+        }
+      }
+      _trimPolyPool.removeRange(
+        math.min(2, _trimPolyPool.length),
+        _trimPolyPool.length,
+      );
+      for (final p in _trimPolyPool) {
+        p.trimIfOversized();
+      }
+      _trimOutPool.removeRange(
+        math.min(2, _trimOutPool.length),
+        _trimOutPool.length,
+      );
+      for (final p in _trimOutPool) {
+        p.trimIfOversized();
+      }
+      _measurePolyPool.removeRange(
+        math.min(2, _measurePolyPool.length),
+        _measurePolyPool.length,
+      );
+      for (final p in _measurePolyPool) {
+        p.trimIfOversized();
+      }
+      _trimLengthsPool.removeRange(
+        math.min(2, _trimLengthsPool.length),
+        _trimLengthsPool.length,
+      );
+      for (var i = 0; i < _trimLengthsPool.length; i++) {
+        if (_trimLengthsPool[i].length > 4096) {
+          _trimLengthsPool[i] = Float64List(64);
+        }
+      }
+      _strokeScratchState?.trimIfOversized();
+    }
+    _polyPath.trimIfOversized(aggressive: aggressive);
+    _workPolyA.trimIfOversized(aggressive: aggressive);
+    _workPolyB.trimIfOversized(aggressive: aggressive);
+    _strokePoly.trimIfOversized(aggressive: aggressive);
+    _flattenLeafPoly.trimIfOversized(aggressive: aggressive);
+    _spans.trimIfOversized(aggressive: aggressive);
+    _clipSpans.trimIfOversized(aggressive: aggressive);
+    _intersectSpans.trimIfOversized(aggressive: aggressive);
+    _scanline.trimIfOversized(aggressive: aggressive);
+    _cumLengths.trimIfOversized(aggressive: aggressive);
+  }
+
+  void maybeTrimAfterFrame(int framePixels) {
+    final peak = math.max(framePixels, _framePeakScratchPixels);
+    _framePeakScratchPixels = 0;
+    if (peak <= _smallFramePixels) {
+      if (++_smallFrameStreak >= 16) {
+        _smallFrameStreak = 0;
+        trimScratch();
+      }
+    } else {
+      _smallFrameStreak = 0;
+    }
   }
 
   Uint32List _acquireScratch(int depth, int pixelsNeeded) {
+    if (pixelsNeeded > _framePeakScratchPixels) {
+      _framePeakScratchPixels = pixelsNeeded;
+    }
     if (depth == 0) {
       if (_scratchLayer.length < pixelsNeeded) {
         _scratchLayer = Uint32List(pixelsNeeded);
@@ -135,7 +236,10 @@ class _RasterWorkspace {
 }
 
 class _Float64Scratch {
-  Float64List data = Float64List(256);
+  static const int defaultCapacity = 256;
+  static const int softLimit = 4096;
+
+  Float64List data = Float64List(defaultCapacity);
   Float64List ensure(int n) {
     if (data.length >= n) return data;
     var next = data.length;
@@ -144,27 +248,30 @@ class _Float64Scratch {
     }
     return data = Float64List(next);
   }
-}
 
-class _StaticTrimMetrics {
-  _StaticTrimMetrics(this.contourStarts, this.contourEnds, this.contourClosed,
-      this.contourOffsets, this.cumLengths, this.totalLength);
-  final Int32List contourStarts;
-  final Int32List contourEnds;
-  final Uint8List contourClosed;
-  final Int32List contourOffsets;
-  final Float64List cumLengths;
-  final double totalLength;
+  void trimIfOversized({bool aggressive = false}) {
+    final limit = aggressive ? defaultCapacity : softLimit;
+    if (data.length > limit) {
+      data = Float64List(defaultCapacity);
+    }
+  }
 }
 
 /// Struct-of-arrays polyline contour container with zero per-frame allocations.
 class _PolyPath {
-  _PolyPath({int initialVertices = 512, int initialContours = 32})
-    : vx = Float64List(initialVertices),
-      vy = Float64List(initialVertices),
-      contourStart = Int32List(initialContours),
-      contourEnd = Int32List(initialContours),
-      contourClosed = Uint8List(initialContours);
+  static const int defaultVertices = 512;
+  static const int defaultContours = 32;
+  static const int softMaxVertices = 8192;
+  static const int softMaxContours = 512;
+
+  _PolyPath({
+    int initialVertices = defaultVertices,
+    int initialContours = defaultContours,
+  }) : vx = Float64List(initialVertices),
+       vy = Float64List(initialVertices),
+       contourStart = Int32List(initialContours),
+       contourEnd = Int32List(initialContours),
+       contourClosed = Uint8List(initialContours);
 
   Float64List vx;
   Float64List vy;
@@ -181,6 +288,21 @@ class _PolyPath {
     contourCount = 0;
     _activeStart = 0;
     _inContour = false;
+  }
+
+  void trimIfOversized({bool aggressive = false}) {
+    clear();
+    final vLimit = aggressive ? defaultVertices : softMaxVertices;
+    if (vx.length > vLimit) {
+      vx = Float64List(defaultVertices);
+      vy = Float64List(defaultVertices);
+    }
+    final cLimit = aggressive ? defaultContours : softMaxContours;
+    if (contourStart.length > cLimit) {
+      contourStart = Int32List(defaultContours);
+      contourEnd = Int32List(defaultContours);
+      contourClosed = Uint8List(defaultContours);
+    }
   }
 
   _PolyPath cloneImmutable() {
@@ -325,7 +447,11 @@ class _PolyPath {
 /// word0 = (y << 16) | x
 /// word1 = (len << 8) | (coverage - 1), with coverage in 1..256.
 class _RleSpans {
-  _RleSpans({int initialSpans = 1024}) : data = Int32List(initialSpans * 2);
+  static const int defaultSpans = 1024;
+  static const int softMaxSpans = 16384;
+
+  _RleSpans({int initialSpans = defaultSpans})
+    : data = Int32List(initialSpans * 2);
 
   Int32List data;
   int spanCount = 0;
@@ -340,6 +466,14 @@ class _RleSpans {
     minY = 0x7FFFFFFF;
     maxX = 0;
     maxY = 0;
+  }
+
+  void trimIfOversized({bool aggressive = false}) {
+    clear();
+    final limitWords = (aggressive ? defaultSpans : softMaxSpans) * 2;
+    if (data.length > limitWords) {
+      data = Int32List(defaultSpans * 2);
+    }
   }
 
   void _grow() {
@@ -428,16 +562,40 @@ class _RleSpans {
 /// FreeType-derived integer fixed-point (256 subpixels/pixel) scanline gray rasterizer.
 class _FtScanlineRasterizer {
   _FtScanlineRasterizer(int initialHeight)
-    : _rowHead = Int32List(math.max(64, initialHeight))..fillRange(0, math.max(64, initialHeight), -1);
+    : _initialRows = math.max(64, initialHeight),
+      _rowHead = Int32List(math.max(64, initialHeight))
+        ..fillRange(0, math.max(64, initialHeight), -1);
 
   static const int _coordLimit = 1 << 20; // +/- 1,048,576 px
+  static const int _defaultCells = 8192;
+  static const int _softMaxCells = 32768;
+  static const int _softMaxRows = 2048;
 
+  final int _initialRows;
   Int32List _rowHead;
-  Int32List _cellX = Int32List(8192);
-  Int32List _cellCover = Int32List(8192);
-  Int32List _cellArea = Int32List(8192);
-  Int32List _cellNext = Int32List(8192);
+  Int32List _cellX = Int32List(_defaultCells);
+  Int32List _cellCover = Int32List(_defaultCells);
+  Int32List _cellArea = Int32List(_defaultCells);
+  Int32List _cellNext = Int32List(_defaultCells);
   int _cellCount = 0;
+
+  void trimIfOversized({bool aggressive = false}) {
+    _cellCount = 0;
+    _valid = false;
+    _dirtyMaxY = -1;
+    _dirtyMinY = 0;
+    final rowCap = aggressive ? _initialRows : math.max(_initialRows, _softMaxRows);
+    if (_rowHead.length > rowCap) {
+      _rowHead = Int32List(_initialRows)..fillRange(0, _initialRows, -1);
+    }
+    final cellCap = aggressive ? _defaultCells : _softMaxCells;
+    if (_cellX.length > cellCap) {
+      _cellX = Int32List(_defaultCells);
+      _cellCover = Int32List(_defaultCells);
+      _cellArea = Int32List(_defaultCells);
+      _cellNext = Int32List(_defaultCells);
+    }
+  }
 
   int _minEx = 0, _minEy = 0, _maxEx = 0, _maxEy = 0;
   int _minBoundX = 0, _minBoundY = 0, _maxBoundX = 0, _maxBoundY = 0;
@@ -1126,6 +1284,7 @@ void _renderSceneSoftware(
     ws,
     0,
   );
+  ws.maybeTrimAfterFrame(total);
 }
 
 void _renderCompilerInto(
@@ -1831,10 +1990,18 @@ Uint32List _evalGradientLut(_GradientSpec grad, double frame, _RasterWorkspace w
   if (grad.isStatic) {
     final cached = ws.staticGradientLuts[grad];
     if (cached != null) return cached;
+    if (ws.staticGradientLuts.length >= _RasterWorkspace.maxStaticLuts) {
+      ws.staticGradientLuts.clear();
+    }
+    final lut = ws.staticGradientLuts[grad] = Uint32List(1024);
+    _fillGradientLut(grad, frame, lut);
+    return lut;
   }
-  final lut = grad.isStatic
-      ? (ws.staticGradientLuts[grad] = Uint32List(1024))
-      : (ws.scratchGradientLuts[grad] ??= Uint32List(1024));
+  _fillGradientLut(grad, frame, ws.scratchGradientLut);
+  return ws.scratchGradientLut;
+}
+
+void _fillGradientLut(_GradientSpec grad, double frame, Uint32List lut) {
 
   final values = grad.stops.at(frame);
   final count = grad.count;
@@ -1871,7 +2038,6 @@ Uint32List _evalGradientLut(_GradientSpec grad, double frame, _RasterWorkspace w
       bf.round().clamp(0, 255),
     );
   }
-  return lut;
 }
 
 void _appendSourceLocal(
@@ -1957,6 +2123,9 @@ void _appendSourceLocal(
   if (src.isPathStatic) {
     var cached = ws.staticPaths[src];
     if (cached == null) {
+      if (ws.staticPaths.length >= _RasterWorkspace.maxStaticPaths) {
+        ws.staticPaths.clear();
+      }
       final local = ws._flattenLeafPoly..clear();
       _flattenLeaf(src, frame, 0.01, local);
       cached = ws.staticPaths[src] = local.cloneImmutable();
@@ -2171,7 +2340,7 @@ double _measureSourceLength(
 ) {
   if (src.isPathStatic) {
     final cached = ws.staticTrimMetrics[src];
-    if (cached != null) return cached.totalLength;
+    if (cached != null) return cached;
   }
   late final _PolyPath poly;
   if (alreadyFlattened != null) {
@@ -2206,9 +2375,10 @@ double _measureSourceLength(
     }
   }
   if (src.isPathStatic) {
-    ws.staticTrimMetrics[src] = _StaticTrimMetrics(
-      Int32List(0), Int32List(0), Uint8List(0), Int32List(0), Float64List(0), total,
-    );
+    if (ws.staticTrimMetrics.length >= _RasterWorkspace.maxStaticMetrics) {
+      ws.staticTrimMetrics.clear();
+    }
+    ws.staticTrimMetrics[src] = total;
   }
   return total;
 }
@@ -2368,6 +2538,13 @@ class _StrokeScratch {
   final _Float64Scratch y = _Float64Scratch();
   final _Float64Scratch tx = _Float64Scratch();
   final _Float64Scratch ty = _Float64Scratch();
+
+  void trimIfOversized() {
+    x.trimIfOversized();
+    y.trimIfOversized();
+    tx.trimIfOversized();
+    ty.trimIfOversized();
+  }
 }
 
 void _expandStroke(
