@@ -148,33 +148,34 @@ void main() {
       expect(store.queued, 0);
     },
   );
-  testWidgets('strategy switch recreates rasterCache between miniStrip and pingPong cleanly', (
-    tester,
-  ) async {
-    final store = createStore();
-    addTearDown(store.dispose);
-    final createdCaches = <FastLottieRasterCache>[];
-    await tester.pumpWidget(
-      MaterialApp(
-        home: TgsGallery(
-          store: store,
-          catalog: catalog(),
-          onRasterCacheCreated: createdCaches.add,
+  testWidgets(
+    'strategy switch recreates rasterCache between miniStrip and pingPong cleanly',
+    (tester) async {
+      final store = createStore();
+      addTearDown(store.dispose);
+      final createdCaches = <FastLottieRasterCache>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: TgsGallery(
+            store: store,
+            catalog: catalog(),
+            onRasterCacheCreated: createdCaches.add,
+          ),
         ),
-      ),
-    );
-    await ready(tester);
-    expect(createdCaches.single.strategy, FastLottieRasterStrategy.miniStrip);
-    final dropdown = tester.widget<DropdownButton<FastLottieRasterStrategy>>(
-      find.byKey(const ValueKey('gallery-strategy-dropdown')),
-    );
-    dropdown.onChanged!(FastLottieRasterStrategy.pingPong);
-    await ready(tester);
-    expect(createdCaches.length, 2);
-    expect(createdCaches.last.strategy, FastLottieRasterStrategy.pingPong);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
+      );
+      await ready(tester);
+      expect(createdCaches.single.strategy, FastLottieRasterStrategy.miniStrip);
+      final dropdown = tester.widget<DropdownButton<FastLottieRasterStrategy>>(
+        find.byKey(const ValueKey('gallery-strategy-dropdown')),
+      );
+      dropdown.onChanged!(FastLottieRasterStrategy.pingPong);
+      await ready(tester);
+      expect(createdCaches.length, 2);
+      expect(createdCaches.last.strategy, FastLottieRasterStrategy.pingPong);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   testWidgets('renderer switch replaces the actual backend', (tester) async {
     final store = createStore();
     addTearDown(store.dispose);

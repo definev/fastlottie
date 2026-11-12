@@ -321,56 +321,53 @@ void main() {
     expect(native, 959);
     expect(unsupported, 104);
   });
-  test(
-    'priority acquire jumps ahead of normal queue and promotes coalesced entries',
-    () async {
-      final order = <String>[];
-      final bundle = MemoryBundle();
-      final gates = <Completer<TgsModel>>[];
-      final store = TgsStore(
-        bundle: bundle,
-        concurrency: 1,
-        batchSize: 1,
-        decoder: (bytes, reference) {
-          final completer = Completer<TgsModel>();
-          gates.add(completer);
-          return completer.future;
-        },
-      );
-      final a = store.acquire('a');
+  test('priority acquire jumps ahead of normal queue and promotes coalesced entries', () async {
+    final order = <String>[];
+    final bundle = MemoryBundle();
+    final gates = <Completer<TgsModel>>[];
+    final store = TgsStore(
+      bundle: bundle,
+      concurrency: 1,
+      batchSize: 1,
+      decoder: (bytes, reference) {
+        final completer = Completer<TgsModel>();
+        gates.add(completer);
+        return completer.future;
+      },
+    );
+    final a = store.acquire('a');
+    await Future<void>.delayed(Duration.zero);
+    // Fill the active slot and queue several normal items + a queued item to promote.
+    final b = store.acquire('b');
+    final c = store.acquire('c');
+    final d = store.acquire('d', priority: true);
+    final promoteC = store.acquire('c', priority: true);
+    expect(bundle.reads, ['a']);
+    expect(store.queued, 3);
+
+    void track(TgsLease lease, String label) {
+      lease.future.then((_) => order.add(label));
+    }
+
+    track(a, 'a');
+    track(b, 'b');
+    track(c, 'c');
+    track(d, 'd');
+
+    // Complete running batch repeatedly and record decode dequeue order via reads.
+    for (var step = 0; step < 4; step++) {
       await Future<void>.delayed(Duration.zero);
-      // Fill the active slot and queue several normal items + a queued item to promote.
-      final b = store.acquire('b');
-      final c = store.acquire('c');
-      final d = store.acquire('d', priority: true);
-      final promoteC = store.acquire('c', priority: true);
-      expect(bundle.reads, ['a']);
-      expect(store.queued, 3);
+      gates[step].complete(model());
+      await Future<void>.delayed(Duration.zero);
+    }
 
-      void track(TgsLease lease, String label) {
-        lease.future.then((_) => order.add(label));
-      }
+    // Promoting `c` after `d` puts `c` at front, followed by `d`, then FIFO `b`.
+    expect(bundle.reads, ['a', 'c', 'd', 'b']);
+    expect(order, ['a', 'c', 'd', 'b']);
 
-      track(a, 'a');
-      track(b, 'b');
-      track(c, 'c');
-      track(d, 'd');
-
-      // Complete running batch repeatedly and record decode dequeue order via reads.
-      for (var step = 0; step < 4; step++) {
-        await Future<void>.delayed(Duration.zero);
-        gates[step].complete(model());
-        await Future<void>.delayed(Duration.zero);
-      }
-
-      // Promoting `c` after `d` puts `c` at front, followed by `d`, then FIFO `b`.
-      expect(bundle.reads, ['a', 'c', 'd', 'b']);
-      expect(order, ['a', 'c', 'd', 'b']);
-
-      for (final lease in [a, b, c, d, promoteC]) {
-        lease.release();
-      }
-      store.dispose();
-    },
-  );
+    for (final lease in [a, b, c, d, promoteC]) {
+      lease.release();
+    }
+    store.dispose();
+  });
 }

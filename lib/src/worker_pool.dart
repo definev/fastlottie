@@ -13,6 +13,8 @@ const int _repDeleted = 2;
 const int _repSceneMissing = 3;
 const int _repStripReady = 4;
 
+const int _maxWorkerScenes = 64;
+
 int _shardForKey(String entryKey, int shardCount) {
   if (shardCount <= 1) return 0;
   var h = 0x811c9dc5;
@@ -23,7 +25,11 @@ int _shardForKey(String entryKey, int shardCount) {
   return h % shardCount;
 }
 
-int _resolveWorkerSourceIndex(int sampleIdx, int totalFrames, double frameStep) {
+int _resolveWorkerSourceIndex(
+  int sampleIdx,
+  int totalFrames,
+  double frameStep,
+) {
   if (frameStep <= 0.0 || totalFrames <= 1) return 0;
   return math
       .min(sampleIdx * frameStep, totalFrames - 1.0)
@@ -35,34 +41,36 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
   final ws = _RasterWorkspace();
   final store = BitstreamStore();
   final lz4 = Lz4Scratch();
+  final playback = TilePlaybackCursor();
   final scenes = <String, _Compiler>{};
-  const maxWorkerScenes = 64;
   const defaultPixelCap = 256 * 256;
   const softPixelCap = 512 * 512;
-  var pixels = Uint32List(defaultPixelCap);
+  final pixels = NativePixelBuffer(defaultPixelCap);
   var smallPixelStreak = 0;
 
   Uint32List ensurePixels(int count) {
-    if (pixels.length < count) {
-      var cap = math.max(defaultPixelCap, pixels.length);
+    if (pixels.typedList.length < count) {
+      var cap = math.max(defaultPixelCap, pixels.typedList.length);
       while (cap < count) {
         cap *= 2;
       }
       smallPixelStreak = 0;
-      pixels = Uint32List(cap);
+      playback.invalidate();
+      pixels.reallocate(cap, 0);
     }
-    return pixels;
+    return pixels.typedList;
   }
 
   void recordPixelUse(int pxCount) {
-    if (pixels.length <= softPixelCap) {
+    if (pixels.typedList.length <= softPixelCap) {
       smallPixelStreak = 0;
       return;
     }
     if (pxCount <= defaultPixelCap) {
       if (++smallPixelStreak >= 16) {
         smallPixelStreak = 0;
-        pixels = Uint32List(defaultPixelCap);
+        playback.invalidate();
+        pixels.reallocate(defaultPixelCap, 0);
       }
     } else {
       smallPixelStreak = 0;
@@ -74,9 +82,8 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
       case null:
         store.dispose();
         scenes.clear();
-        ws.resetCaches();
-        ws.trimScratch(aggressive: true);
-        lz4.shrinkScratch();
+        ws.dispose();
+        pixels.dispose();
         endpoint.close();
         return;
       case (_opConfigure, final String? diskDir, final int ramLimit):
@@ -84,7 +91,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
         store.setDiskDirectory(diskDir);
       case (_opRegisterScene, final String contentKey, final _Compiler scene):
         scenes.remove(contentKey);
-        while (scenes.length >= maxWorkerScenes) {
+        while (scenes.length >= _maxWorkerScenes) {
           scenes.remove(scenes.keys.first);
           ws.resetCaches();
         }
@@ -115,6 +122,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
             poster: poster,
             frameIndex: frameIndex,
             dstBgra: dstBytes,
+            cursor: playback,
           );
 
           if (cacheHit) {
@@ -129,6 +137,15 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
               store.ramBytes,
             ));
             recordPixelUse(pxCount);
+            if (!poster) {
+              store.preparePlaybackPage(
+                entryKey: entryKey,
+                width: width,
+                height: height,
+                totalFrames: totalFrames,
+                frameIndex: frameIndex,
+              );
+            }
             return;
           }
 
@@ -139,7 +156,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
           }
           scenes[contentKey] = scene;
 
-          _renderSceneSoftware(scene, frame, px, width, height, ws);
+          _renderSceneSoftware(scene, frame, px, width, height, ws, pixels);
           final stored = store.storeFrame(
             entryKey: entryKey,
             width: width,
@@ -179,6 +196,8 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
         final bool poster,
       ):
         try {
+          playback
+              .invalidate(); // This request overwrites the single-frame buffer.
           final padY = stripCount > 1 ? 1 : 0;
           final stripHeight = stripCount * height + (stripCount - 1) * padY;
           final pxCount = width * stripHeight;
@@ -194,6 +213,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
           var vectorRenderedCount = 0;
           var compressedHitCount = 0;
           var latestDiskBytes = -1;
+          int? warmPage;
 
           _Compiler? scene;
 
@@ -226,6 +246,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
 
             if (cacheHit) {
               compressedHitCount++;
+              warmPage ??= srcIdx;
               continue;
             }
 
@@ -236,12 +257,16 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
             }
             scenes[contentKey] = scene;
 
-            final slotPx = Uint32List.sublistView(
-              px,
-              slotPxOffset,
-              slotPxOffset + singleFramePx,
+            final slot = pixels.slice(slotPxOffset, singleFramePx);
+            _renderSceneSoftware(
+              scene,
+              scnFrame,
+              slot.typedList,
+              width,
+              height,
+              ws,
+              slot,
             );
-            _renderSceneSoftware(scene, scnFrame, slotPx, width, height, ws);
             vectorRenderedCount++;
 
             final stored = store.storeFrame(
@@ -275,6 +300,15 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
             stripHeight,
           ));
           recordPixelUse(pxCount);
+          if (!poster && warmPage != null) {
+            store.preparePlaybackPage(
+              entryKey: entryKey,
+              width: width,
+              height: height,
+              totalFrames: totalFrames,
+              frameIndex: warmPage,
+            );
+          }
         } catch (error) {
           endpoint.send((_repFrameError, reqId, error.toString()));
         }
@@ -283,6 +317,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
         store.evictEntryRam(entryKey);
         endpoint.send((_repDeleted, entryKey, store.ramBytes));
       case (_opClearMem,):
+        playback.invalidate();
         store.clearRam();
         store.closeOpenFiles();
         store.shrinkScratch();
@@ -291,8 +326,8 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
         ws.trimScratch(aggressive: true);
         lz4.shrinkScratch();
         smallPixelStreak = 0;
-        if (pixels.length > defaultPixelCap) {
-          pixels = Uint32List(defaultPixelCap);
+        if (pixels.typedList.length > defaultPixelCap) {
+          pixels.reallocate(defaultPixelCap, 0);
         }
         endpoint.send((_repDeleted, '', store.ramBytes));
     }
@@ -394,13 +429,21 @@ final class _RasterWorkerPool {
   bool _started = false;
   bool _disposed = false;
 
+  int get registeredSceneCount =>
+      _registeredScenes.fold(0, (count, shard) => count + shard.length);
   int get diskBytes => _diskBytes;
   int get compressedRamBytes => _compressedRamBytes;
   String? get diskCacheDirectory => _diskDir;
   bool get needsDiskBudgetEnforcement =>
-      _diskDir != null &&
-      maximumDiskBytes > 0 &&
-      _diskBytes > maximumDiskBytes;
+      _diskDir != null && maximumDiskBytes > 0 && _diskBytes > maximumDiskBytes;
+
+  bool _rememberScene(int shard, String contentKey) {
+    final scenes = _registeredScenes[shard];
+    final known = scenes.remove(contentKey);
+    if (scenes.length >= _maxWorkerScenes) scenes.remove(scenes.first);
+    scenes.add(contentKey);
+    return known;
+  }
 
   void _ensureStarted() {
     if (_started || _disposed) return;
@@ -583,7 +626,7 @@ final class _RasterWorkerPool {
           return;
         }
         pending.retried = true;
-        _registeredScenes[shard].add(contentKey);
+        _rememberScene(shard, contentKey);
         _handles[shard].send((
           _opRegisterScene,
           contentKey,
@@ -703,7 +746,7 @@ final class _RasterWorkerPool {
     _ensureStarted();
     final shard = _shardForKey(entryKey, workerCount);
     final contentKey = composition.contentKey;
-    if (_registeredScenes[shard].add(contentKey)) {
+    if (!_rememberScene(shard, contentKey)) {
       _handles[shard].send((
         _opRegisterScene,
         contentKey,

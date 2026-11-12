@@ -64,7 +64,8 @@ abstract final class Lz4Codec {
   static int maxCompressedLength(int inputLength) =>
       inputLength + (inputLength ~/ 255) + 16;
 
-  static int _hash4(int v) => ((v * 2654435761) & 0xFFFFFFFF) >>> (32 - _hashLog);
+  static int _hash4(int v) =>
+      ((v * 2654435761) & 0xFFFFFFFF) >>> (32 - _hashLog);
 
   static int _readU32LE(Uint8List b, int i) =>
       b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24);
@@ -122,7 +123,9 @@ abstract final class Lz4Codec {
             _readU32LE(src, matchIdx) != _readU32LE(src, ip));
 
         // Catch up backwards while ip > anchor and matchIdx > 0 match.
-        while (ip > anchor && matchIdx > 0 && src[ip - 1] == src[matchIdx - 1]) {
+        while (ip > anchor &&
+            matchIdx > 0 &&
+            src[ip - 1] == src[matchIdx - 1]) {
           ip--;
           matchIdx--;
         }
@@ -132,7 +135,8 @@ abstract final class Lz4Codec {
           final litLength = ip - anchor;
           final tokenPos = out;
           // Worst-case token + extra len + literals + 2B offset check
-          if (tokenPos + 1 + (litLength ~/ 255) + 1 + litLength + 2 > maxAbort) {
+          if (tokenPos + 1 + (litLength ~/ 255) + 1 + litLength + 2 >
+              maxAbort) {
             return -1;
           }
           out++;
@@ -201,7 +205,10 @@ abstract final class Lz4Codec {
 
     // Encode last literals [anchor .. srcLength).
     final lastLiterals = srcLength - anchor;
-    final needed = 1 + (lastLiterals >= 15 ? ((lastLiterals - 15) ~/ 255) + 1 : 0) + lastLiterals;
+    final needed =
+        1 +
+        (lastLiterals >= 15 ? ((lastLiterals - 15) ~/ 255) + 1 : 0) +
+        lastLiterals;
     if (out + needed > maxAbort || out + needed > dst.length) return -1;
 
     if (lastLiterals >= 15) {
@@ -251,7 +258,9 @@ abstract final class Lz4Codec {
       var litLen = token >> 4;
       if (litLen == 15) {
         while (true) {
-          if (ip >= ipEnd) throw const FormatException('Truncated LZ4 literal len');
+          if (ip >= ipEnd) {
+            throw const FormatException('Truncated LZ4 literal len');
+          }
           final add = src[ip++];
           litLen += add;
           if (add != 255) break;
@@ -280,7 +289,9 @@ abstract final class Lz4Codec {
       var matchLen = (token & 0x0F) + _minMatch;
       if ((token & 0x0F) == 15) {
         while (true) {
-          if (ip >= ipEnd) throw const FormatException('Truncated LZ4 match len');
+          if (ip >= ipEnd) {
+            throw const FormatException('Truncated LZ4 match len');
+          }
           final add = src[ip++];
           matchLen += add;
           if (add != 255) break;

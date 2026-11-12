@@ -8,8 +8,12 @@ environment:
 
 dependencies:
   archive: 4.6.0
+  code_assets: ^2.2.0
+  ffi: ^2.2.0
   flutter:
     sdk: flutter
+  hooks: ^2.2.0
+  native_toolchain_c: ^0.19.6
 
 dev_dependencies:
   flutter_test:

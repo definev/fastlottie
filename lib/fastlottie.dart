@@ -20,9 +20,14 @@ import 'src/lz4.dart';
 import 'src/network_stub.dart' if (dart.library.io) 'src/network_io.dart';
 import 'src/network_types.dart';
 import 'src/platform_stub.dart' if (dart.library.io) 'src/platform_io.dart';
+import 'src/simd_stub.dart' if (dart.library.ffi) 'src/simd_io.dart';
+import 'src/tile_playback.dart';
 
 export 'decoding.dart';
 export 'src/network_types.dart';
+export 'src/simd_stub.dart'
+    if (dart.library.ffi) 'src/simd_io.dart'
+    show isSimdSupported;
 
 part 'src/compiler.dart';
 part 'src/track.dart';
@@ -167,11 +172,7 @@ class FastLottieComposition {
   }) async {
     final Uint8List bytes;
     if (loader != null) {
-      bytes = await loader(
-        uri,
-        headers: headers,
-        cancelToken: cancelToken,
-      );
+      bytes = await loader(uri, headers: headers, cancelToken: cancelToken);
     } else {
       final result = await platformFetchLottieBytes(
         uri,
@@ -313,7 +314,10 @@ class FastLottiePlayer extends ChangeNotifier {
   Size? get rasterSize {
     final frames = _rasterFrames;
     if (frames != null) {
-      return Size(frames.first.width.toDouble(), frames.first.height.toDouble());
+      return Size(
+        frames.first.width.toDouble(),
+        frames.first.height.toDouble(),
+      );
     }
     final entry = _rasterEntry;
     if (entry != null && !entry.retired) return entry.key.$2;

@@ -1,16 +1,114 @@
 part of '../fastlottie.dart';
 
-/// Pure-Dart FreeType-style analytic scanline RLE software rasterizer and
-/// 64-bit SWAR/SIMD premultiplied BGRA8888 compositor.
+/// Fixed-point coverage, retained spans, and a premultiplied BGRA compositor.
+/// Dart prepares draws; native platforms use a bounded coverage workspace.
+/// Dart coverage remains the reference implementation and fallback.
 ///
 /// Zero `dart:ui` native engine objects (`Canvas`/`Path`/`Paint`/`Shader`/`Image`)
 /// are created or invoked here, allowing execution on background worker Isolates.
 class _RasterWorkspace {
-  _RasterWorkspace({int initialWidth = 256, int initialHeight = 256})
-    : _scanline = _FtScanlineRasterizer(initialHeight),
-      _scratchLayer = Uint32List(initialWidth * initialHeight),
-      _scratchMatte = Uint32List(initialWidth * initialHeight),
-      _scratchPrecomp = Uint32List(initialWidth * initialHeight);
+  _RasterWorkspace({
+    this.initialHeight = 256,
+    this.preferNative = true,
+    this.retainCoverage = true,
+  });
+
+  final int initialHeight;
+  final bool preferNative;
+  final bool retainCoverage;
+  NativeCoverageWorkspace? _nativeCoverage;
+  bool _triedNative = false;
+  bool _usedLargeNativeGeometry = false;
+  static const _coverageByteBudget = 1024 * 1024;
+  static const _coverageEntryLimit = 256;
+  final _coverage = Map<_Style, _CoverageEntry>.identity();
+  int _coverageBytes = 0;
+
+  NativeCoverageWorkspace? get _native {
+    if (!_triedNative && preferNative) {
+      _triedNative = true;
+      _nativeCoverage = NativeCoverageWorkspace.acquire();
+    }
+    return _nativeCoverage;
+  }
+
+  void _rasterize(
+    _PolyPath path,
+    bool evenOdd,
+    _RleSpans out,
+    int x0,
+    int y0,
+    int x1,
+    int y1,
+  ) {
+    final native = _native;
+    if (native != null) {
+      if (path.vertexCount > 4096 || path.contourCount > 256) {
+        _usedLargeNativeGeometry = true;
+      }
+      final n = native.raster(
+        path.vx,
+        path.vy,
+        path.contourStart,
+        path.contourEnd,
+        path.vertexCount,
+        path.contourCount,
+        evenOdd,
+        x0,
+        y0,
+        x1,
+        y1,
+        out._buf,
+      );
+      if (n >= 0) {
+        final bounds = native.bounds;
+        out
+          ..spanCount = n
+          ..minX = bounds[0]
+          ..minY = bounds[1]
+          ..maxX = bounds[2]
+          ..maxY = bounds[3];
+        return;
+      }
+    }
+    (_scanline ??= _FtScanlineRasterizer(
+      initialHeight,
+    )).rasterizePolyPath(path, evenOdd, out, x0, y0, x1, y1);
+  }
+
+  _RleSpans? _retained(_Style style, _CoverageKey key) {
+    final entry = _coverage.remove(style);
+    if (entry == null) return null;
+    if (entry.key == key) {
+      _coverage[style] = entry;
+      return entry.spans;
+    }
+    _coverageBytes -= entry.bytes;
+    entry.spans.dispose();
+    return null;
+  }
+
+  void _retain(_Style style, _CoverageKey key, _RleSpans spans) {
+    final bytes = 96 + spans.spanCount * 8;
+    if (bytes > _coverageByteBudget ~/ 8) return;
+    while (_coverageBytes + bytes > _coverageByteBudget ||
+        _coverage.length >= _coverageEntryLimit) {
+      final old = _coverage.remove(_coverage.keys.first)!;
+      _coverageBytes -= old.bytes;
+      old.spans.dispose();
+    }
+    _coverage[style] = _CoverageEntry(key, spans._copy(), bytes);
+    _coverageBytes += bytes;
+  }
+
+  _PolyPath _staticPolyline(_PathSource source, double frame) {
+    final cached = staticPaths[source];
+    if (cached != null) return cached;
+    if (staticPaths.length >= maxStaticPaths) staticPaths.clear();
+    final local = _flattenLeafPoly..clear();
+    _flattenLeaf(source, frame, 0.01, local);
+    return staticPaths[source] = local.cloneImmutable();
+  }
 
   static const int maxStaticPaths = 512;
   static const int maxStaticMetrics = 256;
@@ -18,10 +116,11 @@ class _RasterWorkspace {
   static const int _smallFramePixels = 256 * 256;
   static const int _softScratchPixels = 512 * 512;
 
-  final _FtScanlineRasterizer _scanline;
-  final _RleSpans _spans = _RleSpans();
-  final _RleSpans _clipSpans = _RleSpans();
-  final _RleSpans _intersectSpans = _RleSpans();
+  _FtScanlineRasterizer? _scanline;
+  _RleSpans? _rasterSpans, _precompClipSpans, _maskedSpans;
+  _RleSpans get _spans => _rasterSpans ??= _RleSpans();
+  _RleSpans get _clipSpans => _precompClipSpans ??= _RleSpans();
+  _RleSpans get _intersectSpans => _maskedSpans ??= _RleSpans();
   final _PolyPath _polyPath = _PolyPath();
   final _PolyPath _workPolyA = _PolyPath();
   final _PolyPath _workPolyB = _PolyPath();
@@ -35,8 +134,7 @@ class _RasterWorkspace {
   final _trimLengthsPool = <Float64List>[];
   final _Float64Scratch _cumLengths = _Float64Scratch();
   _StrokeScratch? _strokeScratchState;
-  _StrokeScratch get _strokeScratch =>
-      _strokeScratchState ??= _StrokeScratch();
+  _StrokeScratch get _strokeScratch => _strokeScratchState ??= _StrokeScratch();
 
   Float64List _acquireTrimLengths(int depth, int count) {
     while (_trimLengthsPool.length <= depth) {
@@ -81,10 +179,9 @@ class _RasterWorkspace {
     return _groupMatrixPool[depth];
   }
 
-  Uint32List _scratchLayer;
-  Uint32List _scratchMatte;
-  Uint32List _scratchPrecomp;
-  final _scratchDepthBuffers = <Uint32List>[];
+  // Only matte and rotated precomp draws need a scratch plane. Allocate each
+  // nesting slot on first use, sized to the affected bounds rather than the frame.
+  final _scratchLayers = <Uint32List?>[];
   int _framePeakScratchPixels = 0;
   int _smallFrameStreak = 0;
 
@@ -98,28 +195,40 @@ class _RasterWorkspace {
   final _matrixStack = <Float64List>[];
 
   void resetCaches() {
+    for (final entry in _coverage.values) {
+      entry.spans.dispose();
+    }
+    _coverage.clear();
+    _coverageBytes = 0;
     staticPaths.clear();
     staticTrimMetrics.clear();
     staticGradientLuts.clear();
+  }
+
+  void dispose() {
+    resetCaches();
+    _nativeCoverage?.release();
+    _nativeCoverage = null;
+    _rasterSpans?.dispose();
+    _precompClipSpans?.dispose();
+    _maskedSpans?.dispose();
+    _rasterSpans = _precompClipSpans = _maskedSpans = null;
+    _scratchLayers.clear();
+    _scanline = null;
   }
 
   void trimScratch({bool aggressive = false}) {
     _framePeakScratchPixels = 0;
     if (aggressive) {
       _smallFrameStreak = 0;
+      _usedLargeNativeGeometry = false;
     }
-    final cap = aggressive ? _smallFramePixels : _softScratchPixels;
-    if (_scratchLayer.length > cap) {
-      _scratchLayer = Uint32List(_smallFramePixels);
-    }
-    if (_scratchMatte.length > cap) {
-      _scratchMatte = Uint32List(_smallFramePixels);
-    }
-    if (_scratchPrecomp.length > cap) {
-      _scratchPrecomp = Uint32List(_smallFramePixels);
+    final native = _nativeCoverage;
+    if (native != null && (aggressive || native.hasOversizedScratch)) {
+      native.trimIfOversized();
     }
     if (aggressive) {
-      _scratchDepthBuffers.clear();
+      _scratchLayers.clear();
       _trimPolyPool.clear();
       _trimOutPool.clear();
       _measurePolyPool.clear();
@@ -129,12 +238,10 @@ class _RasterWorkspace {
       _matrixStack.clear();
       _strokeScratchState = null;
     } else {
-      if (_scratchDepthBuffers.length > 2) {
-        _scratchDepthBuffers.length = 2;
-      }
-      for (var i = 0; i < _scratchDepthBuffers.length; i++) {
-        if (_scratchDepthBuffers[i].length > cap) {
-          _scratchDepthBuffers[i] = Uint32List(_smallFramePixels);
+      if (_scratchLayers.length > 5) _scratchLayers.length = 5;
+      for (var i = 0; i < _scratchLayers.length; i++) {
+        if ((_scratchLayers[i]?.length ?? 0) > _softScratchPixels) {
+          _scratchLayers[i] = null;
         }
       }
       _trimPolyPool.removeRange(
@@ -174,17 +281,23 @@ class _RasterWorkspace {
     _workPolyB.trimIfOversized(aggressive: aggressive);
     _strokePoly.trimIfOversized(aggressive: aggressive);
     _flattenLeafPoly.trimIfOversized(aggressive: aggressive);
-    _spans.trimIfOversized(aggressive: aggressive);
-    _clipSpans.trimIfOversized(aggressive: aggressive);
-    _intersectSpans.trimIfOversized(aggressive: aggressive);
-    _scanline.trimIfOversized(aggressive: aggressive);
+    _rasterSpans?.trimIfOversized(aggressive: aggressive);
+    _precompClipSpans?.trimIfOversized(aggressive: aggressive);
+    _maskedSpans?.trimIfOversized(aggressive: aggressive);
+    if (aggressive) {
+      _scanline = null;
+    } else {
+      _scanline?.trimIfOversized();
+    }
     _cumLengths.trimIfOversized(aggressive: aggressive);
   }
 
   void maybeTrimAfterFrame(int framePixels) {
     final peak = math.max(framePixels, _framePeakScratchPixels);
     _framePeakScratchPixels = 0;
-    if (peak <= _smallFramePixels) {
+    final small = peak <= _smallFramePixels && !_usedLargeNativeGeometry;
+    _usedLargeNativeGeometry = false;
+    if (small) {
       if (++_smallFrameStreak >= 16) {
         _smallFrameStreak = 0;
         trimScratch();
@@ -198,33 +311,10 @@ class _RasterWorkspace {
     if (pixelsNeeded > _framePeakScratchPixels) {
       _framePeakScratchPixels = pixelsNeeded;
     }
-    if (depth == 0) {
-      if (_scratchLayer.length < pixelsNeeded) {
-        _scratchLayer = Uint32List(pixelsNeeded);
-      }
-      return _scratchLayer;
-    }
-    if (depth == 1) {
-      if (_scratchMatte.length < pixelsNeeded) {
-        _scratchMatte = Uint32List(pixelsNeeded);
-      }
-      return _scratchMatte;
-    }
-    if (depth == 2) {
-      if (_scratchPrecomp.length < pixelsNeeded) {
-        _scratchPrecomp = Uint32List(pixelsNeeded);
-      }
-      return _scratchPrecomp;
-    }
-    final idx = depth - 3;
-    while (_scratchDepthBuffers.length <= idx) {
-      _scratchDepthBuffers.add(Uint32List(pixelsNeeded));
-    }
-    var buf = _scratchDepthBuffers[idx];
-    if (buf.length < pixelsNeeded) {
-      buf = _scratchDepthBuffers[idx] = Uint32List(pixelsNeeded);
-    }
-    return buf;
+    if (_scratchLayers.length <= depth) _scratchLayers.length = depth + 1;
+    final buffer = _scratchLayers[depth];
+    if (buffer != null && buffer.length >= pixelsNeeded) return buffer;
+    return _scratchLayers[depth] = Uint32List(pixelsNeeded);
   }
 
   Float64List _stackMatrix(int depth) {
@@ -332,7 +422,8 @@ class _PolyPath {
     final nextCap = contourStart.length * 2;
     contourStart = Int32List(nextCap)..setRange(0, contourCount, contourStart);
     contourEnd = Int32List(nextCap)..setRange(0, contourCount, contourEnd);
-    contourClosed = Uint8List(nextCap)..setRange(0, contourCount, contourClosed);
+    contourClosed = Uint8List(nextCap)
+      ..setRange(0, contourCount, contourClosed);
   }
 
   void beginContour(bool closed) {
@@ -415,8 +506,17 @@ class _PolyPath {
     contourCount++;
   }
 
-  void appendTransformed(_PolyPath src, double a, double b, double c, double d, double tx, double ty) {
-    final isIdentity = a == 1.0 && b == 0.0 && c == 0.0 && d == 1.0 && tx == 0.0 && ty == 0.0;
+  void appendTransformed(
+    _PolyPath src,
+    double a,
+    double b,
+    double c,
+    double d,
+    double tx,
+    double ty,
+  ) {
+    final isIdentity =
+        a == 1.0 && b == 0.0 && c == 0.0 && d == 1.0 && tx == 0.0 && ty == 0.0;
     for (var k = 0; k < src.contourCount; k++) {
       final start = src.contourStart[k];
       final end = src.contourEnd[k];
@@ -443,6 +543,26 @@ class _PolyPath {
   }
 }
 
+typedef _CoverageKey = (
+  double,
+  double,
+  double,
+  double,
+  double,
+  double,
+  int,
+  int,
+  int,
+  int,
+);
+
+final class _CoverageEntry {
+  _CoverageEntry(this.key, this.spans, this.bytes);
+  final _CoverageKey key;
+  final _RleSpans spans;
+  final int bytes;
+}
+
 /// Compact packed RLE span list:
 /// word0 = (y << 16) | x
 /// word1 = (len << 8) | (coverage - 1), with coverage in 1..256.
@@ -451,14 +571,19 @@ class _RleSpans {
   static const int softMaxSpans = 16384;
 
   _RleSpans({int initialSpans = defaultSpans})
-    : data = Int32List(initialSpans * 2);
+    : _buf = NativeSpansBuffer(initialSpans * 2);
 
-  Int32List data;
+  final NativeSpansBuffer _buf;
+  Int32List get data => _buf.typedList;
   int spanCount = 0;
   int minX = 0x7FFFFFFF;
   int minY = 0x7FFFFFFF;
   int maxX = 0;
   int maxY = 0;
+
+  void dispose() {
+    _buf.dispose();
+  }
 
   void clear() {
     spanCount = 0;
@@ -471,32 +596,43 @@ class _RleSpans {
   void trimIfOversized({bool aggressive = false}) {
     clear();
     final limitWords = (aggressive ? defaultSpans : softMaxSpans) * 2;
-    if (data.length > limitWords) {
-      data = Int32List(defaultSpans * 2);
+    if (_buf.typedList.length > limitWords) {
+      _buf.reallocate(defaultSpans * 2, 0);
     }
   }
 
   void _grow() {
-    final next = Int32List(data.length * 2)..setRange(0, spanCount * 2, data);
-    data = next;
+    _buf.reallocate(_buf.typedList.length * 2, spanCount * 2);
+  }
+
+  _RleSpans _copy() {
+    final copy = _RleSpans(initialSpans: math.max(1, spanCount))
+      ..spanCount = spanCount
+      ..minX = minX
+      ..minY = minY
+      ..maxX = maxX
+      ..maxY = maxY;
+    copy.data.setRange(0, spanCount * 2, data);
+    return copy;
   }
 
   void addSpan(int y, int x, int len, int cov) {
     if (len <= 0 || cov <= 0) return;
     if (cov > 256) cov = 256;
     final packedCov = cov - 1;
+    final d = _buf.typedList;
     // Merge adjacent horizontal span on same scanline with identical coverage.
     if (spanCount > 0) {
       final lastIdx = (spanCount - 1) * 2;
-      final w0 = data[lastIdx];
+      final w0 = d[lastIdx];
       final ly = w0 >>> 16;
       if (ly == y) {
-        final w1 = data[lastIdx + 1];
+        final w1 = d[lastIdx + 1];
         if ((w1 & 0xFF) == packedCov) {
           final lx = w0 & 0xFFFF;
           final llen = w1 >>> 8;
           if (lx + llen == x) {
-            data[lastIdx + 1] = ((llen + len) << 8) | packedCov;
+            d[lastIdx + 1] = ((llen + len) << 8) | packedCov;
             final x2 = x + len;
             if (x2 > maxX) maxX = x2;
             return;
@@ -505,9 +641,12 @@ class _RleSpans {
       }
     }
     final idx = spanCount * 2;
-    if (idx + 2 > data.length) _grow();
-    data[idx] = (y << 16) | (x & 0xFFFF);
-    data[idx + 1] = (len << 8) | packedCov;
+    if (idx + 2 > d.length) {
+      _grow();
+    }
+    final target = _buf.typedList;
+    target[idx] = (y << 16) | (x & 0xFFFF);
+    target[idx + 1] = (len << 8) | packedCov;
     spanCount++;
     if (x < minX) minX = x;
     if (x + len > maxX) maxX = x + len;
@@ -584,7 +723,9 @@ class _FtScanlineRasterizer {
     _valid = false;
     _dirtyMaxY = -1;
     _dirtyMinY = 0;
-    final rowCap = aggressive ? _initialRows : math.max(_initialRows, _softMaxRows);
+    final rowCap = aggressive
+        ? _initialRows
+        : math.max(_initialRows, _softMaxRows);
     if (_rowHead.length > rowCap) {
       _rowHead = Int32List(_initialRows)..fillRange(0, _initialRows, -1);
     }
@@ -656,8 +797,15 @@ class _FtScanlineRasterizer {
     _renderLine(tx, ty);
   }
 
-  void rasterizePolyPath(_PolyPath path, bool evenOdd, _RleSpans out,
-      int clipX0, int clipY0, int clipX1, int clipY1) {
+  void rasterizePolyPath(
+    _PolyPath path,
+    bool evenOdd,
+    _RleSpans out,
+    int clipX0,
+    int clipY0,
+    int clipX1,
+    int clipY1,
+  ) {
     out.clear();
     if (clipX0 >= clipX1 || clipY0 >= clipY1 || path.contourCount == 0) return;
     begin(clipX0, clipY0, clipX1, clipY1);
@@ -951,8 +1099,10 @@ abstract final class _SwarBlender {
   static int scalePremul(int premul, int factor256) {
     if (factor256 >= 256) return premul;
     if (factor256 <= 0 || premul == 0) return 0;
-    final rb = ((((premul & 0x00FF00FF) * factor256) + 0x00800080) >> 8) & 0x00FF00FF;
-    final ag = ((((premul >> 8) & 0x00FF00FF) * factor256) + 0x00800080) & 0xFF00FF00;
+    final rb =
+        ((((premul & 0x00FF00FF) * factor256) + 0x00800080) >> 8) & 0x00FF00FF;
+    final ag =
+        ((((premul >> 8) & 0x00FF00FF) * factor256) + 0x00800080) & 0xFF00FF00;
     return rb | ag;
   }
 
@@ -984,9 +1134,22 @@ abstract final class _SwarBlender {
     int dstOriginY,
     int stride,
     _RleSpans spans,
-    int srcPremul,
-  ) {
+    int srcPremul, [
+    NativePixelBuffer? nativeDst,
+  ]) {
     if (srcPremul == 0 || spans.spanCount == 0) return;
+    if (isSimdSupported && nativeDst != null) {
+      simdFillSolidSpans(
+        nativeDst,
+        dstOriginX,
+        dstOriginY,
+        stride,
+        spans._buf,
+        spans.spanCount,
+        srcPremul,
+      );
+      return;
+    }
     final count = spans.spanCount * 2;
     final data = spans.data;
     final fullSa = srcPremul >>> 24;
@@ -1084,13 +1247,17 @@ abstract final class _SwarBlender {
       final end = row + len;
       if (cov == 256 && !modulateAlpha) {
         for (var p = row; p < end; p++) {
-          final clamped = t <= 0.0 ? 0 : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
+          final clamped = t <= 0.0
+              ? 0
+              : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
           dst[p] = blendSrcOver(lut1024[clamped], dst[p]);
           t += dtx;
         }
       } else {
         for (var p = row; p < end; p++) {
-          final clamped = t <= 0.0 ? 0 : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
+          final clamped = t <= 0.0
+              ? 0
+              : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
           var c = lut1024[clamped];
           if (modulateAlpha) c = scalePremul255(c, opacity255);
           if (cov < 256) c = scalePremul(c, cov);
@@ -1253,11 +1420,19 @@ void _renderSceneSoftware(
   Uint32List outBgra8888,
   int pixelWidth,
   int pixelHeight,
-  _RasterWorkspace ws,
-) {
+  _RasterWorkspace ws, [
+  NativePixelBuffer? nativeDst,
+]) {
   final total = pixelWidth * pixelHeight;
-  outBgra8888.fillRange(0, total, 0);
-  if (pixelWidth <= 0 || pixelHeight <= 0 || scene.width <= 0 || scene.height <= 0) {
+  if (isSimdSupported && nativeDst != null) {
+    simdClearPixels(nativeDst, total);
+  } else {
+    outBgra8888.fillRange(0, total, 0);
+  }
+  if (pixelWidth <= 0 ||
+      pixelHeight <= 0 ||
+      scene.width <= 0 ||
+      scene.height <= 0) {
     return;
   }
   final sx = pixelWidth / scene.width;
@@ -1283,6 +1458,8 @@ void _renderSceneSoftware(
     null,
     ws,
     0,
+    true,
+    nativeDst,
   );
   ws.maybeTrimAfterFrame(total);
 }
@@ -1308,7 +1485,9 @@ void _renderCompilerInto(
   _RleSpans? clipMask,
   _RasterWorkspace ws,
   int depth,
-) {
+  bool stableTransform, [
+  NativePixelBuffer? nativeDst,
+]) {
   if (clipX0 >= clipX1 || clipY0 >= clipY1 || alpha <= 0) return;
 
   final layers = comp.layers;
@@ -1341,6 +1520,8 @@ void _renderCompilerInto(
         clipMask,
         ws,
         depth,
+        stableTransform,
+        nativeDst,
       );
       continue;
     }
@@ -1373,6 +1554,8 @@ void _renderCompilerInto(
           clipMask,
           ws,
           depth,
+          stableTransform,
+          nativeDst,
         );
       }
       continue;
@@ -1394,10 +1577,22 @@ void _renderCompilerInto(
     final matteBounds = matte.worldBounds(frame);
     var mx0 = clipX0, my0 = clipY0, mx1 = clipX0, my1 = clipY0;
     if (matteBounds != null) {
-      mx0 = math.max(tx0, _transformedMinX(matteBounds, ma, mc, mtx).floor() - 1);
-      my0 = math.max(ty0, _transformedMinY(matteBounds, mb, md, mty).floor() - 1);
-      mx1 = math.min(tx1, _transformedMaxX(matteBounds, ma, mc, mtx).ceil() + 1);
-      my1 = math.min(ty1, _transformedMaxY(matteBounds, mb, md, mty).ceil() + 1);
+      mx0 = math.max(
+        tx0,
+        _transformedMinX(matteBounds, ma, mc, mtx).floor() - 1,
+      );
+      my0 = math.max(
+        ty0,
+        _transformedMinY(matteBounds, mb, md, mty).floor() - 1,
+      );
+      mx1 = math.min(
+        tx1,
+        _transformedMaxX(matteBounds, ma, mc, mtx).ceil() + 1,
+      );
+      my1 = math.min(
+        ty1,
+        _transformedMaxY(matteBounds, mb, md, mty).ceil() + 1,
+      );
     }
     final overlap = mx0 < mx1 && my0 < my1;
     if (!isDstOut && !overlap) continue;
@@ -1423,6 +1618,8 @@ void _renderCompilerInto(
         clipMask,
         ws,
         depth,
+        stableTransform,
+        nativeDst,
       );
       continue;
     }
@@ -1459,6 +1656,7 @@ void _renderCompilerInto(
       null,
       ws,
       depth + 1,
+      stableTransform,
     );
 
     final matteBuf = ws._acquireScratch(depth * 3 + 1, boxPixels);
@@ -1484,6 +1682,7 @@ void _renderCompilerInto(
       null,
       ws,
       depth + 1,
+      stableTransform,
     );
 
     // Composite matte into layerBuf, and blend layerBuf onto dst.
@@ -1512,26 +1711,42 @@ void _renderCompilerInto(
               b = (b * inv) >>> 16;
             }
             // Division-free BT.601 integer luminance: 0.299*65536=19595, 0.587*65536=38470, 0.114*65536=7471.
-            final lum = ((19595 * r + 38470 * g + 7471 * b) >>> 16).clamp(0, 255);
+            final lum = ((19595 * r + 38470 * g + 7471 * b) >>> 16).clamp(
+              0,
+              255,
+            );
             factor = isDstOut ? (255 - lum) : lum;
           }
         }
         if (factor == 0) continue;
-        final masked = factor == 255 ? tPx : _SwarBlender.scalePremul255(tPx, factor);
-        dst[dstRow + col] = _SwarBlender.blendSrcOver(masked, dst[dstRow + col]);
+        final masked = factor == 255
+            ? tPx
+            : _SwarBlender.scalePremul255(tPx, factor);
+        dst[dstRow + col] = _SwarBlender.blendSrcOver(
+          masked,
+          dst[dstRow + col],
+        );
       }
     }
   }
 }
 
 double _transformedMinX(Rect r, double ma, double mc, double mtx) =>
-    (ma * (ma >= 0 ? r.left : r.right)) + (mc * (mc >= 0 ? r.top : r.bottom)) + mtx;
+    (ma * (ma >= 0 ? r.left : r.right)) +
+    (mc * (mc >= 0 ? r.top : r.bottom)) +
+    mtx;
 double _transformedMaxX(Rect r, double ma, double mc, double mtx) =>
-    (ma * (ma >= 0 ? r.right : r.left)) + (mc * (mc >= 0 ? r.bottom : r.top)) + mtx;
+    (ma * (ma >= 0 ? r.right : r.left)) +
+    (mc * (mc >= 0 ? r.bottom : r.top)) +
+    mtx;
 double _transformedMinY(Rect r, double mb, double md, double mty) =>
-    (mb * (mb >= 0 ? r.left : r.right)) + (md * (md >= 0 ? r.top : r.bottom)) + mty;
+    (mb * (mb >= 0 ? r.left : r.right)) +
+    (md * (md >= 0 ? r.top : r.bottom)) +
+    mty;
 double _transformedMaxY(Rect r, double mb, double md, double mty) =>
-    (mb * (mb >= 0 ? r.right : r.left)) + (md * (md >= 0 ? r.bottom : r.top)) + mty;
+    (mb * (mb >= 0 ? r.right : r.left)) +
+    (md * (md >= 0 ? r.bottom : r.top)) +
+    mty;
 
 void _composeAffine(
   _Transform t,
@@ -1595,7 +1810,9 @@ void _renderLayerInto(
   _RleSpans? clipMask,
   _RasterWorkspace ws,
   int depth,
-) {
+  bool stableTransform, [
+  NativePixelBuffer? nativeDst,
+]) {
   if (!layer.visible(frame)) return;
   final alpha = layer.effectiveAlpha(frame, parentAlpha);
   if (alpha == 0) return;
@@ -1611,7 +1828,12 @@ void _renderLayerInto(
     if (chainLen == 1) {
       final m = ws._stackMatrix(depth);
       _composeAffine(layer.transform, frame, ca, cb, cc, cd, ctx, cty, m);
-      ca = m[0]; cb = m[1]; cc = m[2]; cd = m[3]; ctx = m[4]; cty = m[5];
+      ca = m[0];
+      cb = m[1];
+      cc = m[2];
+      cd = m[3];
+      ctx = m[4];
+      cty = m[5];
     } else {
       final chain = ws._layerChain;
       while (chain.length < chainLen) {
@@ -1625,11 +1847,17 @@ void _renderLayerInto(
       for (var i = 0; i < chainLen; i++) {
         _composeAffine(chain[i]!.transform, frame, ca, cb, cc, cd, ctx, cty, m);
         chain[i] = null;
-        ca = m[0]; cb = m[1]; cc = m[2]; cd = m[3]; ctx = m[4]; cty = m[5];
+        ca = m[0];
+        cb = m[1];
+        cc = m[2];
+        cd = m[3];
+        ctx = m[4];
+        cty = m[5];
       }
     }
   }
 
+  final stable = stableTransform && layer.hasStaticSpatialChain;
   final group = layer.group;
   if (group != null) {
     _renderGroupInto(
@@ -1653,6 +1881,8 @@ void _renderLayerInto(
       clipMask,
       ws,
       depth + 1,
+      stable,
+      nativeDst,
     );
   }
 
@@ -1694,14 +1924,28 @@ void _renderLayerInto(
           clipMask,
           ws,
           depth + 1,
+          stable,
+          nativeDst,
         );
       }
     } else {
       // Rotated/skewed precomp clip quad via bounded scratch buffer masked by clip quad RLE.
-      final rx0 = math.max(clipX0, _transformedMinX(Rect.fromLTWH(0, 0, cw, ch), ca, cc, ctx).floor() - 1);
-      final ry0 = math.max(clipY0, _transformedMinY(Rect.fromLTWH(0, 0, cw, ch), cb, cd, cty).floor() - 1);
-      final rx1 = math.min(clipX1, _transformedMaxX(Rect.fromLTWH(0, 0, cw, ch), ca, cc, ctx).ceil() + 1);
-      final ry1 = math.min(clipY1, _transformedMaxY(Rect.fromLTWH(0, 0, cw, ch), cb, cd, cty).ceil() + 1);
+      final rx0 = math.max(
+        clipX0,
+        _transformedMinX(Rect.fromLTWH(0, 0, cw, ch), ca, cc, ctx).floor() - 1,
+      );
+      final ry0 = math.max(
+        clipY0,
+        _transformedMinY(Rect.fromLTWH(0, 0, cw, ch), cb, cd, cty).floor() - 1,
+      );
+      final rx1 = math.min(
+        clipX1,
+        _transformedMaxX(Rect.fromLTWH(0, 0, cw, ch), ca, cc, ctx).ceil() + 1,
+      );
+      final ry1 = math.min(
+        clipY1,
+        _transformedMaxY(Rect.fromLTWH(0, 0, cw, ch), cb, cd, cty).ceil() + 1,
+      );
       if (rx0 < rx1 && ry0 < ry1) {
         final bw = rx1 - rx0, bh = ry1 - ry0;
         final preBuf = ws._acquireScratch(depth * 3 + 2, bw * bh);
@@ -1727,6 +1971,7 @@ void _renderLayerInto(
           null,
           ws,
           depth + 1,
+          stable,
         );
         // Rasterize transformed precomp clip rect into ws._clipSpans.
         ws._polyPath
@@ -1737,12 +1982,15 @@ void _renderLayerInto(
           ..addVertex(ca * cw + cc * ch + ctx, cb * cw + cd * ch + cty)
           ..addVertex(cc * ch + ctx, cd * ch + cty)
           ..endContour();
-        ws._scanline.rasterizePolyPath(ws._polyPath, false, ws._clipSpans, rx0, ry0, rx1, ry1);
+        ws._rasterize(ws._polyPath, false, ws._clipSpans, rx0, ry0, rx1, ry1);
         final count = ws._clipSpans.spanCount * 2;
         final sdata = ws._clipSpans.data;
         for (var k = 0; k < count; k += 2) {
           final w0 = sdata[k], w1 = sdata[k + 1];
-          final y = w0 >>> 16, x = w0 & 0xFFFF, len = w1 >>> 8, cov = (w1 & 0xFF) + 1;
+          final y = w0 >>> 16,
+              x = w0 & 0xFFFF,
+              len = w1 >>> 8,
+              cov = (w1 & 0xFF) + 1;
           final sRow = (y - ry0) * bw + (x - rx0);
           final dRow = (y - dstOriginY) * dstStride + (x - dstOriginX);
           for (var c = 0; c < len; c++) {
@@ -1779,16 +2027,20 @@ void _renderGroupInto(
   _RleSpans? clipMask,
   _RasterWorkspace ws,
   int depth,
-) {
-  final nextAlpha = (alpha * group.transform.opacity.scalar(frame).round() / 100)
-      .round()
-      .clamp(0, 255);
+  bool stableTransform, [
+  NativePixelBuffer? nativeDst,
+]) {
+  final nextAlpha =
+      (alpha * group.transform.opacity.scalar(frame).round() / 100)
+          .round()
+          .clamp(0, 255);
   if (nextAlpha == 0) return;
 
   final m = ws._stackMatrix(depth);
   _composeAffine(group.transform, frame, ma, mb, mc, md, mtx, mty, m);
   final ga = m[0], gb = m[1], gc = m[2], gd = m[3], gtx = m[4], gty = m[5];
 
+  final stable = stableTransform && group.transform.isSpatialStatic;
   final draws = group.draws;
   for (var i = draws.length - 1; i >= 0; i--) {
     final d = draws[i];
@@ -1814,6 +2066,8 @@ void _renderGroupInto(
         clipMask,
         ws,
         depth + 1,
+        stable,
+        nativeDst,
       );
     } else if (d is _Style) {
       _renderStyleInto(
@@ -1836,6 +2090,8 @@ void _renderGroupInto(
         gty,
         clipMask,
         ws,
+        stable,
+        nativeDst,
       );
     }
   }
@@ -1861,90 +2117,48 @@ void _renderStyleInto(
   double mty,
   _RleSpans? clipMask,
   _RasterWorkspace ws,
-) {
-  final a = (alpha * style.opacity.scalar(frame).round() / 100).round().clamp(0, 255);
+  bool stableTransform, [
+  NativePixelBuffer? nativeDst,
+]) {
+  final a = (alpha * style.opacity.scalar(frame).round() / 100).round().clamp(
+    0,
+    255,
+  );
   if (a == 0) return;
-  double strokeWidth = 0;
-  if (style.stroke) {
-    strokeWidth = style.width.scalar(frame);
-    if (strokeWidth <= 0) return;
-  }
-
-  // Early bounding-box clip culling before Bézier flattening, dash, or stroke expansion.
-  final localBounds = style.drawBounds(frame);
-  if (localBounds == null) return;
-  final bx0 = _transformedMinX(localBounds, ma, mc, mtx).floor() - 2;
-  final by0 = _transformedMinY(localBounds, mb, md, mty).floor() - 2;
-  final bx1 = _transformedMaxX(localBounds, ma, mc, mtx).ceil() + 2;
-  final by1 = _transformedMaxY(localBounds, mb, md, mty).ceil() + 2;
-  final effClipX0 = math.max(clipX0, bx0);
-  final effClipY0 = math.max(clipY0, by0);
-  final effClipX1 = math.min(clipX1, bx1);
-  final effClipY1 = math.min(clipY1, by1);
-  if (effClipX0 >= effClipX1 || effClipY0 >= effClipY1) return;
-
-  // Determine screen-aware curve flatness tolerance in local units.
-  final scaleX = math.sqrt(ma * ma + mb * mb);
-  final scaleY = math.sqrt(mc * mc + md * md);
-  final maxScale = math.max(scaleX, scaleY);
-  final localFlatness = maxScale <= 1e-6 ? 0.25 : (0.25 / maxScale).clamp(0.005, 1.5);
-  final flatnessSq = localFlatness * localFlatness;
-
-  // Build local polyline path (or transformed polyline path).
-  final targetPoly = ws._polyPath..clear();
-  final sources = style.sources;
-  for (var i = sources.length - 1; i >= 0; i--) {
-    _appendSourceLocal(
-      sources[i],
+  final key = ws.retainCoverage && stableTransform && style.hasStaticCoverage
+      ? (ma, mb, mc, md, mtx, mty, clipX0, clipY0, clipX1, clipY1)
+      : null;
+  var spans = key == null ? null : ws._retained(style, key);
+  if (spans == null) {
+    final bounds = _prepareStylePolygon(
+      style,
       frame,
-      1.0, 0.0, 0.0, 1.0, 0.0, 0.0,
-      flatnessSq,
-      targetPoly,
+      clipX0,
+      clipY0,
+      clipX1,
+      clipY1,
+      ma,
+      mb,
+      mc,
+      md,
+      mtx,
+      mty,
       ws,
     );
-  }
-  if (targetPoly.contourCount == 0) return;
-
-  _PolyPath finalLocalPoly = targetPoly;
-  final dash = style.dash;
-  if (dash != null) {
-    final dashed = ws._workPolyA..clear();
-    _applyDash(targetPoly, dash, frame, dashed, ws._cumLengths);
-    finalLocalPoly = dashed;
-    if (finalLocalPoly.contourCount == 0) return;
-  }
-
-  if (style.stroke) {
-    final expanded = ws._strokePoly..clear();
-    _expandStroke(
-      finalLocalPoly,
-      strokeWidth * 0.5,
-      style.cap,
-      style.join,
-      style.miter,
-      localFlatness,
-      expanded,
-      ws._strokeScratch,
+    if (bounds == null) return;
+    final (x0, y0, x1, y1) = bounds;
+    ws._rasterize(
+      ws._workPolyB,
+      !style.stroke && style.evenOdd,
+      ws._spans,
+      x0,
+      y0,
+      x1,
+      y1,
     );
-    finalLocalPoly = expanded;
-    if (finalLocalPoly.contourCount == 0) return;
+    spans = ws._spans;
+    if (key != null && spans.spanCount > 0) ws._retain(style, key, spans);
   }
-
-  // Transform final local contour to device pixel coordinates and rasterize.
-  final devicePoly = ws._workPolyB..clear();
-  devicePoly.appendTransformed(finalLocalPoly, ma, mb, mc, md, mtx, mty);
-
-  final evenOdd = !style.stroke && style.evenOdd;
-  ws._scanline.rasterizePolyPath(
-    devicePoly,
-    evenOdd,
-    ws._spans,
-    effClipX0,
-    effClipY0,
-    effClipX1,
-    effClipY1,
-  );
-  var spans = ws._spans;
   if (clipMask != null) {
     _RleSpans.intersect(spans, clipMask, ws._intersectSpans);
     spans = ws._intersectSpans;
@@ -1953,12 +2167,15 @@ void _renderStyleInto(
 
   final grad = style.gradient;
   if (grad == null) {
-    final c = style.color.at(frame);
-    final r = (c[0] * 255).round().clamp(0, 255);
-    final g = (c[1] * 255).round().clamp(0, 255);
-    final b = (c[2] * 255).round().clamp(0, 255);
-    final premul = _SwarBlender.premulBgra(a, r, g, b);
-    _SwarBlender.fillSolidSpans(dst, dstOriginX, dstOriginY, dstStride, spans, premul);
+    _SwarBlender.fillSolidSpans(
+      dst,
+      dstOriginX,
+      dstOriginY,
+      dstStride,
+      spans,
+      _stylePremul(style, frame, a),
+      nativeDst,
+    );
   } else {
     final det = ma * md - mb * mc;
     if (det.abs() <= 1e-12) return;
@@ -1974,19 +2191,177 @@ void _renderStyleInto(
     final e = grad.end.at(frame);
     if (grad.radial) {
       _SwarBlender.fillRadialGradientSpans(
-        dst, dstOriginX, dstOriginY, dstStride, spans, lut, a,
-        ia, ib, ic, id, itx, ity, s[0], s[1], e[0], e[1],
+        dst,
+        dstOriginX,
+        dstOriginY,
+        dstStride,
+        spans,
+        lut,
+        a,
+        ia,
+        ib,
+        ic,
+        id,
+        itx,
+        ity,
+        s[0],
+        s[1],
+        e[0],
+        e[1],
       );
     } else {
       _SwarBlender.fillLinearGradientSpans(
-        dst, dstOriginX, dstOriginY, dstStride, spans, lut, a,
-        ia, ib, ic, id, itx, ity, s[0], s[1], e[0], e[1],
+        dst,
+        dstOriginX,
+        dstOriginY,
+        dstStride,
+        spans,
+        lut,
+        a,
+        ia,
+        ib,
+        ic,
+        id,
+        itx,
+        ity,
+        s[0],
+        s[1],
+        e[0],
+        e[1],
       );
     }
   }
 }
 
-Uint32List _evalGradientLut(_GradientSpec grad, double frame, _RasterWorkspace ws) {
+// Geometry, stroke and trim produce coverage; paint/opacity are applied later.
+(int, int, int, int)? _prepareStylePolygon(
+  _Style style,
+  double frame,
+  int clipX0,
+  int clipY0,
+  int clipX1,
+  int clipY1,
+  double ma,
+  double mb,
+  double mc,
+  double md,
+  double mtx,
+  double mty,
+  _RasterWorkspace ws,
+) {
+  double strokeWidth = 0;
+  if (style.stroke) {
+    strokeWidth = style.width.scalar(frame);
+    if (strokeWidth <= 0) return null;
+  }
+
+  // Early bounding-box clip culling before Bézier flattening, dash, or stroke expansion.
+  final localBounds = style.drawBounds(frame);
+  if (localBounds == null) return null;
+  final bx0 = _transformedMinX(localBounds, ma, mc, mtx).floor() - 2;
+  final by0 = _transformedMinY(localBounds, mb, md, mty).floor() - 2;
+  final bx1 = _transformedMaxX(localBounds, ma, mc, mtx).ceil() + 2;
+  final by1 = _transformedMaxY(localBounds, mb, md, mty).ceil() + 2;
+  final effClipX0 = math.max(clipX0, bx0);
+  final effClipY0 = math.max(clipY0, by0);
+  final effClipX1 = math.min(clipX1, bx1);
+  final effClipY1 = math.min(clipY1, by1);
+  if (effClipX0 >= effClipX1 || effClipY0 >= effClipY1) return null;
+
+  // Static leaves can be placed directly in device space, even when their
+  // parent animates. Fill has no local-space dash or stroke expansion step.
+  final leaf = style.staticFillLeaf;
+  if (leaf != null) {
+    final cached = ws._staticPolyline(leaf, frame);
+    if (cached.contourCount == 0) return null;
+    (ws._workPolyB..clear()).appendTransformed(
+      cached,
+      ma,
+      mb,
+      mc,
+      md,
+      mtx,
+      mty,
+    );
+    return (effClipX0, effClipY0, effClipX1, effClipY1);
+  }
+
+  // Determine screen-aware curve flatness tolerance in local units.
+  final scaleX = math.sqrt(ma * ma + mb * mb);
+  final scaleY = math.sqrt(mc * mc + md * md);
+  final maxScale = math.max(scaleX, scaleY);
+  final localFlatness = maxScale <= 1e-6
+      ? 0.25
+      : (0.25 / maxScale).clamp(0.005, 1.5);
+  final flatnessSq = localFlatness * localFlatness;
+
+  // Build local polyline path (or transformed polyline path).
+  final targetPoly = ws._polyPath..clear();
+  final sources = style.sources;
+  for (var i = sources.length - 1; i >= 0; i--) {
+    _appendSourceLocal(
+      sources[i],
+      frame,
+      1.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      flatnessSq,
+      targetPoly,
+      ws,
+    );
+  }
+  if (targetPoly.contourCount == 0) return null;
+
+  _PolyPath finalLocalPoly = targetPoly;
+  final dash = style.dash;
+  if (dash != null) {
+    final dashed = ws._workPolyA..clear();
+    _applyDash(targetPoly, dash, frame, dashed, ws._cumLengths);
+    finalLocalPoly = dashed;
+    if (finalLocalPoly.contourCount == 0) return null;
+  }
+
+  if (style.stroke) {
+    final expanded = ws._strokePoly..clear();
+    _expandStroke(
+      finalLocalPoly,
+      strokeWidth * 0.5,
+      style.cap,
+      style.join,
+      style.miter,
+      localFlatness,
+      expanded,
+      ws._strokeScratch,
+    );
+    finalLocalPoly = expanded;
+    if (finalLocalPoly.contourCount == 0) return null;
+  }
+
+  // Transform final local contour to device pixel coordinates and rasterize.
+  final devicePoly = ws._workPolyB..clear();
+  devicePoly.appendTransformed(finalLocalPoly, ma, mb, mc, md, mtx, mty);
+
+  return (effClipX0, effClipY0, effClipX1, effClipY1);
+}
+
+int _stylePremul(_Style style, double frame, int alpha) {
+  final c = style.color.at(frame);
+  return _SwarBlender.premulBgra(
+    alpha,
+    (c[0] * 255).round().clamp(0, 255),
+    (c[1] * 255).round().clamp(0, 255),
+    (c[2] * 255).round().clamp(0, 255),
+  );
+}
+
+Uint32List _evalGradientLut(
+  _GradientSpec grad,
+  double frame,
+  _RasterWorkspace ws,
+) {
   if (grad.isStatic) {
     final cached = ws.staticGradientLuts[grad];
     if (cached != null) return cached;
@@ -2002,7 +2377,6 @@ Uint32List _evalGradientLut(_GradientSpec grad, double frame, _RasterWorkspace w
 }
 
 void _fillGradientLut(_GradientSpec grad, double frame, Uint32List lut) {
-
   final values = grad.stops.at(frame);
   final count = grad.count;
   final rgb = grad._rgb;
@@ -2056,7 +2430,10 @@ void _appendSourceLocal(
   int groupDepth = 0,
 ]) {
   final effectiveFlatSq = () {
-    final scale = math.max(math.sqrt(ma * ma + mb * mb), math.sqrt(mc * mc + md * md));
+    final scale = math.max(
+      math.sqrt(ma * ma + mb * mb),
+      math.sqrt(mc * mc + md * md),
+    );
     return scale <= 1e-6 ? flatnessSq : flatnessSq / (scale * scale);
   }();
 
@@ -2083,7 +2460,12 @@ void _appendSourceLocal(
     if (!src.transform.isSpatialIdentity) {
       final m = ws._groupMatrix(groupDepth);
       _composeAffine(src.transform, frame, ma, mb, mc, md, mtx, mty, m);
-      ga = m[0]; gb = m[1]; gc = m[2]; gd = m[3]; gtx = m[4]; gty = m[5];
+      ga = m[0];
+      gb = m[1];
+      gc = m[2];
+      gd = m[3];
+      gtx = m[4];
+      gty = m[5];
     }
     for (var i = src.sources.length - 1; i >= 0; i--) {
       _appendSourceLocal(
@@ -2121,20 +2503,25 @@ void _appendSourceLocal(
   }
 
   if (src.isPathStatic) {
-    var cached = ws.staticPaths[src];
-    if (cached == null) {
-      if (ws.staticPaths.length >= _RasterWorkspace.maxStaticPaths) {
-        ws.staticPaths.clear();
-      }
-      final local = ws._flattenLeafPoly..clear();
-      _flattenLeaf(src, frame, 0.01, local);
-      cached = ws.staticPaths[src] = local.cloneImmutable();
-    }
-    out.appendTransformed(cached, ma, mb, mc, md, mtx, mty);
+    out.appendTransformed(
+      ws._staticPolyline(src, frame),
+      ma,
+      mb,
+      mc,
+      md,
+      mtx,
+      mty,
+    );
     return;
   }
 
-  final isIdentity = ma == 1.0 && mb == 0.0 && mc == 0.0 && md == 1.0 && mtx == 0.0 && mty == 0.0;
+  final isIdentity =
+      ma == 1.0 &&
+      mb == 0.0 &&
+      mc == 0.0 &&
+      md == 1.0 &&
+      mtx == 0.0 &&
+      mty == 0.0;
   if (isIdentity) {
     _flattenLeaf(src, frame, effectiveFlatSq, out);
   } else {
@@ -2144,7 +2531,12 @@ void _appendSourceLocal(
   }
 }
 
-void _flattenLeaf(_PathSource src, double frame, double flatnessSq, _PolyPath out) {
+void _flattenLeaf(
+  _PathSource src,
+  double frame,
+  double flatnessSq,
+  _PolyPath out,
+) {
   if (src is _BezierGeometry) {
     final pts = src.track.at(frame);
     final count = pts.length ~/ 6;
@@ -2176,7 +2568,17 @@ void _flattenLeaf(_PathSource src, double frame, double flatnessSq, _PolyPath ou
       if (ox == 0 && oy == 0 && ix == 0 && iy == 0) {
         out.addVertex(nx, ny);
       } else {
-        out.addCubic(lx, ly, pts[p] + ox, pts[p + 1] + oy, nx + ix, ny + iy, nx, ny, flatnessSq);
+        out.addCubic(
+          lx,
+          ly,
+          pts[p] + ox,
+          pts[p + 1] + oy,
+          nx + ix,
+          ny + iy,
+          nx,
+          ny,
+          flatnessSq,
+        );
       }
       lx = nx;
       ly = ny;
@@ -2194,15 +2596,95 @@ void _flattenLeaf(_PathSource src, double frame, double flatnessSq, _PolyPath ou
       out.beginContour(true);
       out.addVertex(x, y - h);
       if (!src.reverse) {
-        out.addCubic(x, y - h, x + kw, y - h, x + w, y - kh, x + w, y, flatnessSq);
-        out.addCubic(x + w, y, x + w, y + kh, x + kw, y + h, x, y + h, flatnessSq);
-        out.addCubic(x, y + h, x - kw, y + h, x - w, y + kh, x - w, y, flatnessSq);
-        out.addCubic(x - w, y, x - w, y - kh, x - kw, y - h, x, y - h, flatnessSq);
+        out.addCubic(
+          x,
+          y - h,
+          x + kw,
+          y - h,
+          x + w,
+          y - kh,
+          x + w,
+          y,
+          flatnessSq,
+        );
+        out.addCubic(
+          x + w,
+          y,
+          x + w,
+          y + kh,
+          x + kw,
+          y + h,
+          x,
+          y + h,
+          flatnessSq,
+        );
+        out.addCubic(
+          x,
+          y + h,
+          x - kw,
+          y + h,
+          x - w,
+          y + kh,
+          x - w,
+          y,
+          flatnessSq,
+        );
+        out.addCubic(
+          x - w,
+          y,
+          x - w,
+          y - kh,
+          x - kw,
+          y - h,
+          x,
+          y - h,
+          flatnessSq,
+        );
       } else {
-        out.addCubic(x, y - h, x - kw, y - h, x - w, y - kh, x - w, y, flatnessSq);
-        out.addCubic(x - w, y, x - w, y + kh, x - kw, y + h, x, y + h, flatnessSq);
-        out.addCubic(x, y + h, x + kw, y + h, x + w, y + kh, x + w, y, flatnessSq);
-        out.addCubic(x + w, y, x + w, y - kh, x + kw, y - h, x, y - h, flatnessSq);
+        out.addCubic(
+          x,
+          y - h,
+          x - kw,
+          y - h,
+          x - w,
+          y - kh,
+          x - w,
+          y,
+          flatnessSq,
+        );
+        out.addCubic(
+          x - w,
+          y,
+          x - w,
+          y + kh,
+          x - kw,
+          y + h,
+          x,
+          y + h,
+          flatnessSq,
+        );
+        out.addCubic(
+          x,
+          y + h,
+          x + kw,
+          y + h,
+          x + w,
+          y + kh,
+          x + w,
+          y,
+          flatnessSq,
+        );
+        out.addCubic(
+          x + w,
+          y,
+          x + w,
+          y - kh,
+          x + kw,
+          y - h,
+          x,
+          y - h,
+          flatnessSq,
+        );
       }
       out.endContour();
       return;
@@ -2228,21 +2710,101 @@ void _flattenLeaf(_PathSource src, double frame, double flatnessSq, _PolyPath ou
     out.addVertex(x + w, y - h + r);
     if (!src.reverse) {
       out.addVertex(x + w, y + h - r);
-      out.addCubic(x + w, y + h - r, x + w, y + h - r + rk, x + w - r + rk, y + h, x + w - r, y + h, flatnessSq);
+      out.addCubic(
+        x + w,
+        y + h - r,
+        x + w,
+        y + h - r + rk,
+        x + w - r + rk,
+        y + h,
+        x + w - r,
+        y + h,
+        flatnessSq,
+      );
       out.addVertex(x - w + r, y + h);
-      out.addCubic(x - w + r, y + h, x - w + r - rk, y + h, x - w, y + h - r + rk, x - w, y + h - r, flatnessSq);
+      out.addCubic(
+        x - w + r,
+        y + h,
+        x - w + r - rk,
+        y + h,
+        x - w,
+        y + h - r + rk,
+        x - w,
+        y + h - r,
+        flatnessSq,
+      );
       out.addVertex(x - w, y - h + r);
-      out.addCubic(x - w, y - h + r, x - w, y - h + r - rk, x - w + r - rk, y - h, x - w + r, y - h, flatnessSq);
+      out.addCubic(
+        x - w,
+        y - h + r,
+        x - w,
+        y - h + r - rk,
+        x - w + r - rk,
+        y - h,
+        x - w + r,
+        y - h,
+        flatnessSq,
+      );
       out.addVertex(x + w - r, y - h);
-      out.addCubic(x + w - r, y - h, x + w - r + rk, y - h, x + w, y - h + r - rk, x + w, y - h + r, flatnessSq);
+      out.addCubic(
+        x + w - r,
+        y - h,
+        x + w - r + rk,
+        y - h,
+        x + w,
+        y - h + r - rk,
+        x + w,
+        y - h + r,
+        flatnessSq,
+      );
     } else {
-      out.addCubic(x + w, y - h + r, x + w, y - h + r - rk, x + w - r + rk, y - h, x + w - r, y - h, flatnessSq);
+      out.addCubic(
+        x + w,
+        y - h + r,
+        x + w,
+        y - h + r - rk,
+        x + w - r + rk,
+        y - h,
+        x + w - r,
+        y - h,
+        flatnessSq,
+      );
       out.addVertex(x - w + r, y - h);
-      out.addCubic(x - w + r, y - h, x - w + r - rk, y - h, x - w, y - h + r - rk, x - w, y - h + r, flatnessSq);
+      out.addCubic(
+        x - w + r,
+        y - h,
+        x - w + r - rk,
+        y - h,
+        x - w,
+        y - h + r - rk,
+        x - w,
+        y - h + r,
+        flatnessSq,
+      );
       out.addVertex(x - w, y + h - r);
-      out.addCubic(x - w, y + h - r, x - w, y + h - r + rk, x - w + r - rk, y + h, x - w + r, y + h, flatnessSq);
+      out.addCubic(
+        x - w,
+        y + h - r,
+        x - w,
+        y + h - r + rk,
+        x - w + r - rk,
+        y + h,
+        x - w + r,
+        y + h,
+        flatnessSq,
+      );
       out.addVertex(x + w - r, y + h);
-      out.addCubic(x + w - r, y + h, x + w - r + rk, y + h, x + w, y + h - r + rk, x + w, y + h - r, flatnessSq);
+      out.addCubic(
+        x + w - r,
+        y + h,
+        x + w - r + rk,
+        y + h,
+        x + w,
+        y + h - r + rk,
+        x + w,
+        y + h - r,
+        flatnessSq,
+      );
     }
     out.endContour();
   }
@@ -2403,7 +2965,8 @@ void _extractTrimPoly(
     for (var s = 0; s < segCount; s++) {
       final i0 = start + s;
       final i1 = start + ((s + 1) % count);
-      cum[s + 1] = cum[s] + _hypot(src.vx[i1] - src.vx[i0], src.vy[i1] - src.vy[i0]);
+      cum[s + 1] =
+          cum[s] + _hypot(src.vx[i1] - src.vx[i0], src.vy[i1] - src.vy[i0]);
     }
     final mLen = cum[segCount];
     final a = math.max(0.0, fromDist - pos);
@@ -2511,7 +3074,8 @@ void _applyDash(
     for (var s = 0; s < segCount; s++) {
       final i0 = start + s;
       final i1 = start + ((s + 1) % ptsCount);
-      cum[s + 1] = cum[s] + _hypot(src.vx[i1] - src.vx[i0], src.vy[i1] - src.vy[i0]);
+      cum[s + 1] =
+          cum[s] + _hypot(src.vx[i1] - src.vx[i0], src.vy[i1] - src.vy[i0]);
     }
     final mLen = cum[segCount];
     if (mLen <= 1e-7) continue;
@@ -2522,7 +3086,17 @@ void _applyDash(
     while (distance < mLen - 1e-7) {
       final segEnd = math.min(mLen, distance + remaining);
       if (index.isEven && segEnd > distance + 1e-7) {
-        _extractSubsegment(src, start, ptsCount, closed, cum, segCount, distance, segEnd, dst);
+        _extractSubsegment(
+          src,
+          start,
+          ptsCount,
+          closed,
+          cum,
+          segCount,
+          distance,
+          segEnd,
+          dst,
+        );
       }
       distance = segEnd;
       index = (index + 1) % count;
@@ -2618,12 +3192,14 @@ void _expandStroke(
     var n = 0;
     for (var i = start; i < end; i++) {
       final px = src.vx[i], py = src.vy[i];
-      if (n == 0 || (px - ptsX[n - 1]).abs() + (py - ptsY[n - 1]).abs() >= 1e-6) {
+      if (n == 0 ||
+          (px - ptsX[n - 1]).abs() + (py - ptsY[n - 1]).abs() >= 1e-6) {
         ptsX[n] = px;
         ptsY[n++] = py;
       }
     }
-    if (closed && n > 1 &&
+    if (closed &&
+        n > 1 &&
         (ptsX[0] - ptsX[n - 1]).abs() + (ptsY[0] - ptsY[n - 1]).abs() < 1e-6) {
       n--;
     }
@@ -2932,7 +3508,9 @@ final class _ContentKeyHasher {
       }
     } else if (d is _Style) {
       _mixInt(8);
-      _mixInt((d.stroke ? 1 : 0) | (d.evenOdd ? 2 : 0) | (d.cap << 4) | (d.join << 8));
+      _mixInt(
+        (d.stroke ? 1 : 0) | (d.evenOdd ? 2 : 0) | (d.cap << 4) | (d.join << 8),
+      );
       _mixDouble(d.miter);
       _mixTrack(d.color);
       _mixTrack(d.opacity);
@@ -2985,6 +3563,51 @@ final class _ContentKeyHasher {
   }
 }
 
+/// A reusable session for software rasterization of [FastLottieComposition]
+/// across frames without per-frame allocations.
+@visibleForTesting
+class FastLottieSoftwareSession {
+  FastLottieSoftwareSession(
+    FastLottieComposition composition, {
+    required this.pixelWidth,
+    required this.pixelHeight,
+    bool preferNative = true,
+    bool retainCoverage = true,
+  }) : _ws = _RasterWorkspace(
+         initialHeight: pixelHeight,
+         preferNative: preferNative,
+         retainCoverage: retainCoverage,
+       ),
+       _scene = _Fork().scene(composition._template),
+       _pixelBuffer = NativePixelBuffer(pixelWidth * pixelHeight);
+
+  final int pixelWidth;
+  final int pixelHeight;
+  final _RasterWorkspace _ws;
+  final _Compiler _scene;
+  final NativePixelBuffer _pixelBuffer;
+
+  Uint32List get pixels => _pixelBuffer.typedList;
+
+  void dispose() {
+    _ws.dispose();
+    _pixelBuffer.dispose();
+  }
+
+  Uint32List renderFrame(double frame) {
+    _renderSceneSoftware(
+      _scene,
+      frame,
+      _pixelBuffer.typedList,
+      pixelWidth,
+      pixelHeight,
+      _ws,
+      _ws.preferNative ? _pixelBuffer : null,
+    );
+    return _pixelBuffer.typedList;
+  }
+}
+
 /// Renders a single [composition] [frame] using the pure-Dart FreeType scanline RLE
 /// software rasterizer into a premultiplied BGRA8888 pixel buffer `[w * h * 4]`
 /// compatible with [ui.PixelFormat.bgra8888].
@@ -2995,9 +3618,15 @@ Uint8List debugRenderSoftwareFrame(
   required int pixelWidth,
   required int pixelHeight,
 }) {
-  final ws = _RasterWorkspace(initialWidth: pixelWidth, initialHeight: pixelHeight);
-  final scene = _Fork().scene(composition._template);
-  final pixels = Uint32List(pixelWidth * pixelHeight);
-  _renderSceneSoftware(scene, frame, pixels, pixelWidth, pixelHeight, ws);
-  return pixels.buffer.asUint8List();
+  final session = FastLottieSoftwareSession(
+    composition,
+    pixelWidth: pixelWidth,
+    pixelHeight: pixelHeight,
+  );
+  try {
+    session.renderFrame(frame);
+    return Uint8List.fromList(session.pixels.buffer.asUint8List());
+  } finally {
+    session.dispose();
+  }
 }

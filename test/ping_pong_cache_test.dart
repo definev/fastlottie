@@ -88,13 +88,15 @@ void main() {
       // Verify rendered ping-pong pixels closely match Canvas vector rendering.
       final actual = await tester.runAsync(
         () => render(
-          (c) => player.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), 2 / total),
+          (c) =>
+              player.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), 2 / total),
           size: 64,
         ),
       );
       final expected = await tester.runAsync(
         () => render(
-          (c) => vector.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), 2 / total),
+          (c) =>
+              vector.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), 2 / total),
           size: 64,
         ),
       );
@@ -157,7 +159,8 @@ void main() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
 
-      final json = fixture('icon')..['op'] = 10; // Short 10-frame clip for test speed.
+      final json = fixture('icon')
+        ..['op'] = 10; // Short 10-frame clip for test speed.
       final comp1 = FastLottieComposition.fromJson(json);
       final total = comp1.frameCount;
 
@@ -214,71 +217,69 @@ void main() {
     },
   );
 
-  testWidgets(
-    'recovers gracefully from corrupt or truncated .flcache files',
-    (tester) async {
-      final tempDir = Directory.systemTemp.createTempSync('fastlottie_corrupt_');
-      addTearDown(() {
-        if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
-      });
+  testWidgets('recovers gracefully from corrupt or truncated .flcache files', (
+    tester,
+  ) async {
+    final tempDir = Directory.systemTemp.createTempSync('fastlottie_corrupt_');
+    addTearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
 
-      final json = fixture('static');
-      final comp1 = FastLottieComposition.fromJson(json);
-      final cache1 = FastLottieRasterCache.pingPong(
-        diskCacheDirectory: tempDir.path,
-        workerCount: 1,
-      );
-      final p1 = FastLottiePlayer(comp1, rasterCache: cache1);
-      _record(p1, 0, size: 40);
-      await _drainPingPong(tester, cache1);
-      expect(cache1.diskBytes, greaterThan(0));
-      p1.dispose();
-      cache1.dispose();
+    final json = fixture('static');
+    final comp1 = FastLottieComposition.fromJson(json);
+    final cache1 = FastLottieRasterCache.pingPong(
+      diskCacheDirectory: tempDir.path,
+      workerCount: 1,
+    );
+    final p1 = FastLottiePlayer(comp1, rasterCache: cache1);
+    _record(p1, 0, size: 40);
+    await _drainPingPong(tester, cache1);
+    expect(cache1.diskBytes, greaterThan(0));
+    p1.dispose();
+    cache1.dispose();
 
-      // Corrupt the payload bytes on disk.
-      final flFile = tempDir
-          .listSync()
-          .whereType<File>()
-          .firstWhere((f) => f.path.endsWith('.flcache'));
-      final corrupted = flFile.readAsBytesSync();
-      for (var i = corrupted.length - 8; i < corrupted.length; i++) {
-        corrupted[i] ^= 0xFF;
-      }
-      flFile.writeAsBytesSync(corrupted, flush: true);
+    // Corrupt the payload bytes on disk.
+    final flFile = tempDir.listSync().whereType<File>().firstWhere(
+      (f) => f.path.endsWith('.flcache'),
+    );
+    final corrupted = flFile.readAsBytesSync();
+    for (var i = corrupted.length - 8; i < corrupted.length; i++) {
+      corrupted[i] ^= 0xFF;
+    }
+    flFile.writeAsBytesSync(corrupted, flush: true);
 
-      final comp2 = FastLottieComposition.fromJson(json);
-      final cache2 = FastLottieRasterCache.pingPong(
-        diskCacheDirectory: tempDir.path,
-        workerCount: 1,
-      );
-      final p2 = FastLottiePlayer(comp2, rasterCache: cache2);
-      final vector = FastLottiePlayer(comp2, cache: FastLottieCache.none);
-      addTearDown(() {
-        p2.dispose();
-        vector.dispose();
-        cache2.dispose();
-      });
+    final comp2 = FastLottieComposition.fromJson(json);
+    final cache2 = FastLottieRasterCache.pingPong(
+      diskCacheDirectory: tempDir.path,
+      workerCount: 1,
+    );
+    final p2 = FastLottiePlayer(comp2, rasterCache: cache2);
+    final vector = FastLottiePlayer(comp2, cache: FastLottieCache.none);
+    addTearDown(() {
+      p2.dispose();
+      vector.dispose();
+      cache2.dispose();
+    });
 
-      _record(p2, 0, size: 40);
-      await _drainPingPong(tester, cache2);
-      expect(cache2.lastError, isNull);
-      expect(cache2.vectorRasterizedFrames, 1);
+    _record(p2, 0, size: 40);
+    await _drainPingPong(tester, cache2);
+    expect(cache2.lastError, isNull);
+    expect(cache2.vectorRasterizedFrames, 1);
 
-      final actual = await tester.runAsync(
-        () => render(
-          (c) => p2.draw(c, const ui.Rect.fromLTWH(0, 0, 40, 40), 0),
-          size: 40,
-        ),
-      );
-      final expected = await tester.runAsync(
-        () => render(
-          (c) => vector.draw(c, const ui.Rect.fromLTWH(0, 0, 40, 40), 0),
-          size: 40,
-        ),
-      );
-      expect(_mae(actual!, expected!), lessThan(1.5));
-    },
-  );
+    final actual = await tester.runAsync(
+      () => render(
+        (c) => p2.draw(c, const ui.Rect.fromLTWH(0, 0, 40, 40), 0),
+        size: 40,
+      ),
+    );
+    final expected = await tester.runAsync(
+      () => render(
+        (c) => vector.draw(c, const ui.Rect.fromLTWH(0, 0, 40, 40), 0),
+        size: 40,
+      ),
+    );
+    expect(_mae(actual!, expected!), lessThan(1.5));
+  });
 
   testWidgets(
     'enforces maximumDiskBytes and maximumCompressedMemoryBytes LRU budgets',
@@ -378,7 +379,9 @@ void main() {
   testWidgets(
     'canonical source-frame indexing shares .flcache and RAM frames across poster and different frame rates',
     (tester) async {
-      final tempDir = Directory.systemTemp.createTempSync('fastlottie_canonical_');
+      final tempDir = Directory.systemTemp.createTempSync(
+        'fastlottie_canonical_',
+      );
       addTearDown(() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });

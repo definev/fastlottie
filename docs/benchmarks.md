@@ -5,6 +5,10 @@ baseline đã được kiểm tra: package có cả drawingCommands và raster c
 benchmark so sánh cả ba chế độ cho mỗi renderer.
 [Package lottie](https://pub.dev/packages/lottie).
 
+Phép đo RAM giữa FastLottie, rlottie và ThorVG chạy riêng. Xem
+[benchmark RAM](memory-benchmark.md) để so load, render nhiều instance và
+bộ nhớ sau nhiều vòng tạo/hủy.
+
 ## Chạy lại
 
 Từ root:

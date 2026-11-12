@@ -18,9 +18,15 @@ void main() {
 
     // Small < 13 bytes
     for (final len in [1, 4, 12, 13, 15, 270, 525, 4096]) {
-      final src = Uint8List.fromList([for (var i = 0; i < len; i++) (i * 37) & 0xFF]);
+      final src = Uint8List.fromList([
+        for (var i = 0; i < len; i++) (i * 37) & 0xFF,
+      ]);
       final compressed = Lz4Codec.compress(src, scratch: scratch);
-      expect(Lz4Codec.decompress(compressed, src.length), src, reason: 'len=$len');
+      expect(
+        Lz4Codec.decompress(compressed, src.length),
+        src,
+        reason: 'len=$len',
+      );
     }
 
     // Synthetic BGRA8888 frame (64x64 with transparent margins + repeated solid stripe)
@@ -37,44 +43,60 @@ void main() {
     expect(restored, raw);
   });
 
-  test('LZ4 handles pseudo-random incompressible data and aborts when larger', () {
-    final rng = math.Random(42);
-    final raw = Uint8List.fromList([for (var i = 0; i < 8192; i++) rng.nextInt(256)]);
-    final scratch = Lz4Scratch(initialOutputCapacity: raw.length + 128);
+  test(
+    'LZ4 handles pseudo-random incompressible data and aborts when larger',
+    () {
+      final rng = math.Random(42);
+      final raw = Uint8List.fromList([
+        for (var i = 0; i < 8192; i++) rng.nextInt(256),
+      ]);
+      final scratch = Lz4Scratch(initialOutputCapacity: raw.length + 128);
 
-    // Full compress + decompress still round-trips.
-    final full = Lz4Codec.compress(raw, scratch: scratch);
-    expect(Lz4Codec.decompress(full, raw.length), raw);
+      // Full compress + decompress still round-trips.
+      final full = Lz4Codec.compress(raw, scratch: scratch);
+      expect(Lz4Codec.decompress(full, raw.length), raw);
 
-    // abortAtLength triggers early -1 bailout when incompressible.
-    final dst = Uint8List(raw.length + 64);
-    final aborted = Lz4Codec.compressInto(
-      raw,
-      raw.length,
-      dst,
-      scratch.hashTable,
-      abortAtLength: raw.length,
-    );
-    expect(aborted, -1);
-  });
+      // abortAtLength triggers early -1 bailout when incompressible.
+      final dst = Uint8List(raw.length + 64);
+      final aborted = Lz4Codec.compressInto(
+        raw,
+        raw.length,
+        dst,
+        scratch.hashTable,
+        abortAtLength: raw.length,
+      );
+      expect(aborted, -1);
+    },
+  );
 
-  test('LZ4 rejects truncated or corrupt payloads cleanly with FormatException', () {
-    final raw = Uint8List(1024)..fillRange(0, 1024, 0xAA);
-    final valid = Lz4Codec.compress(raw);
+  test(
+    'LZ4 rejects truncated or corrupt payloads cleanly with FormatException',
+    () {
+      final raw = Uint8List(1024)..fillRange(0, 1024, 0xAA);
+      final valid = Lz4Codec.compress(raw);
 
-    // Truncated stream -> unexpected length or truncated token
-    expect(
-      () => Lz4Codec.decompress(valid.sublist(0, valid.length - 1), raw.length),
-      throwsFormatException,
-    );
+      // Truncated stream -> unexpected length or truncated token
+      expect(
+        () =>
+            Lz4Codec.decompress(valid.sublist(0, valid.length - 1), raw.length),
+        throwsFormatException,
+      );
 
-    // Invalid backward offset beyond output start
-    final badOffset = Uint8List.fromList([0x00, 0x05, 0x00]); // 0 lits, offset=5
-    expect(() => Lz4Codec.decompress(badOffset, 64), throwsFormatException);
+      // Invalid backward offset beyond output start
+      final badOffset = Uint8List.fromList([
+        0x00,
+        0x05,
+        0x00,
+      ]); // 0 lits, offset=5
+      expect(() => Lz4Codec.decompress(badOffset, 64), throwsFormatException);
 
-    // Output length mismatch
-    expect(() => Lz4Codec.decompress(valid, raw.length + 1), throwsFormatException);
-  });
+      // Output length mismatch
+      expect(
+        () => Lz4Codec.decompress(valid, raw.length + 1),
+        throwsFormatException,
+      );
+    },
+  );
 
   test('verify ui.PixelFormat.bgra8888 premultiplied byte order matches (a<<24)|(r<<16)|(g<<8)|b on little-endian', () async {
     final buf = Uint32List(1);
@@ -100,35 +122,49 @@ void main() {
     expect(out, [0x33, 0x22, 0x11, 0xFF]);
   });
 
-  test('Lz4Scratch shrinks oversized output buffer after sustained small uses', () {
-    final scratch = Lz4Scratch();
-    expect(scratch.outputBuffer.length, Lz4Scratch.defaultOutputCapacity);
+  test(
+    'Lz4Scratch shrinks oversized output buffer after sustained small uses',
+    () {
+      final scratch = Lz4Scratch();
+      expect(scratch.outputBuffer.length, Lz4Scratch.defaultOutputCapacity);
 
-    // Spike beyond soft limit.
-    final huge = scratch.ensureOutputCapacity(2 * 1024 * 1024);
-    expect(huge.length, greaterThan(Lz4Scratch.defaultSoftLimit));
-    scratch.recordOutputUse(2 * 1024 * 1024);
-    expect(scratch.outputBuffer.length, greaterThan(Lz4Scratch.defaultSoftLimit));
+      // Spike beyond soft limit.
+      final huge = scratch.ensureOutputCapacity(2 * 1024 * 1024);
+      expect(huge.length, greaterThan(Lz4Scratch.defaultSoftLimit));
+      scratch.recordOutputUse(2 * 1024 * 1024);
+      expect(
+        scratch.outputBuffer.length,
+        greaterThan(Lz4Scratch.defaultSoftLimit),
+      );
 
-    // Fifteen small uses preserve buffer capacity to avoid thrashing.
-    for (var i = 0; i < 15; i++) {
+      // Fifteen small uses preserve buffer capacity to avoid thrashing.
+      for (var i = 0; i < 15; i++) {
+        scratch.recordOutputUse(32 * 1024);
+        expect(
+          scratch.outputBuffer.length,
+          greaterThan(Lz4Scratch.defaultSoftLimit),
+        );
+      }
+
+      // Sixteenth consecutive small use trims back to defaultOutputCapacity.
       scratch.recordOutputUse(32 * 1024);
-      expect(scratch.outputBuffer.length, greaterThan(Lz4Scratch.defaultSoftLimit));
-    }
+      expect(scratch.outputBuffer.length, Lz4Scratch.defaultOutputCapacity);
 
-    // Sixteenth consecutive small use trims back to defaultOutputCapacity.
-    scratch.recordOutputUse(32 * 1024);
-    expect(scratch.outputBuffer.length, Lz4Scratch.defaultOutputCapacity);
-
-    // Explicit shrinkScratch resets immediately as well.
-    scratch.ensureOutputCapacity(1024 * 1024);
-    expect(scratch.outputBuffer.length, greaterThan(Lz4Scratch.defaultSoftLimit));
-    scratch.shrinkScratch();
-    expect(scratch.outputBuffer.length, Lz4Scratch.defaultOutputCapacity);
-  });
+      // Explicit shrinkScratch resets immediately as well.
+      scratch.ensureOutputCapacity(1024 * 1024);
+      expect(
+        scratch.outputBuffer.length,
+        greaterThan(Lz4Scratch.defaultSoftLimit),
+      );
+      scratch.shrinkScratch();
+      expect(scratch.outputBuffer.length, Lz4Scratch.defaultOutputCapacity);
+    },
+  );
 
   test('BitstreamStore indexes RAM LRU via record keys, evicts cleanly, and trims scratch', () {
-    final tempDir = Directory.systemTemp.createTempSync('fastlottie_bitstream_');
+    final tempDir = Directory.systemTemp.createTempSync(
+      'fastlottie_bitstream_',
+    );
     addTearDown(() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });

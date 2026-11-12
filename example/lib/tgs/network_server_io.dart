@@ -10,10 +10,7 @@ import 'network_server_types.dart';
 typedef _BytesSupplier = Future<Uint8List> Function();
 
 final class _ServedAsset {
-  _ServedAsset({
-    required this.item,
-    required this.loadBytes,
-  });
+  _ServedAsset({required this.item, required this.loadBytes});
 
   final TgsRemoteItem item;
   final _BytesSupplier loadBytes;

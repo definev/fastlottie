@@ -10,7 +10,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show fixture, render;
 import 'path_ops_test.dart'
-    show animated, constant, fill, line, matteScene, rectangle, scene, stroke, trim;
+    show
+        animated,
+        constant,
+        fill,
+        line,
+        matteScene,
+        rectangle,
+        scene,
+        stroke,
+        trim;
 import 'rlottie_features_test.dart' show closureMorph;
 import 'tgs_test.dart' show isBundledTgs;
 
@@ -200,12 +209,15 @@ void main() {
       final json = jsonDecode(
         File('rlottie-master/example/resource/$name.json').readAsStringSync(),
       ) as Map<String, dynamic>;
-      final span = (json['op'] as num).toDouble() - (json['ip'] as num).toDouble();
-      await _compareAgainstVectorCanvas(
-        name,
-        json,
-        [0, span * 0.25, span * 0.5, span * 0.75, span - 1],
-      );
+      final span =
+          (json['op'] as num).toDouble() - (json['ip'] as num).toDouble();
+      await _compareAgainstVectorCanvas(name, json, [
+        0,
+        span * 0.25,
+        span * 0.5,
+        span * 0.75,
+        span - 1,
+      ]);
     });
   }
 
@@ -282,10 +294,7 @@ void main() {
               'r': constant(20),
               'o': constant(100),
             },
-            'shapes': [
-              line(-40, length: 80),
-              stroke()..['w'] = constant(12),
-            ],
+            'shapes': [line(-40, length: 80), stroke()..['w'] = constant(12)],
           },
         ],
       },
@@ -324,7 +333,8 @@ void main() {
         entry.key,
         entry.value,
         [0, 1, 15, 29, 30, 40, 59],
-        maxMae: entry.key.startsWith('matte-') || entry.key.startsWith('precomp-')
+        maxMae:
+            entry.key.startsWith('matte-') || entry.key.startsWith('precomp-')
             ? 1.3
             : 0.9,
       );
@@ -332,12 +342,18 @@ void main() {
   });
 
   test('software RLE matches canvas vector across bundled TGS stickers', () async {
-    final files = Directory('example/assets/tgs')
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.tgs') && isBundledTgs(f) && !f.path.contains('NotoEmoji'))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+    final files =
+        Directory('example/assets/tgs')
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where(
+              (f) =>
+                  f.path.endsWith('.tgs') &&
+                  isBundledTgs(f) &&
+                  !f.path.contains('NotoEmoji'),
+            )
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
 
     expect(files.length, greaterThan(100));
     final failures = <String>[];
@@ -371,7 +387,9 @@ void main() {
         // differs mildly on thin sub-pixel strokes / curved edges vs Skia GPU/CPU AA,
         // while solid interiors remain exact (<= 0.4 out of 255).
         if (mae >= 2.0 || bad >= 0.04 || interior >= 0.4) {
-          failures.add('${file.path} @ $fraction MAE=$mae bad=$bad interior=$interior');
+          failures.add(
+            '${file.path} @ $fraction MAE=$mae bad=$bad interior=$interior',
+          );
         }
       }
       player.dispose();
@@ -407,9 +425,12 @@ void main() {
       );
       final (mae, bad, _) = _diffMetrics(swRgba, canvasRgba, 160);
       expect(mae, lessThan(1.0), reason: 'MAE failed at fraction $fraction');
-      expect(bad, lessThan(0.02), reason: 'Bad fraction failed at fraction $fraction');
+      expect(
+        bad,
+        lessThan(0.02),
+        reason: 'Bad fraction failed at fraction $fraction',
+      );
     }
     player.dispose();
   });
 }
-

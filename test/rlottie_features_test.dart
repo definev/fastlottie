@@ -229,9 +229,8 @@ void main() {
     'native rlottie oracle: spatial Bézier curve keyframes (Topics cart OSNOVA)',
     () async {
       final raw = decodeLottieBytes(
-        File(
-          'example/assets/tgs/Topics-1794247486249/file_4798713.tgs',
-        ).readAsBytesSync(),
+        File('example/assets/tgs/Topics-1794247486249/file_4798713.tgs')
+            .readAsBytesSync(),
       );
       final doc = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
       final layers = (doc['layers'] as List<dynamic>)
@@ -296,9 +295,8 @@ void main() {
     'native rlottie oracle: precomp overflow past parent duration (Topics notes 728)',
     () async {
       final raw = decodeLottieBytes(
-        File(
-          'example/assets/tgs/Topics-1794247486249/file_4798728.tgs',
-        ).readAsBytesSync(),
+        File('example/assets/tgs/Topics-1794247486249/file_4798728.tgs')
+            .readAsBytesSync(),
       );
       final directory = Directory.systemTemp.createTempSync(
         'fastlottie-notes-oracle-',

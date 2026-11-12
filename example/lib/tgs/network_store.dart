@@ -152,8 +152,9 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
       _decodeQueue.isNotEmpty;
 
   void attachSourceCacheDirectory(String? directoryPath) {
-    sourceCacheDirectory =
-        (directoryPath == null || directoryPath.isEmpty) ? null : directoryPath;
+    sourceCacheDirectory = (directoryPath == null || directoryPath.isEmpty)
+        ? null
+        : directoryPath;
   }
 
   void _enqueueFront(LinkedHashSet<_NetEntry> queue, _NetEntry entry) {
@@ -327,9 +328,11 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
     while (!_disposed &&
         _runningDecodes < decodeConcurrency &&
         _decodeQueue.isNotEmpty) {
-      final free = capacity - _publications.length - _runningDecodes * batchSize;
-      final count =
-          _decodeQueue.length < batchSize ? _decodeQueue.length : batchSize;
+      final free =
+          capacity - _publications.length - _runningDecodes * batchSize;
+      final count = _decodeQueue.length < batchSize
+          ? _decodeQueue.length
+          : batchSize;
       if (free < count) break;
       final batch = <_NetEntry>[];
       while (batch.length < count && _decodeQueue.isNotEmpty) {

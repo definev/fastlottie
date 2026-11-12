@@ -152,7 +152,9 @@ class EmojiComposerController extends TextEditingController {
     TextStyle? style,
     required bool withComposing,
   }) {
-    assert(!value.composing.isValid || !withComposing || value.isComposingRangeValid);
+    assert(
+      !value.composing.isValid || !withComposing || value.isComposingRangeValid,
+    );
     final hasComposing = withComposing && value.isComposingRangeValid;
     final composingStyle = hasComposing
         ? style?.merge(const TextStyle(decoration: TextDecoration.underline))
@@ -169,7 +171,11 @@ class EmojiComposerController extends TextEditingController {
     final st = store;
 
     // Fallback if sheets or catalog aren't loaded yet.
-    if (cat == null || sh == null || clk == null || st == null || cat.emojis.isEmpty) {
+    if (cat == null ||
+        sh == null ||
+        clk == null ||
+        st == null ||
+        cat.emojis.isEmpty) {
       if (!hasComposing) {
         return TextSpan(style: style, text: rawText);
       }
@@ -311,7 +317,9 @@ class EmojiShortcodeTextInputFormatter extends TextInputFormatter {
 
       buffer.write(text.substring(cursor, match.start));
 
-      final puaChar = String.fromCharCode(EmojiComposerController.puaBase + idx);
+      final puaChar = String.fromCharCode(
+        EmojiComposerController.puaBase + idx,
+      );
       buffer.write(puaChar);
 
       final delta = 1 - (match.end - match.start);
@@ -514,7 +522,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   StickerSheet? _stickerSheet;
   StickerSheet? _emojiSheet;
   final List<StickerSheet> _disposingSheets = <StickerSheet>[];
-  final List<FastLottieRasterCache> _disposingCaches = <FastLottieRasterCache>[];
+  final List<FastLottieRasterCache> _disposingCaches =
+      <FastLottieRasterCache>[];
   Object? _bootError;
   bool _booting = true;
 
@@ -661,7 +670,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _composerController.renderer = _renderer;
     _composerController.still = _reduced || _pressure.constrained;
     if (_composerController.text.contains(':')) {
-      final decoded = _composerController.decodeShortcodes(_composerController.text);
+      final decoded = _composerController.decodeShortcodes(
+        _composerController.text,
+      );
       if (decoded != _composerController.text) {
         _composerController.value = TextEditingValue(
           text: decoded,
@@ -976,7 +987,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     final selection = value.selection;
     final insertText = char;
     final text = value.text;
-    if (selection.isValid && selection.start >= 0 && selection.end <= text.length) {
+    if (selection.isValid &&
+        selection.start >= 0 &&
+        selection.end <= text.length) {
       final nextText = text.replaceRange(
         selection.start,
         selection.end,
@@ -1098,7 +1111,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
             CupertinoActionSheetAction(
               key: const ValueKey('toggle-raster-strategy-action'),
               onPressed: () {
-                final next = _rasterStrategy == FastLottieRasterStrategy.miniStrip
+                final next =
+                    _rasterStrategy == FastLottieRasterStrategy.miniStrip
                     ? FastLottieRasterStrategy.pingPong
                     : FastLottieRasterStrategy.miniStrip;
                 Navigator.of(ctx).pop();
@@ -1117,7 +1131,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               widget.onBrightnessChanged?.call(next);
               Navigator.of(ctx).pop();
             },
-            child: Text(_isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'),
+            child: Text(
+              _isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+            ),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
@@ -1324,7 +1340,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         navigationBar: CupertinoNavigationBar(
           automaticallyImplyLeading: false,
           backgroundColor: palette.navBar,
-          border: Border(bottom: BorderSide(color: palette.separator, width: 0.5)),
+          border: Border(
+            bottom: BorderSide(color: palette.separator, width: 0.5),
+          ),
           leading: _HeaderAvatar(
             catalog: catalog,
             emojiSheet: _emojiSheet,
@@ -1443,7 +1461,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                       _messages.length - 1 - visualIndex;
                                   final msg = _messages[index];
                                   return _ChatMessageRow(
-                                    key: ValueKey('${msg.id}_${msg.reloadEpoch}'),
+                                    key: ValueKey(
+                                      '${msg.id}_${msg.reloadEpoch}',
+                                    ),
                                     message: msg,
                                     catalog: catalog,
                                     emojiSheet: _emojiSheet!,
@@ -1616,10 +1636,7 @@ class _HeaderStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: Listenable.merge([
-      store,
-      if (server != null) server!.stats,
-    ]),
+    listenable: Listenable.merge([store, if (server != null) server!.stats]),
     builder: (context, _) {
       final subtitle = catalog == null
           ? 'Connecting…'
@@ -1858,8 +1875,10 @@ class _StickerPickerDrawer extends StatelessWidget {
   });
 
   final TgsRemoteCatalog catalog;
-  final List<(_DrawerTab kind, String id, String label, List<TgsRemoteItem> items)>
-      tabs;
+  final List<
+    (_DrawerTab kind, String id, String label, List<TgsRemoteItem> items)
+  >
+  tabs;
   final int selectedTabIndex;
   final ValueChanged<int> onTabChanged;
   final ScrollController scrollController;
@@ -1911,7 +1930,9 @@ class _StickerPickerDrawer extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: selected ? palette.pillActive : palette.pillInactive,
+                      color: selected
+                          ? palette.pillActive
+                          : palette.pillInactive,
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: Text(
@@ -1944,11 +1965,12 @@ class _StickerPickerDrawer extends StatelessWidget {
                     addAutomaticKeepAlives: false,
                     addRepaintBoundaries: false,
                     itemCount: items.length,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 5,
-                      crossAxisSpacing: 6,
-                      mainAxisSpacing: 6,
-                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 5,
+                          crossAxisSpacing: 6,
+                          mainAxisSpacing: 6,
+                        ),
                     itemBuilder: (context, index) {
                       final item = items[index];
                       return Semantics(
@@ -2122,7 +2144,9 @@ class _ChatMessageRow extends StatelessWidget {
       text,
       catalog,
       emojiScale * 1.45,
-      message.isOutgoing ? CupertinoColors.white.withValues(alpha: 0.25) : palette.tilePlaceholder,
+      message.isOutgoing
+          ? CupertinoColors.white.withValues(alpha: 0.25)
+          : palette.tilePlaceholder,
     );
 
     final bubbleRadius = BorderRadius.only(
@@ -2211,7 +2235,9 @@ class _ChatMessageRow extends StatelessWidget {
     );
   }
 
-  static final RegExp _tokenOrPuaRegex = RegExp(r':[a-z0-9_]+:|[\uE000-\uF8FF]');
+  static final RegExp _tokenOrPuaRegex = RegExp(
+    r':[a-z0-9_]+:|[\uE000-\uF8FF]',
+  );
 
   List<InlineSpan> _parseRichSpans(
     String text,
@@ -2230,7 +2256,9 @@ class _ChatMessageRow extends StatelessWidget {
         item = catalog.shortcodeMap[token];
       } else {
         final idx = token.codeUnitAt(0) - EmojiComposerController.puaBase;
-        item = (idx >= 0 && idx < catalog.emojis.length) ? catalog.emojis[idx] : null;
+        item = (idx >= 0 && idx < catalog.emojis.length)
+            ? catalog.emojis[idx]
+            : null;
       }
       if (item == null) continue;
       if (match.start > cursor) {
@@ -2477,8 +2505,10 @@ class _NetworkInlinePainter extends CustomPainter {
     final span = c.endFrame - c.startFrame;
     final frame = still || span <= 0
         ? 0.0
-        : (((clock.microseconds + 1) / 1000000 * c.frameRate) % span)
-              .clamp(0.0, span > 1 ? span - 1 : 0.0);
+        : (((clock.microseconds + 1) / 1000000 * c.frameRate) % span).clamp(
+            0.0,
+            span > 1 ? span - 1 : 0.0,
+          );
     final progress = c.isStatic || span <= 0 || still ? 0.0 : frame / span;
     player.draw(
       canvas,
@@ -2492,7 +2522,11 @@ class _NetworkInlinePainter extends CustomPainter {
     );
   }
 
-  void _drawPlaceholder(Canvas canvas, Size size, [Offset origin = Offset.zero]) {
+  void _drawPlaceholder(
+    Canvas canvas,
+    Size size, [
+    Offset origin = Offset.zero,
+  ]) {
     final r = math.min(size.width, size.height) * 0.28;
     _placeholderPaint.color = placeholderColor;
     canvas.drawRRect(
@@ -2720,9 +2754,12 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
         final effectiveAnimate =
             widget.animate && !MediaQuery.disableAnimationsOf(context);
 
-        if (widget.renderer == ChatRendererMode.fastlottie && model.fast != null) {
+        if (widget.renderer == ChatRendererMode.fastlottie &&
+            model.fast != null) {
           return GestureDetector(
-            onTap: effectiveAnimate ? () => setState(() => _replayTick++) : null,
+            onTap: effectiveAnimate
+                ? () => setState(() => _replayTick++)
+                : null,
             child: FastLottie(
               key: ValueKey('hero_${widget.item.id}_$_replayTick'),
               composition: model.fast!,

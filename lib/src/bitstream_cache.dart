@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'lz4.dart';
+import 'tile_playback.dart';
 import 'platform_stub.dart' if (dart.library.io) 'platform_io.dart';
 
 /// Deterministic filename-safe cache key for `(contentKey, pixelSize, sourceFrameCount)`.
@@ -21,11 +22,7 @@ String formatBitstreamEntryKey(
 typedef _RamKey = (String, int);
 
 final class _RamFrame {
-  _RamFrame({
-    required this.payload,
-    required this.isRaw,
-    required this.crc31,
-  });
+  _RamFrame({required this.payload, required this.isRaw, required this.crc31});
 
   final Uint8List payload;
   final bool isRaw;
@@ -81,7 +78,7 @@ final class _OpenFlCacheFile {
 class BitstreamStore {
   BitstreamStore({
     String? diskCacheDirectory,
-    this.maximumRamBytes = 4 * 1024 * 1024,
+    this._maximumRamBytes = 4 * 1024 * 1024,
     this.maximumOpenFiles = 16,
   }) : _diskDir = (diskCacheDirectory == null || diskCacheDirectory.isEmpty)
            ? null
@@ -123,12 +120,22 @@ class BitstreamStore {
   }
 
   String? _diskDir;
-  int maximumRamBytes;
+  int _maximumRamBytes;
+  int get maximumRamBytes => _maximumRamBytes;
+  set maximumRamBytes(int value) {
+    _maximumRamBytes = value;
+    _makeRamRoom(0);
+  }
+
   final int maximumOpenFiles;
 
   final _ramLru = <_RamKey, _RamFrame>{};
   final _ramFramesByEntry = <String, Set<int>>{};
   int _ramBytes = 0;
+  final _tilePages = <_RamKey, TilePlaybackPage>{};
+  final _attemptedPages = <_RamKey>{};
+  int _tileBytes = 0;
+  Uint8List? _tileScratch;
 
   static const int _defaultIoScratchBytes = 64 * 1024;
   static const int _softIoScratchLimit = 512 * 1024;
@@ -140,7 +147,7 @@ class BitstreamStore {
   int _smallIoCount = 0;
 
   int recoveredCorruptions = 0;
-  int get ramBytes => _ramBytes;
+  int get ramBytes => _ramBytes + _tileBytes;
   String? get diskCacheDirectory => _diskDir;
 
   void setDiskDirectory(String? dir) {
@@ -217,6 +224,7 @@ class BitstreamStore {
     required bool poster,
     required int frameIndex,
     required Uint8List dstBgra,
+    TilePlaybackCursor? cursor,
   }) {
     final expectedBytes = width * height * 4;
     if (frameIndex < 0 ||
@@ -224,6 +232,19 @@ class BitstreamStore {
         dstBgra.length < expectedBytes) {
       return false;
     }
+
+    final pageKey = (entryKey, frameIndex ~/ TilePlaybackPage.maxFrames);
+    final page = _tilePages.remove(pageKey);
+    if (page != null) {
+      _tilePages[pageKey] = page;
+      if (page.width == width &&
+          page.height == height &&
+          page.contains(frameIndex)) {
+        page.read(frameIndex, dstBgra, cursor);
+        return true;
+      }
+    }
+    cursor?.invalidate();
 
     // 1. Hot compressed-RAM LRU check.
     final ramKey = (entryKey, frameIndex);
@@ -314,6 +335,81 @@ class BitstreamStore {
     return true;
   }
 
+  /// Compile a hot RAM page after replying to the current playback request.
+  /// Cold frames, disk layout and first-frame latency use the existing path.
+  bool preparePlaybackPage({
+    required String entryKey,
+    required int width,
+    required int height,
+    required int totalFrames,
+    required int frameIndex,
+  }) {
+    const size = TilePlaybackPage.maxFrames;
+    final pixels = width * height;
+    if (frameIndex < 0 ||
+        frameIndex >= totalFrames ||
+        pixels > TilePlaybackPage.maxPixels ||
+        pixels < 16 * 16 ||
+        maximumRamBytes <= 0) {
+      return false;
+    }
+    final first = (frameIndex ~/ size) * size;
+    final end = math.min(first + size, totalFrames);
+    if (end - first < 2) return false;
+    final key = (entryKey, first ~/ size);
+    if (_tilePages.containsKey(key) || _attemptedPages.contains(key)) {
+      return false;
+    }
+
+    var originalBytes = 0;
+    final frames = <int>[];
+    for (var f = first; f < end; f++) {
+      final frame = _ramLru[(entryKey, f)];
+      if (frame != null) {
+        originalBytes += frame.payload.length;
+        frames.add(f);
+      }
+    }
+    if (frames.length < 2) return false;
+    _attemptedPages.add(key);
+    if (_attemptedPages.length > 128) {
+      _attemptedPages.remove(_attemptedPages.first);
+    }
+    final expectedBytes = pixels * 4;
+    var scratch = _tileScratch;
+    if (scratch == null || scratch.length < expectedBytes) {
+      scratch = _tileScratch = Uint8List(expectedBytes);
+    }
+    final page = TilePlaybackPage.build(
+      width: width,
+      height: height,
+      firstFrame: first,
+      frames: frames,
+      maxBytes: math.min(maximumRamBytes ~/ 8, originalBytes * 2),
+      scratch: scratch,
+      readFrame: (f, dst) {
+        final ram = _ramLru[(entryKey, f)]!;
+        return _decodePayload(
+          ram.payload,
+          0,
+          ram.payload.length,
+          ram.isRaw,
+          ram.crc31,
+          dst,
+          expectedBytes,
+        );
+      },
+    );
+    if (page == null) return false;
+    for (final frame in frames) {
+      _removeRamKey((entryKey, frame));
+    }
+    _makeRamRoom(page.bytes);
+    _tilePages[key] = page;
+    _tileBytes += page.bytes;
+    return true;
+  }
+
   /// Compresses `srcBgra[0 .. width * height * 4)` via LZ4 and saves into RAM LRU
   /// and (when enabled) append-only `<entryKey>.flcache`.
   ({int compressedBytes, int entryDiskBytes}) storeFrame({
@@ -331,6 +427,11 @@ class BitstreamStore {
         frameIndex >= totalFrames ||
         srcBgra.length < expectedBytes) {
       return (compressedBytes: 0, entryDiskBytes: 0);
+    }
+
+    final pageKey = (entryKey, frameIndex ~/ TilePlaybackPage.maxFrames);
+    if (_tilePages[pageKey]?.contains(frameIndex) ?? false) {
+      _removeTilePage(pageKey);
     }
 
     final maxOut = Lz4Codec.maxCompressedLength(expectedBytes);
@@ -403,6 +504,10 @@ class BitstreamStore {
   }
 
   void evictEntryRam(String entryKey) {
+    for (final key in _tilePages.keys.where((k) => k.$1 == entryKey).toList()) {
+      _removeTilePage(key);
+    }
+    _attemptedPages.removeWhere((key) => key.$1 == entryKey);
     final frames = _ramFramesByEntry.remove(entryKey);
     if (frames == null) return;
     for (final frameIndex in frames) {
@@ -426,6 +531,10 @@ class BitstreamStore {
     _ramLru.clear();
     _ramFramesByEntry.clear();
     _ramBytes = 0;
+    _tilePages.clear();
+    _attemptedPages.clear();
+    _tileBytes = 0;
+    _tileScratch = null;
     shrinkScratch();
   }
 
@@ -473,18 +582,29 @@ class BitstreamStore {
   }) {
     if (maximumRamBytes <= 0 || length > maximumRamBytes) return;
     _removeRamKey(ramKey);
-    while (_ramBytes + length > maximumRamBytes && _ramLru.isNotEmpty) {
-      _removeRamKey(_ramLru.keys.first);
-    }
+    _makeRamRoom(length);
     final copy = Uint8List(length)..setRange(0, length, bytes, start);
-    final frame = _RamFrame(
-      payload: copy,
-      isRaw: isRaw,
-      crc31: crc31,
-    );
+    final frame = _RamFrame(payload: copy, isRaw: isRaw, crc31: crc31);
     _ramLru[ramKey] = frame;
     (_ramFramesByEntry[ramKey.$1] ??= <int>{}).add(ramKey.$2);
     _ramBytes += length;
+  }
+
+  void _removeTilePage(_RamKey key) {
+    final removed = _tilePages.remove(key);
+    if (removed != null) _tileBytes -= removed.bytes;
+  }
+
+  void _makeRamRoom(int added) {
+    while (ramBytes + added > maximumRamBytes) {
+      if (_ramLru.isNotEmpty) {
+        _removeRamKey(_ramLru.keys.first);
+      } else if (_tilePages.isNotEmpty) {
+        _removeTilePage(_tilePages.keys.first);
+      } else {
+        break;
+      }
+    }
   }
 
   void _removeRamKey(_RamKey ramKey) {
@@ -519,7 +639,9 @@ class BitstreamStore {
     final dir = _diskDir;
     if (dir == null) return null;
     final path = resolvedPath ?? joinPath(dir, '$entryKey.flcache');
-    if (!createIfMissing && resolvedPath == null && !PlatformDiskFs.exists(path)) {
+    if (!createIfMissing &&
+        resolvedPath == null &&
+        !PlatformDiskFs.exists(path)) {
       return null;
     }
 
@@ -539,7 +661,8 @@ class BitstreamStore {
 
     try {
       final len = handle.length;
-      if (len >= payloadStart && handle.readExactAt(0, _headerScratch, headerSize)) {
+      if (len >= payloadStart &&
+          handle.readExactAt(0, _headerScratch, headerSize)) {
         final bd = ByteData.sublistView(_headerScratch);
         final fileMagic = bd.getUint32(0, Endian.little);
         final fileVersion = bd.getUint32(4, Endian.little);

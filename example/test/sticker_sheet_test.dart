@@ -10,26 +10,21 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-    'ping-pong thumbnail settings fit entire 94-sticker catalog under 10 MiB GPU',
-    () async {
-      final catalog = await loadTgsCatalog(rootBundle);
-      var bytes = 0;
-      for (final asset in catalog) {
-        final c = FastLottieComposition.fromBytes(
-          File(asset).readAsBytesSync(),
-        );
-        bytes +=
-            stickerThumbnailPixels *
-            stickerThumbnailPixels *
-            4 *
-            (c.isStatic ? 1 : 2);
-      }
-      expect(catalog.length, 94);
-      expect(bytes, lessThanOrEqualTo(10 * 1024 * 1024));
-      expect(bytes, lessThanOrEqualTo(stickerSheetBytes));
-    },
-  );
+  test('ping-pong thumbnail settings fit entire 94-sticker catalog under 10 MiB GPU', () async {
+    final catalog = await loadTgsCatalog(rootBundle);
+    var bytes = 0;
+    for (final asset in catalog) {
+      final c = FastLottieComposition.fromBytes(File(asset).readAsBytesSync());
+      bytes +=
+          stickerThumbnailPixels *
+          stickerThumbnailPixels *
+          4 *
+          (c.isStatic ? 1 : 2);
+    }
+    expect(catalog.length, 94);
+    expect(bytes, lessThanOrEqualTo(10 * 1024 * 1024));
+    expect(bytes, lessThanOrEqualTo(stickerSheetBytes));
+  });
 
   testWidgets(
     'StickerSheet shares one ping-pong player per duplicate asset and unpins at zero pins',
@@ -67,4 +62,43 @@ void main() {
       expect(sheet.playerFor(asset), isNull);
     },
   );
+
+  testWidgets('scrolling offscreen lets the store evict a compiled sticker', (
+    tester,
+  ) async {
+    final catalog = (await tester.runAsync(() => loadTgsCatalog(rootBundle)))!;
+    final first = catalog[0], second = catalog[1];
+    final store = TgsStore(maximumEntries: 1);
+    final sheet = StickerSheet(
+      assets: [first, second],
+      pixelSize: 56,
+      store: store,
+    );
+    addTearDown(() {
+      sheet.dispose();
+      store.dispose();
+    });
+
+    Future<void> pinAndWait(String asset) async {
+      sheet.acquirePin(asset);
+      for (var i = 0; i < 50 && sheet.playerFor(asset) == null; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+      }
+      expect(sheet.playerFor(asset), isNotNull);
+    }
+
+    await pinAndWait(first);
+    sheet.releasePin(first);
+    await pinAndWait(second);
+    sheet.releasePin(second);
+    expect(store.cached, 1);
+    expect(store.decodes, 2);
+
+    await pinAndWait(first);
+    expect(store.decodes, 3, reason: 'the sheet must honor the store eviction');
+    sheet.releasePin(first);
+  });
 }

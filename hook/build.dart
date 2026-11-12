@@ -1,0 +1,18 @@
+import 'package:code_assets/code_assets.dart';
+import 'package:fastlottie/src/c_library.dart';
+import 'package:hooks/hooks.dart';
+
+void main(List<String> args) async {
+  await build(args, (input, output) async {
+    if (input.config.buildCodeAssets) {
+      await cLibrary.build(
+        input: input,
+        output: output,
+        defines: {
+          if (input.config.code.targetOS == OS.windows)
+            'FL_EXPORT': '__declspec(dllexport)',
+        },
+      );
+    }
+  });
+}

@@ -70,8 +70,8 @@ Future<List<String>> _compareAgainstLottie(
           }
           if (flat) {
             for (var channel = 0; channel < 4; channel++) {
-              interiorError +=
-                  (actual[pos + channel] - expected[pos + channel]).abs();
+              interiorError += (actual[pos + channel] - expected[pos + channel])
+                  .abs();
               interiorChannels++;
             }
           }
@@ -104,8 +104,7 @@ List<int> _stripOsnovaSpatialTangents(List<int> raw) {
     (l) => l['nm'] == 'OSNOVA',
   );
   final posKeys =
-      ((osnova['ks'] as Map<String, dynamic>)['p']
-              as Map<String, dynamic>)['k']
+      ((osnova['ks'] as Map<String, dynamic>)['p'] as Map<String, dynamic>)['k']
           as List<dynamic>;
   for (final keyframe in posKeys.cast<Map<String, dynamic>>()) {
     keyframe.remove('to');
@@ -189,121 +188,117 @@ void main() {
       recorder.endRecording().dispose();
     },
   );
-  test(
-    'differential TGS rendering on all supported stickers',
-    () async {
-      final files =
-          Directory('example/assets/tgs')
-              .listSync(recursive: true)
-              .whereType<File>()
-              .where(
-                (f) =>
-                    f.path.endsWith('.tgs') &&
-                    isBundledTgs(f) &&
-                    f.path.contains(
-                      Platform.environment['TGS_DIFF_FILTER'] ?? '',
-                    ),
-              )
-              .toList()
-            ..sort((a, b) => a.path.compareTo(b.path));
-      final failures = <String>[];
-      var compared = 0;
-      final dump = Platform.environment['TGS_DIFF_IMAGES'] == '1';
-      for (final file in files) {
-        final raw = decodeLottieBytes(file.readAsBytesSync());
-        try {
-          FastLottieComposition.fromBytes(raw);
-        } on UnsupportedLottieException {
-          continue;
-        }
-        // Topics/file_4798713.tgs moves an 81-layer wireframe cart along curved
-        // spatial Bézier tangents (`to`/`ti`) on `OSNOVA`. `package:lottie` uses
-        // Skia `PathMetric` (`kDefaultTolerance=0.25px` coarse chordification),
-        // which shifts ~0.29px off the exact cubic arc-length that fastlottie and
-        // native `rlottie` (`VBezier::tAtLength`) agree on. Check unmodified
-        // interiors tightly against `package:lottie`, AND verify the full
-        // 82-layer tree under strict edge gates once `OSNOVA` tangents are linear;
-        // the curved `OSNOVA` spatial track itself is oracle-tested against
-        // native `rlottie` in `test/rlottie_features_test.dart`.
-        final isSpatialMetricOutlier = file.path.endsWith(
-          'Topics-1794247486249/file_4798713.tgs',
-        );
-        final isPrecompOverflow = file.path.endsWith(
-          'Topics-1794247486249/file_4798728.tgs',
-        );
-        final isDolphinOverflow = file.path.endsWith('emoji_u1f42c.tgs');
-        final isHedgehogOverflow = file.path.endsWith('emoji_u1f994.tgs');
-        if (isSpatialMetricOutlier) {
-          failures.addAll(
-            await _compareAgainstLottie(
-              '${file.path} (unmodified interior check)',
-              raw,
-              maxMae: 1.5,
-              maxRatio: .035,
-              maxInteriorMae: .05,
-              saveImagesOnFailure: dump,
-              fileName: file.uri.pathSegments.last,
-            ),
-          );
-          failures.addAll(
-            await _compareAgainstLottie(
-              '${file.path} (linear OSNOVA position)',
-              _stripOsnovaSpatialTangents(raw),
-              saveImagesOnFailure: dump,
-              fileName: '${file.uri.pathSegments.last}_linear',
-            ),
-          );
-        } else if (isPrecompOverflow || isDolphinOverflow || isHedgehogOverflow) {
-          // `file_4798728.tgs` maps precomp `comp_0` via `st=-112` past `op=180`,
-          // `emoji_u1f42c.tgs` maps `comp_0` via `sr=0.9` past `op=110`,
-          // and `emoji_u1f994.tgs` maps `comp_0` via `tm` past `op=132`.
-          // `package:lottie` clamps child frames to root duration, while fastlottie
-          // and native `rlottie` match.
-          failures.addAll(
-            await _compareAgainstLottie(
-              file.path,
-              raw,
-              fractions: isHedgehogOverflow
-                  ? const [0.0, .1, .25, .6]
-                  : isDolphinOverflow
-                  ? const [0.0, .1, .25, .75]
-                  : const [0.0, .1, .25, .75, .9, .95],
-              saveImagesOnFailure: dump,
-              fileName: file.uri.pathSegments.last,
-            ),
-          );
-        } else {
-          final isStrawberry = file.path.endsWith(
-            'Topics-1794247486249/file_4798724.tgs',
-          );
-          final isFamily = file.path.endsWith(
-            'Topics-1794247486249/file_4798736.tgs',
-          );
-          failures.addAll(
-            await _compareAgainstLottie(
-              file.path,
-              raw,
-              maxMae: isFamily ? .90 : .65,
-              maxRatio: isFamily
-                  ? .025
-                  : isStrawberry
-                  ? .018
-                  : .016,
-              saveImagesOnFailure: dump,
-              fileName: file.uri.pathSegments.last,
-            ),
-          );
-        }
-        compared++;
+  test('differential TGS rendering on all supported stickers', () async {
+    final files =
+        Directory('example/assets/tgs')
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where(
+              (f) =>
+                  f.path.endsWith('.tgs') &&
+                  isBundledTgs(f) &&
+                  f.path.contains(
+                    Platform.environment['TGS_DIFF_FILTER'] ?? '',
+                  ),
+            )
+            .toList()
+          ..sort((a, b) => a.path.compareTo(b.path));
+    final failures = <String>[];
+    var compared = 0;
+    final dump = Platform.environment['TGS_DIFF_IMAGES'] == '1';
+    for (final file in files) {
+      final raw = decodeLottieBytes(file.readAsBytesSync());
+      try {
+        FastLottieComposition.fromBytes(raw);
+      } on UnsupportedLottieException {
+        continue;
       }
-      // ignore: avoid_print
-      print(
-        'TGS_DIFF $compared compared, ${failures.length} failed samples\n${failures.join('\n')}',
+      // Topics/file_4798713.tgs moves an 81-layer wireframe cart along curved
+      // spatial Bézier tangents (`to`/`ti`) on `OSNOVA`. `package:lottie` uses
+      // Skia `PathMetric` (`kDefaultTolerance=0.25px` coarse chordification),
+      // which shifts ~0.29px off the exact cubic arc-length that fastlottie and
+      // native `rlottie` (`VBezier::tAtLength`) agree on. Check unmodified
+      // interiors tightly against `package:lottie`, AND verify the full
+      // 82-layer tree under strict edge gates once `OSNOVA` tangents are linear;
+      // the curved `OSNOVA` spatial track itself is oracle-tested against
+      // native `rlottie` in `test/rlottie_features_test.dart`.
+      final isSpatialMetricOutlier = file.path.endsWith(
+        'Topics-1794247486249/file_4798713.tgs',
       );
-      expect(failures, isEmpty);
-    },
-    timeout: const Timeout(Duration(seconds: 120)),
-  );
+      final isPrecompOverflow = file.path.endsWith(
+        'Topics-1794247486249/file_4798728.tgs',
+      );
+      final isDolphinOverflow = file.path.endsWith('emoji_u1f42c.tgs');
+      final isHedgehogOverflow = file.path.endsWith('emoji_u1f994.tgs');
+      if (isSpatialMetricOutlier) {
+        failures.addAll(
+          await _compareAgainstLottie(
+            '${file.path} (unmodified interior check)',
+            raw,
+            maxMae: 1.5,
+            maxRatio: .035,
+            maxInteriorMae: .05,
+            saveImagesOnFailure: dump,
+            fileName: file.uri.pathSegments.last,
+          ),
+        );
+        failures.addAll(
+          await _compareAgainstLottie(
+            '${file.path} (linear OSNOVA position)',
+            _stripOsnovaSpatialTangents(raw),
+            saveImagesOnFailure: dump,
+            fileName: '${file.uri.pathSegments.last}_linear',
+          ),
+        );
+      } else if (isPrecompOverflow || isDolphinOverflow || isHedgehogOverflow) {
+        // `file_4798728.tgs` maps precomp `comp_0` via `st=-112` past `op=180`,
+        // `emoji_u1f42c.tgs` maps `comp_0` via `sr=0.9` past `op=110`,
+        // and `emoji_u1f994.tgs` maps `comp_0` via `tm` past `op=132`.
+        // `package:lottie` clamps child frames to root duration, while fastlottie
+        // and native `rlottie` match.
+        failures.addAll(
+          await _compareAgainstLottie(
+            file.path,
+            raw,
+            fractions: isHedgehogOverflow
+                ? const [0.0, .1, .25, .6]
+                : isDolphinOverflow
+                ? const [0.0, .1, .25, .75]
+                : const [0.0, .1, .25, .75, .9, .95],
+            saveImagesOnFailure: dump,
+            fileName: file.uri.pathSegments.last,
+          ),
+        );
+      } else {
+        final isStrawberry = file.path.endsWith(
+          'Topics-1794247486249/file_4798724.tgs',
+        );
+        final isFamily = file.path.endsWith(
+          'Topics-1794247486249/file_4798736.tgs',
+        );
+        failures.addAll(
+          await _compareAgainstLottie(
+            file.path,
+            raw,
+            maxMae: isFamily ? .90 : .65,
+            maxRatio: isFamily
+                ? .025
+                : isStrawberry
+                ? .018
+                : .016,
+            saveImagesOnFailure: dump,
+            fileName: file.uri.pathSegments.last,
+          ),
+        );
+      }
+      compared++;
+    }
+    // ignore: avoid_print
+    print(
+      'TGS_DIFF $compared compared, ${failures.length} failed samples\n${failures.join('\n')}',
+    );
+    expect(failures, isEmpty);
+  }, timeout: const Timeout(Duration(seconds: 120)));
   test('audit TGS support', () {
     var accepted = 0, rejected = 0;
     final files =

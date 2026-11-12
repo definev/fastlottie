@@ -82,7 +82,7 @@ class FastLottie extends StatefulWidget {
     bool usePipeline = true,
     WidgetBuilder? placeholderBuilder,
     Widget Function(BuildContext context, Object error, VoidCallback retry)?
-        errorBuilder,
+    errorBuilder,
   }) => FastLottieNetwork(
     key: key,
     uri: uri,
@@ -161,12 +161,7 @@ class _FastLottieState extends State<FastLottie>
       vsync: this,
       duration: widget.composition.duration,
     );
-    _repaint = _FrameRepaint(
-      _player,
-      animation,
-      widget.useFrameRate,
-      false,
-    );
+    _repaint = _FrameRepaint(_player, animation, widget.useFrameRate, false);
   }
 
   @override
@@ -363,8 +358,7 @@ class _FrameRepaint extends ChangeNotifier {
     final wasAnimated = _animated;
     final oldPlayer = player;
     final oldAnimation = animation;
-    final nextAnimated =
-        !nextPlayer.composition.isStatic && !nextReducedMotion;
+    final nextAnimated = !nextPlayer.composition.isStatic && !nextReducedMotion;
     final needsRewire =
         !identical(oldPlayer, nextPlayer) ||
         !identical(oldAnimation, nextAnimation) ||
@@ -511,7 +505,7 @@ class FastLottieNetwork extends StatefulWidget {
   final bool usePipeline;
   final WidgetBuilder? placeholderBuilder;
   final Widget Function(BuildContext context, Object error, VoidCallback retry)?
-      errorBuilder;
+  errorBuilder;
 
   @override
   State<FastLottieNetwork> createState() => _FastLottieNetworkState();

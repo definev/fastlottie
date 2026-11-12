@@ -136,7 +136,8 @@ class FastLottieRasterCache {
 
   static final Paint _paintNone = Paint()..filterQuality = FilterQuality.none;
   static final Paint _paintLow = Paint()..filterQuality = FilterQuality.low;
-  static final Paint _paintMedium = Paint()..filterQuality = FilterQuality.medium;
+  static final Paint _paintMedium = Paint()
+    ..filterQuality = FilterQuality.medium;
 
   Paint _paintForScale(double effectiveScale, [FilterQuality? override]) {
     if (override != null) {
@@ -185,9 +186,7 @@ class FastLottieRasterCache {
   }
 
   int _reserved = 0, _bytes = 0, hits = 0, misses = 0, renderedFrames = 0;
-  int _vectorRasterizedFrames = 0,
-      _compressedCacheHits = 0,
-      _pingPongSwaps = 0;
+  int _vectorRasterizedFrames = 0, _compressedCacheHits = 0, _pingPongSwaps = 0;
   int _posterWeight = 0,
       _unpinnedAnimBytes = 0,
       _unpinnedPosterBytes = 0,
@@ -202,6 +201,9 @@ class FastLottieRasterCache {
   int get debugInFlightCaptures => _pingPong.activeJobCount;
   @visibleForTesting
   int get debugWorkerDispatches => workerDispatches;
+  @visibleForTesting
+  int get debugRegisteredWorkerScenes =>
+      _pingPong.workerPool.registeredSceneCount;
   @visibleForTesting
   int? debugEntryStripFrames(FastLottiePlayer player) =>
       player._rasterEntry?.stripFrames;
@@ -255,12 +257,7 @@ class FastLottieRasterCache {
     return next;
   }
 
-  int _resolveStripFrames(
-    int pw,
-    int ph,
-    int count, {
-    int? entryBudget,
-  }) {
+  int _resolveStripFrames(int pw, int ph, int count, {int? entryBudget}) {
     if (count <= 1) return 1;
     final maxByHeight = ph > 0 ? math.max(1, (4096 + 1) ~/ (ph + 1)) : 1;
     final configured = stripFrames;
@@ -292,9 +289,7 @@ class FastLottieRasterCache {
     _admissionAttempts++;
     final c = player.composition;
     final poster = player.rasterMode == FastLottieRasterMode.poster;
-    final step = poster || c.isStatic
-        ? 1.0
-        : _step(c, player.maximumFrameRate);
+    final step = poster || c.isStatic ? 1.0 : _step(c, player.maximumFrameRate);
     final rateKey = poster || c.isStatic
         ? 0
         : _rateKey(c, player.maximumFrameRate);
@@ -303,7 +298,9 @@ class FastLottieRasterCache {
     if (entry != null) {
       if (entry.users.isEmpty) {
         if (poster) {
-          if (_unpinnedPosters.remove(entry)) _unpinnedPosterBytes -= entry.weight;
+          if (_unpinnedPosters.remove(entry)) {
+            _unpinnedPosterBytes -= entry.weight;
+          }
         } else {
           if (_unpinnedAnims.remove(entry)) {
             _unpinnedAnimBytes -= entry.weight;
@@ -330,7 +327,8 @@ class FastLottieRasterCache {
     final int pinnedPosterBytes = _posterWeight - _unpinnedPosterBytes;
     final int pinnedTotal = poster
         ? pinnedAnimBytes + pinnedPosterBytes
-        : pinnedAnimBytes + math.max<int>(pinnedPosterBytes, reservedPosterBytes);
+        : pinnedAnimBytes +
+              math.max<int>(pinnedPosterBytes, reservedPosterBytes);
     final int pinnedHeadroom = math.max<int>(0, maximumBytes - pinnedTotal);
     final int pinnedCount =
         _entries.length - _unpinnedAnims.length - _unpinnedPosters.length;
@@ -409,7 +407,6 @@ class FastLottieRasterCache {
       stripFrames: effectiveStrip,
       frameStep: step,
       entryKey: formatBitstreamEntryKey(c.contentKey, pw, ph, sourceFrames),
-      composition: c,
     )..lastTouched = ++_touchSeq;
     _entries[key] = entry;
     _reserved += weight;
@@ -518,9 +515,11 @@ class FastLottieRasterCache {
   void _enqueueDisposal(ui.Image image, int imgBytes) {
     _disposalQueue.add(image);
     _deadBytes += imgBytes;
-    final cap = math.max(1024 * 1024, math.min(4 * 1024 * 1024, maximumBytes ~/ 8));
-    if (_deadBytes > cap &&
-        (_disposalQueue.length - _disposalHead) > disposalBatchSize) {
+    final cap = math.max(
+      1024 * 1024,
+      math.min(4 * 1024 * 1024, maximumBytes ~/ 8),
+    );
+    if (_deadBytes > cap) {
       _drainDisposalBatch(disposalBatchSize);
     }
     _scheduleDisposal();
@@ -538,7 +537,8 @@ class FastLottieRasterCache {
       _disposalQueue.clear();
       _disposalHead = 0;
       _deadBytes = 0;
-    } else if (_disposalHead > 64 && _disposalHead * 2 >= _disposalQueue.length) {
+    } else if (_disposalHead > 64 &&
+        _disposalHead * 2 >= _disposalQueue.length) {
       _disposalQueue.removeRange(0, _disposalHead);
       _disposalHead = 0;
     }
@@ -586,7 +586,9 @@ class FastLottieRasterCache {
     }
     if (entry.users.isEmpty) {
       if (entry.poster) {
-        if (_unpinnedPosters.remove(entry)) _unpinnedPosterBytes -= entry.weight;
+        if (_unpinnedPosters.remove(entry)) {
+          _unpinnedPosterBytes -= entry.weight;
+        }
       } else {
         if (_unpinnedAnims.remove(entry)) {
           _unpinnedAnimBytes -= entry.weight;
@@ -664,7 +666,6 @@ class _RasterEntry {
     required this.stripFrames,
     required this.frameStep,
     required this.entryKey,
-    required this.composition,
   });
 
   final (String, Size, bool, int) key;
@@ -679,7 +680,6 @@ class _RasterEntry {
       stripFrames > 1 ? math.max(0, weight - minWeight) : 0;
   final double frameStep;
   final String entryKey;
-  final FastLottieComposition composition;
 
   final users = <FastLottiePlayer>{};
   bool retired = false;
@@ -705,24 +705,32 @@ class _RasterEntry {
   int get renderingFrameIndex => renderingStripStart;
   set renderingFrameIndex(int val) {
     renderingStripStart = val;
-    renderingStripCount = val >= 0 ? (renderingStripCount > 0 ? renderingStripCount : 1) : 0;
+    renderingStripCount = val >= 0
+        ? (renderingStripCount > 0 ? renderingStripCount : 1)
+        : 0;
   }
 
   int get backgroundFrameIndex => backgroundStripStart;
   set backgroundFrameIndex(int val) {
     backgroundStripStart = val;
-    backgroundStripCount = val >= 0 ? (backgroundStripCount > 0 ? backgroundStripCount : 1) : 0;
+    backgroundStripCount = val >= 0
+        ? (backgroundStripCount > 0 ? backgroundStripCount : 1)
+        : 0;
   }
 
   int get inFlightFrameIndex => inFlightStripStart;
   set inFlightFrameIndex(int val) {
     inFlightStripStart = val;
-    inFlightStripCount = val >= 0 ? (inFlightStripCount > 0 ? inFlightStripCount : 1) : 0;
+    inFlightStripCount = val >= 0
+        ? (inFlightStripCount > 0 ? inFlightStripCount : 1)
+        : 0;
   }
 
   int get pendingFrameIndex => pendingStripStart;
   set pendingFrameIndex(int val) {
     pendingStripStart = val;
-    pendingStripCount = val >= 0 ? (pendingStripCount > 0 ? pendingStripCount : 1) : 0;
+    pendingStripCount = val >= 0
+        ? (pendingStripCount > 0 ? pendingStripCount : 1)
+        : 0;
   }
 }

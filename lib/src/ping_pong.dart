@@ -65,7 +65,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
           (entry.queuedHighPriority || entry.renderingImage == null)) {
         final start = _stripStartFor(entry, entry.desiredFrameIndex);
         entry.pendingStripStart = start;
-        entry.pendingStripCount = _stripCountFor(entry, start, entry.totalFrames);
+        entry.pendingStripCount = _stripCountFor(
+          entry,
+          start,
+          entry.totalFrames,
+        );
         if (entry.queuedForPingPong && !entry.queuedHighPriority) {
           _lowPriorityQueue.remove(entry);
           entry.queuedHighPriority = true;
@@ -74,7 +78,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       } else {
         final start = _stripStartFor(entry, entry.pendingStripStart);
         entry.pendingStripStart = start;
-        entry.pendingStripCount = _stripCountFor(entry, start, entry.totalFrames);
+        entry.pendingStripCount = _stripCountFor(
+          entry,
+          start,
+          entry.totalFrames,
+        );
       }
     }
     if (entry.renderingImage == null &&
@@ -170,11 +178,16 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
 
     workerPool.touchDiskEntry(entry.entryKey);
 
-    int offsetYForSlot(int slot) => entry!.stripFrames <= 1 ? 0 : slot * (ph + 1);
+    int offsetYForSlot(int slot) =>
+        entry!.stripFrames <= 1 ? 0 : slot * (ph + 1);
 
     // 1. Exact front-buffer hit.
     if (entry.renderingImage != null &&
-        _stripContains(entry.renderingStripStart, entry.renderingStripCount, index)) {
+        _stripContains(
+          entry.renderingStripStart,
+          entry.renderingStripCount,
+          index,
+        )) {
       if (entry.desiredFrameIndex >= 0 && index != entry.desiredFrameIndex) {
         entry.hasPlayedAdvance = true;
       }
@@ -198,7 +211,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
 
     // 2. O(1) Back-buffer pointer swap when lookahead strip matches.
     if (entry.backgroundImage != null &&
-        _stripContains(entry.backgroundStripStart, entry.backgroundStripCount, index)) {
+        _stripContains(
+          entry.backgroundStripStart,
+          entry.backgroundStripCount,
+          index,
+        )) {
       final promoted = entry.backgroundImage!;
       final displaced = entry.renderingImage;
       entry.renderingImage = promoted;
@@ -234,11 +251,19 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     // 3. Miss on exact index (seek, startup, or worker still in flight).
     cache.misses++;
     if (entry.renderingImage != null &&
-        !_stripContains(entry.renderingStripStart, entry.renderingStripCount, index)) {
+        !_stripContains(
+          entry.renderingStripStart,
+          entry.renderingStripCount,
+          index,
+        )) {
       entry.hasPlayedAdvance = true;
     }
     if (entry.backgroundImage != null &&
-        !_stripContains(entry.backgroundStripStart, entry.backgroundStripCount, index)) {
+        !_stripContains(
+          entry.backgroundStripStart,
+          entry.backgroundStripCount,
+          index,
+        )) {
       final stale = entry.backgroundImage!;
       entry.backgroundImage = null;
       entry.backgroundStripStart = -1;
@@ -256,7 +281,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     }
 
     // Once front buffer is valid, never block UI thread falling back to vectors.
-    final fallbackSlot = entry.renderingImage != null && entry.renderingStripCount > 0
+    final fallbackSlot =
+        entry.renderingImage != null && entry.renderingStripCount > 0
         ? entry.lastRenderingSlot.clamp(0, entry.renderingStripCount - 1)
         : 0;
     return (entry.renderingImage, entry, offsetYForSlot(fallbackSlot));
@@ -270,7 +296,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       return;
     }
     if (entry.backgroundImage != null &&
-        _stripContains(entry.backgroundStripStart, entry.backgroundStripCount, nextStart)) {
+        _stripContains(
+          entry.backgroundStripStart,
+          entry.backgroundStripCount,
+          nextStart,
+        )) {
       return;
     }
     if (entry.inFlightStripStart == nextStart) return;
@@ -336,13 +366,13 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         entry.users.isEmpty) {
       return;
     }
-    final c = entry.composition;
+    // Unpinned texture entries do not keep a compiled composition alive.
+    final c = entry.users.first.composition;
     final pw = entry.key.$2.width.toInt();
     final ph = entry.key.$2.height.toInt();
-    final effectiveStep =
-        entry.poster || c.isStatic || entry.sourceFrames <= 1
-            ? 0.0
-            : entry.frameStep;
+    final effectiveStep = entry.poster || c.isStatic || entry.sourceFrames <= 1
+        ? 0.0
+        : entry.frameStep;
 
     entry.inFlightStripStart = stripStart;
     entry.inFlightStripCount = stripCount;
@@ -418,8 +448,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
             )) {
           final start = _stripStartFor(entry, desired);
           entry.pendingStripStart = start;
-          entry.pendingStripCount =
-              _stripCountFor(entry, start, entry.totalFrames);
+          entry.pendingStripCount = _stripCountFor(
+            entry,
+            start,
+            entry.totalFrames,
+          );
           entry.queuedHighPriority = true;
         }
       }
@@ -430,7 +463,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     // Skip expensive GPU upload if a front buffer already exists and
     // caller moved past this strip (unless it matches next lookahead).
     final total = entry.totalFrames;
-    final expectedLookahead = entry.renderingImage != null &&
+    final expectedLookahead =
+        entry.renderingImage != null &&
             !entry.poster &&
             total > entry.renderingStripCount
         ? _nextStripStart(
@@ -445,7 +479,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       stripCount,
       entry.desiredFrameIndex,
     );
-    final queuedOverride = entry.pendingStripStart >= 0 &&
+    final queuedOverride =
+        entry.pendingStripStart >= 0 &&
         entry.pendingStripStart != stripStart &&
         stripStart != expectedLookahead;
     if (entry.renderingImage != null && queuedOverride && !wantedNow) {
@@ -494,7 +529,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         cache.lastError != null ||
         dispatchedGen != entry.stripGeneration) {
       image.dispose();
-      final active = !_disposed &&
+      final active =
+          !_disposed &&
           !entry.retired &&
           entry.users.isNotEmpty &&
           cache.lastError == null;
@@ -510,7 +546,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
               ))) {
         final start = _stripStartFor(entry, entry.desiredFrameIndex);
         entry.pendingStripStart = start;
-        entry.pendingStripCount = _stripCountFor(entry, start, entry.totalFrames);
+        entry.pendingStripCount = _stripCountFor(
+          entry,
+          start,
+          entry.totalFrames,
+        );
         entry.queuedHighPriority = true;
       }
       _finishJob(entry, scheduleFollowup: active);
@@ -525,7 +565,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       entry.desiredFrameIndex,
     );
     final isEmptyFront = entry.renderingImage == null;
-    final expectedNext = entry.renderingImage != null &&
+    final expectedNext =
+        entry.renderingImage != null &&
             !entry.poster &&
             total > entry.renderingStripCount
         ? _nextStripStart(
@@ -535,7 +576,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
             total,
           )
         : -1;
-    final isLookahead = !entry.poster &&
+    final isLookahead =
+        !entry.poster &&
         total > 1 &&
         entry.renderingImage != null &&
         stripStart == expectedNext &&
@@ -547,8 +589,10 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       entry.renderingStripStart = stripStart;
       entry.renderingStripCount = stripCount;
       if (wantedNow) {
-        entry.lastRenderingSlot =
-            (entry.desiredFrameIndex - stripStart).clamp(0, stripCount - 1);
+        entry.lastRenderingSlot = (entry.desiredFrameIndex - stripStart).clamp(
+          0,
+          stripCount - 1,
+        );
       } else {
         entry.lastRenderingSlot = 0;
       }

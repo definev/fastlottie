@@ -554,12 +554,22 @@ void main() {
 
       // Switch to internal controller + reduced motion toggle.
       await tester.pumpWidget(
-        host(comp: b, controller: null, reducedMotion: true, usePipeline: false),
+        host(
+          comp: b,
+          controller: null,
+          reducedMotion: true,
+          usePipeline: false,
+        ),
       );
       await tester.pump(const Duration(milliseconds: 50));
       expect(tester.hasRunningAnimations, isFalse);
       await tester.pumpWidget(
-        host(comp: b, controller: null, reducedMotion: false, usePipeline: false),
+        host(
+          comp: b,
+          controller: null,
+          reducedMotion: false,
+          usePipeline: false,
+        ),
       );
       expect(tester.hasRunningAnimations, isTrue);
       await tester.pump(const Duration(milliseconds: 50));

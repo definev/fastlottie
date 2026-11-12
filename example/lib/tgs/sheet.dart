@@ -126,8 +126,9 @@ class StickerSheet extends ChangeNotifier {
 
   /// Returns a merged listenable for [asset] + [clock] so only widgets showing
   /// [asset] repaint when its model or ping-pong frame arrives.
-  Listenable listenableFor(String asset, StickerClock clock) =>
-      _entries.putIfAbsent(asset, () => _SheetAsset(asset)).listenableWith(clock);
+  Listenable listenableFor(String asset, StickerClock clock) => _entries
+      .putIfAbsent(asset, () => _SheetAsset(asset))
+      .listenableWith(clock);
 
   void acquirePin(String asset) {
     if (_disposed) return;
@@ -148,15 +149,13 @@ class StickerSheet extends ChangeNotifier {
     if (_disposed) return;
     final entry = _entries[asset];
     if (entry == null) return;
-    if (entry.pins > 0) entry.pins--;
-    if (entry.pins == 0) {
-      entry.detachPlayer();
-      final lease = entry.lease;
-      if (lease != null && entry.composition == null) {
-        entry.lease = null;
-        lease.release();
-      }
-    }
+    if (entry.pins == 0 || --entry.pins != 0) return;
+    entry.detachPlayer();
+    // Only the bounded store should retain an offscreen model.
+    entry.composition = null;
+    final lease = entry.lease;
+    entry.lease = null;
+    lease?.release();
   }
 
   void resumePreparation() {
@@ -187,11 +186,9 @@ class StickerSheet extends ChangeNotifier {
     lease.future.then(
       (model) => _onLoaded(entry, lease, model),
       onError: (Object error, StackTrace _) {
-        if (_disposed) return;
-        if (identical(entry.lease, lease)) {
-          entry.lease = null;
-          lease.release();
-        }
+        if (_disposed || !identical(entry.lease, lease)) return;
+        entry.lease = null;
+        lease.release();
         if (error is! TgsLoadCancelled) {
           entry.error = error;
           entry.errorNotifier.value = error;
@@ -230,16 +227,17 @@ class StickerSheet extends ChangeNotifier {
     TgsModel model, {
     bool deferNotify = false,
   }) {
-    if (_disposed) {
+    if (_disposed || entry.pins == 0 || !identical(entry.lease, lease)) {
       lease.release();
       return;
     }
-    if (identical(entry.lease, lease)) {
-      entry.lease = null;
-    }
-    lease.release();
     final comp = model.fast;
-    if (comp == null) return;
+    if (comp == null) {
+      entry.lease = null;
+      lease.release();
+      return;
+    }
+    // Keep the lease while visible so store accounting includes this model.
     entry.composition = comp;
     if (entry.pins > 0 && entry.player == null) {
       _attachPlayer(entry);
@@ -316,15 +314,14 @@ final class _SheetAsset {
     p.dispose();
   }
 
-  Listenable listenableWith(StickerClock clock) => _clockMerges.putIfAbsent(
-    clock,
-    () => _MergedAssetClock(notifier, clock),
-  );
+  Listenable listenableWith(StickerClock clock) =>
+      _clockMerges.putIfAbsent(clock, () => _MergedAssetClock(notifier, clock));
 
   void dispose() {
     if (disposed) return;
     disposed = true;
     detachPlayer();
+    composition = null;
     final pendingLease = lease;
     lease = null;
     pendingLease?.release();

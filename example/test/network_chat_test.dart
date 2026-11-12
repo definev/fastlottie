@@ -33,202 +33,201 @@ TgsModel _dummyModel([int sourceBytes = 10]) => TgsModel(
 );
 
 void main() {
-  test(
-    'LocalTgsServer serves catalog, TGS binary payloads, ETag 304, and failure states',
-    () async {
-      final previous = HttpOverrides.current;
-      HttpOverrides.global = _PassthroughHttpOverrides();
-      addTearDown(() => HttpOverrides.global = previous);
+  test('LocalTgsServer serves catalog, TGS binary payloads, ETag 304, and failure states', () async {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _PassthroughHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previous);
 
-      final server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
-      addTearDown(() => server.close(force: true));
+    final server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
+    addTearDown(() => server.close(force: true));
 
-      final catalog = await fetchRemoteTgsCatalog(server.baseUri);
-      expect(catalog.packs.length, 6);
-      expect(catalog.stickers.length, 94);
-      expect(catalog.emojis.length, 969);
-      expect(catalog.shortcodeMap.length, 969);
-      expect(catalog.emojiPacks.map((p) => p.id), containsAll(['NotoEmoji', 'Topics-1794247486249']));
-      expect(catalog.shortcodeMap.containsKey(':studio_microphone:'), isTrue);
-      expect(catalog.shortcodeMap.containsKey(':nail_polish:'), isTrue);
-      expect(catalog.shortcodeMap.containsKey(':writing_hand:'), isTrue);
-      expect(catalog.shortcodeMap.containsKey(':brain:'), isTrue);
-      expect(catalog.shortcodeMap.containsKey(':cat2:'), isTrue);
-      expect(catalog.shortcodeMap.containsKey(':smile:'), isTrue);
-      expect(catalog.shortcodeMap.containsKey(':heart_eyes:'), isTrue);
-      expect(catalog.shortcodeMap.containsKey(':partying_face:'), isTrue);
-      expect(catalog.shortcodeMap.containsKey(':thumbs_up:'), isTrue);
-      expect(catalog.shortcodeMap.containsKey(':heart_on_fire:'), isTrue);
-      for (final emoji in catalog.emojis) {
-        expect(emoji.shortcode, matches(RegExp(r'^:[a-z0-9_]+:$')));
-      }
+    final catalog = await fetchRemoteTgsCatalog(server.baseUri);
+    expect(catalog.packs.length, 6);
+    expect(catalog.stickers.length, 94);
+    expect(catalog.emojis.length, 969);
+    expect(catalog.shortcodeMap.length, 969);
+    expect(
+      catalog.emojiPacks.map((p) => p.id),
+      containsAll(['NotoEmoji', 'Topics-1794247486249']),
+    );
+    expect(catalog.shortcodeMap.containsKey(':studio_microphone:'), isTrue);
+    expect(catalog.shortcodeMap.containsKey(':nail_polish:'), isTrue);
+    expect(catalog.shortcodeMap.containsKey(':writing_hand:'), isTrue);
+    expect(catalog.shortcodeMap.containsKey(':brain:'), isTrue);
+    expect(catalog.shortcodeMap.containsKey(':cat2:'), isTrue);
+    expect(catalog.shortcodeMap.containsKey(':smile:'), isTrue);
+    expect(catalog.shortcodeMap.containsKey(':heart_eyes:'), isTrue);
+    expect(catalog.shortcodeMap.containsKey(':partying_face:'), isTrue);
+    expect(catalog.shortcodeMap.containsKey(':thumbs_up:'), isTrue);
+    expect(catalog.shortcodeMap.containsKey(':heart_on_fire:'), isTrue);
+    for (final emoji in catalog.emojis) {
+      expect(emoji.shortcode, matches(RegExp(r'^:[a-z0-9_]+:$')));
+    }
 
-      final client = HttpClient();
-      addTearDown(() => client.close(force: true));
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
 
-      final healthReq = await client.getUrl(server.baseUri.resolve('/health'));
-      final healthResp = await healthReq.close();
-      expect(healthResp.statusCode, HttpStatus.ok);
-      final healthJson =
-          jsonDecode(await utf8.decodeStream(healthResp)) as Map<String, dynamic>;
-      expect(healthJson['ok'], isTrue);
-      expect(healthJson['stickers'], 94);
-      expect(healthJson['emojis'], 969);
+    final healthReq = await client.getUrl(server.baseUri.resolve('/health'));
+    final healthResp = await healthReq.close();
+    expect(healthResp.statusCode, HttpStatus.ok);
+    final healthJson =
+        jsonDecode(await utf8.decodeStream(healthResp)) as Map<String, dynamic>;
+    expect(healthJson['ok'], isTrue);
+    expect(healthJson['stickers'], 94);
+    expect(healthJson['emojis'], 969);
 
-      final firstUri = catalog.stickers.first.uri;
-      final tgsReq = await client.getUrl(firstUri);
-      final tgsResp = await tgsReq.close();
-      expect(tgsResp.statusCode, HttpStatus.ok);
-      expect(tgsResp.headers.contentType?.mimeType, 'application/x-tgsticker');
-      final etag = tgsResp.headers.value(HttpHeaders.etagHeader);
-      expect(etag, isNotNull);
-      final payload = await tgsResp.fold<List<int>>(
-        <int>[],
-        (buf, chunk) => buf..addAll(chunk),
-      );
-      expect(payload.length, catalog.stickers.first.bytes);
+    final firstUri = catalog.stickers.first.uri;
+    final tgsReq = await client.getUrl(firstUri);
+    final tgsResp = await tgsReq.close();
+    expect(tgsResp.statusCode, HttpStatus.ok);
+    expect(tgsResp.headers.contentType?.mimeType, 'application/x-tgsticker');
+    final etag = tgsResp.headers.value(HttpHeaders.etagHeader);
+    expect(etag, isNotNull);
+    final payload = await tgsResp.fold<List<int>>(
+      <int>[],
+      (buf, chunk) => buf..addAll(chunk),
+    );
+    expect(payload.length, catalog.stickers.first.bytes);
 
-      // Verify ETag -> 304 Not Modified.
-      final revalReq = await client.getUrl(firstUri);
-      revalReq.headers.set(HttpHeaders.ifNoneMatchHeader, etag!);
-      final revalResp = await revalReq.close();
-      await revalResp.drain<void>();
-      expect(revalResp.statusCode, HttpStatus.notModified);
-      expect(server.stats.value.notModifiedResponses, 1);
+    // Verify ETag -> 304 Not Modified.
+    final revalReq = await client.getUrl(firstUri);
+    revalReq.headers.set(HttpHeaders.ifNoneMatchHeader, etag!);
+    final revalResp = await revalReq.close();
+    await revalResp.drain<void>();
+    expect(revalResp.statusCode, HttpStatus.notModified);
+    expect(server.stats.value.notModifiedResponses, 1);
 
-      // Verify 404 & simulated 503 failure toggle.
-      final missingReq = await client.getUrl(server.baseUri.resolve('/tgs/nope.tgs'));
-      final missingResp = await missingReq.close();
-      await missingResp.drain<void>();
-      expect(missingResp.statusCode, HttpStatus.notFound);
+    // Verify 404 & simulated 503 failure toggle.
+    final missingReq = await client.getUrl(
+      server.baseUri.resolve('/tgs/nope.tgs'),
+    );
+    final missingResp = await missingReq.close();
+    await missingResp.drain<void>();
+    expect(missingResp.statusCode, HttpStatus.notFound);
 
-      server.simulateFailure = true;
-      final failReq = await client.getUrl(firstUri);
-      final failResp = await failReq.close();
-      await failResp.drain<void>();
-      expect(failResp.statusCode, HttpStatus.serviceUnavailable);
-    },
-  );
+    server.simulateFailure = true;
+    final failReq = await client.getUrl(firstUri);
+    final failResp = await failReq.close();
+    await failResp.drain<void>();
+    expect(failResp.statusCode, HttpStatus.serviceUnavailable);
+  });
 
-  test(
-    'NetworkTgsStore reuses URL disk cache, aborts offscreen sockets, and jumps priority queue',
-    () async {
-      final previous = HttpOverrides.current;
-      HttpOverrides.global = _PassthroughHttpOverrides();
-      addTearDown(() => HttpOverrides.global = previous);
+  test('NetworkTgsStore reuses URL disk cache, aborts offscreen sockets, and jumps priority queue', () async {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _PassthroughHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previous);
 
-      final server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
-      addTearDown(() => server.close(force: true));
+    final server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
+    addTearDown(() => server.close(force: true));
 
-      final cacheDir = Directory.systemTemp.createTempSync('net_tgs_store_');
-      addTearDown(() => cacheDir.deleteSync(recursive: true));
+    final cacheDir = Directory.systemTemp.createTempSync('net_tgs_store_');
+    addTearDown(() => cacheDir.deleteSync(recursive: true));
 
-      final firstUrl = server.catalog.stickers.first.urlString;
+    final firstUrl = server.catalog.stickers.first.urlString;
 
-      // 1. Cold HTTP download writes URL `.tgsbin` disk cache.
-      final store1 = NetworkTgsStore(
-        framePaced: false,
-        sourceCacheDirectory: cacheDir.path,
-      );
-      final l1 = store1.acquire(firstUrl);
-      final model1 = await l1.future;
-      expect(model1.fast, isNotNull);
-      expect(store1.networkDownloads, 1);
-      expect(store1.diskSourceHits, 0);
-      expect(server.stats.value.tgsRequests, 1);
-      l1.release();
-      store1.dispose();
+    // 1. Cold HTTP download writes URL `.tgsbin` disk cache.
+    final store1 = NetworkTgsStore(
+      framePaced: false,
+      sourceCacheDirectory: cacheDir.path,
+    );
+    final l1 = store1.acquire(firstUrl);
+    final model1 = await l1.future;
+    expect(model1.fast, isNotNull);
+    expect(store1.networkDownloads, 1);
+    expect(store1.diskSourceHits, 0);
+    expect(server.stats.value.tgsRequests, 1);
+    l1.release();
+    store1.dispose();
 
-      // 2. Fresh store hits `.tgsbin` disk cache with zero HTTP traffic.
-      final store2 = NetworkTgsStore(
-        framePaced: false,
-        sourceCacheDirectory: cacheDir.path,
-      );
-      final l2 = store2.acquire(firstUrl);
-      final model2 = await l2.future;
-      expect(model2.fast!.contentKey, model1.fast!.contentKey);
-      expect(store2.networkDownloads, 0);
-      expect(store2.diskSourceHits, 1);
-      expect(server.stats.value.tgsRequests, 1);
-      l2.release();
+    // 2. Fresh store hits `.tgsbin` disk cache with zero HTTP traffic.
+    final store2 = NetworkTgsStore(
+      framePaced: false,
+      sourceCacheDirectory: cacheDir.path,
+    );
+    final l2 = store2.acquire(firstUrl);
+    final model2 = await l2.future;
+    expect(model2.fast!.contentKey, model1.fast!.contentKey);
+    expect(store2.networkDownloads, 0);
+    expect(store2.diskSourceHits, 1);
+    expect(server.stats.value.tgsRequests, 1);
+    l2.release();
 
-      // Clearing cache forces fresh HTTP fetch next time.
-      await store2.clearMemoryAndUrlDiskCache();
-      final l3 = store2.acquire(firstUrl);
-      await l3.future;
-      expect(store2.networkDownloads, 1);
-      expect(server.stats.value.tgsRequests, 2);
-      l3.release();
-      store2.dispose();
+    // Clearing cache forces fresh HTTP fetch next time.
+    await store2.clearMemoryAndUrlDiskCache();
+    final l3 = store2.acquire(firstUrl);
+    await l3.future;
+    expect(store2.networkDownloads, 1);
+    expect(server.stats.value.tgsRequests, 2);
+    l3.release();
+    store2.dispose();
 
-      // 3. Offscreen socket abort skips decode stage + priority jump runs first.
-      final fetchOrder = <String>[];
-      final gates = <String, Completer<FastLottieNetworkFetchResult>>{};
-      var decodeCalls = 0;
+    // 3. Offscreen socket abort skips decode stage + priority jump runs first.
+    final fetchOrder = <String>[];
+    final gates = <String, Completer<FastLottieNetworkFetchResult>>{};
+    var decodeCalls = 0;
 
-      final prioritizedStore = NetworkTgsStore(
-        httpConcurrency: 1,
-        decodeConcurrency: 1,
-        batchSize: 1,
-        framePaced: false,
-        fetcher: (uri, {cancelToken, sourceCacheDirectory}) {
-          final name = uri.path;
-          fetchOrder.add(name);
-          final c = Completer<FastLottieNetworkFetchResult>();
-          gates[name] = c;
-          cancelToken?.addCancelListener(() {
-            if (!c.isCompleted) {
-              c.completeError(const FastLottieNetworkCancelledException());
-            }
-          });
-          return c.future;
-        },
-        decoder: (_, _) async {
-          decodeCalls++;
-          return _dummyModel();
-        },
-      );
-      addTearDown(prioritizedStore.dispose);
+    final prioritizedStore = NetworkTgsStore(
+      httpConcurrency: 1,
+      decodeConcurrency: 1,
+      batchSize: 1,
+      framePaced: false,
+      fetcher: (uri, {cancelToken, sourceCacheDirectory}) {
+        final name = uri.path;
+        fetchOrder.add(name);
+        final c = Completer<FastLottieNetworkFetchResult>();
+        gates[name] = c;
+        cancelToken?.addCancelListener(() {
+          if (!c.isCompleted) {
+            c.completeError(const FastLottieNetworkCancelledException());
+          }
+        });
+        return c.future;
+      },
+      decoder: (_, _) async {
+        decodeCalls++;
+        return _dummyModel();
+      },
+    );
+    addTearDown(prioritizedStore.dispose);
 
-      final a = prioritizedStore.acquire('http://local/a.tgs');
+    final a = prioritizedStore.acquire('http://local/a.tgs');
+    await Future<void>.delayed(Duration.zero);
+    final b = prioritizedStore.acquire('http://local/b.tgs');
+    final c = prioritizedStore.acquire('http://local/c.tgs');
+    final d = prioritizedStore.acquire('http://local/d.tgs', priority: true);
+
+    // Release `a` while its socket is active -> aborts without decoding!
+    // Release `b` while queued -> cancelled without opening socket!
+    a.release();
+    b.release();
+    await expectLater(a.future, throwsA(isA<TgsLoadCancelled>()));
+    await expectLater(b.future, throwsA(isA<TgsLoadCancelled>()));
+    expect(prioritizedStore.cancelledFetches, 1);
+
+    await Future<void>.delayed(Duration.zero);
+    // With `httpConcurrency: 1`, priority entry `/d.tgs` starts immediately after `/a.tgs` aborts.
+    expect(gates['/d.tgs'], isNotNull);
+    expect(gates['/c.tgs'], isNull);
+    gates['/d.tgs']!.complete(
+      FastLottieNetworkFetchResult(Uint8List(4), fromDiskCache: false),
+    );
+    await d.future;
+
+    for (var i = 0; i < 20 && gates['/c.tgs'] == null; i++) {
       await Future<void>.delayed(Duration.zero);
-      final b = prioritizedStore.acquire('http://local/b.tgs');
-      final c = prioritizedStore.acquire('http://local/c.tgs');
-      final d = prioritizedStore.acquire('http://local/d.tgs', priority: true);
+    }
+    expect(gates['/c.tgs'], isNotNull);
+    gates['/c.tgs']!.complete(
+      FastLottieNetworkFetchResult(Uint8List(4), fromDiskCache: false),
+    );
+    await c.future;
 
-      // Release `a` while its socket is active -> aborts without decoding!
-      // Release `b` while queued -> cancelled without opening socket!
-      a.release();
-      b.release();
-      await expectLater(a.future, throwsA(isA<TgsLoadCancelled>()));
-      await expectLater(b.future, throwsA(isA<TgsLoadCancelled>()));
-      expect(prioritizedStore.cancelledFetches, 1);
-
-      await Future<void>.delayed(Duration.zero);
-      // With `httpConcurrency: 1`, priority entry `/d.tgs` starts immediately after `/a.tgs` aborts.
-      expect(gates['/d.tgs'], isNotNull);
-      expect(gates['/c.tgs'], isNull);
-      gates['/d.tgs']!.complete(
-        FastLottieNetworkFetchResult(Uint8List(4), fromDiskCache: false),
-      );
-      await d.future;
-
-      for (var i = 0; i < 20 && gates['/c.tgs'] == null; i++) {
-        await Future<void>.delayed(Duration.zero);
-      }
-      expect(gates['/c.tgs'], isNotNull);
-      gates['/c.tgs']!.complete(
-        FastLottieNetworkFetchResult(Uint8List(4), fromDiskCache: false),
-      );
-      await c.future;
-
-      // `d` jumped ahead of queued `c` (excluding aborted `/a.tgs` & unstarted `/b.tgs`).
-      expect(fetchOrder, ['/a.tgs', '/d.tgs', '/c.tgs']);
-      expect(decodeCalls, 2);
-      c.release();
-      d.release();
-    },
-  );
+    // `d` jumped ahead of queued `c` (excluding aborted `/a.tgs` & unstarted `/b.tgs`).
+    expect(fetchOrder, ['/a.tgs', '/d.tgs', '/c.tgs']);
+    expect(decodeCalls, 2);
+    c.release();
+    d.release();
+  });
 
   testWidgets(
     'CupertinoChatScreen runs purely in CupertinoApp without Material, sends emojis & direct-vector stickers over HTTP',
@@ -268,13 +267,15 @@ void main() {
         ),
       );
 
-      for (var i = 0;
-          i < 80 &&
-              find
-                  .byKey(const ValueKey('cupertino-message-list'))
-                  .evaluate()
-                  .isEmpty;
-          i++) {
+      for (
+        var i = 0;
+        i < 80 &&
+            find
+                .byKey(const ValueKey('cupertino-message-list'))
+                .evaluate()
+                .isEmpty;
+        i++
+      ) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
@@ -282,7 +283,10 @@ void main() {
       }
 
       expect(find.byType(CupertinoPageScaffold), findsOneWidget);
-      expect(find.byKey(const ValueKey('cupertino-message-list')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('cupertino-message-list')),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
 
       // Seeded chat contains animated inline network emojis and a received hero vector sticker.
@@ -307,9 +311,15 @@ void main() {
       // Open sticker/emoji drawer via composer button.
       await tester.tap(find.byKey(const ValueKey('composer-picker-toggle')));
       await tester.pump();
-      expect(find.byKey(const ValueKey('sticker-picker-panel')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('sticker-picker-panel')),
+        findsOneWidget,
+      );
       expect(find.byKey(const ValueKey('sticker-picker-grid')), findsOneWidget);
-      expect(find.byKey(const ValueKey('picker-tab-NotoEmoji')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('picker-tab-NotoEmoji')),
+        findsOneWidget,
+      );
 
       // Switch to Emoji tab, tap first emoji to insert 1-char PUA token with inline animated sticker.
       await tester.tap(find.byKey(const ValueKey('picker-tab-__emoji__')));
@@ -403,7 +413,10 @@ void main() {
         expect(hero.usePipeline, isFalse);
         expect(hero.rasterCache, isNull);
         expect(hero.useFrameRate, isTrue);
-        expect(hero.cache.maximumFrames, FastLottieCache.unbounded.maximumFrames);
+        expect(
+          hero.cache.maximumFrames,
+          FastLottieCache.unbounded.maximumFrames,
+        );
       }
 
       // Open CupertinoActionSheet options & verify Mini-Strip -> Ping-Pong toggle & telemetry.
@@ -411,7 +424,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(find.byType(CupertinoActionSheet), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('toggle-raster-strategy-action')));
+      await tester.tap(
+        find.byKey(const ValueKey('toggle-raster-strategy-action')),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(tester.takeException(), isNull);
@@ -423,7 +438,9 @@ void main() {
         find.text('Raster Strategy: Ping-Pong K=1 (Switch to Mini-Strip)'),
         findsOneWidget,
       );
-      await tester.tap(find.byKey(const ValueKey('toggle-raster-strategy-action')));
+      await tester.tap(
+        find.byKey(const ValueKey('toggle-raster-strategy-action')),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
 
@@ -461,26 +478,33 @@ void main() {
     },
   );
 
-  testWidgets('FastLottieCupertinoApp mounts main entry cleanly', (tester) async {
+  testWidgets('FastLottieCupertinoApp mounts main entry cleanly', (
+    tester,
+  ) async {
     final previous = HttpOverrides.current;
     HttpOverrides.global = _PassthroughHttpOverrides();
     addTearDown(() => HttpOverrides.global = previous);
 
     await tester.pumpWidget(const FastLottieCupertinoApp());
-    for (var i = 0;
-        i < 120 &&
-            find
-                .byKey(const ValueKey('cupertino-message-list'))
-                .evaluate()
-                .isEmpty;
-        i++) {
+    for (
+      var i = 0;
+      i < 120 &&
+          find
+              .byKey(const ValueKey('cupertino-message-list'))
+              .evaluate()
+              .isEmpty;
+      i++
+    ) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
       await tester.pump();
     }
     expect(find.byType(CupertinoApp), findsOneWidget);
-    expect(find.byKey(const ValueKey('cupertino-message-list')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('cupertino-message-list')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(
@@ -589,186 +613,176 @@ void main() {
   );
 
   group('EmojiComposerController & EmojiShortcodeTextInputFormatter', () {
-    test(
-      '1-character UTF-16 code unit rule, shortcode roundtrip, and single-tap backspace',
-      () async {
-        final previous = HttpOverrides.current;
-        HttpOverrides.global = _PassthroughHttpOverrides();
-        addTearDown(() => HttpOverrides.global = previous);
+    test('1-character UTF-16 code unit rule, shortcode roundtrip, and single-tap backspace', () async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _PassthroughHttpOverrides();
+      addTearDown(() => HttpOverrides.global = previous);
 
-        final server = await LocalTgsServer.startFromDirectoryPath(
-          'assets/tgs',
-        );
-        addTearDown(() => server.close(force: true));
+      final server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
+      addTearDown(() => server.close(force: true));
 
-        final catalog = server.catalog;
-        final store = NetworkTgsStore(framePaced: false);
-        final rasterCache = FastLottieRasterCache.pingPong(
-          maximumBytes: 8 * 1024 * 1024,
-        );
-        final sheet = StickerSheet(
-          assets: [for (final e in catalog.emojis) e.urlString],
-          pixelSize: 96,
-          store: store,
-          rasterCache: rasterCache,
-          frameRate: 30,
-        );
-        final clock = StickerClock()
-          ..configure(playing: true, reducedMotion: false, maximumFrameRate: 30);
-        addTearDown(() {
-          clock.dispose();
-          sheet.dispose();
-          rasterCache.dispose();
-          store.dispose();
-        });
+      final catalog = server.catalog;
+      final store = NetworkTgsStore(framePaced: false);
+      final rasterCache = FastLottieRasterCache.pingPong(
+        maximumBytes: 8 * 1024 * 1024,
+      );
+      final sheet = StickerSheet(
+        assets: [for (final e in catalog.emojis) e.urlString],
+        pixelSize: 96,
+        store: store,
+        rasterCache: rasterCache,
+        frameRate: 30,
+      );
+      final clock = StickerClock()
+        ..configure(playing: true, reducedMotion: false, maximumFrameRate: 30);
+      addTearDown(() {
+        clock.dispose();
+        sheet.dispose();
+        rasterCache.dispose();
+        store.dispose();
+      });
 
-        final controller = EmojiComposerController(
-          catalog: catalog,
-          sheet: sheet,
-          clock: clock,
-          store: store,
-        );
-        addTearDown(controller.dispose);
+      final controller = EmojiComposerController(
+        catalog: catalog,
+        sheet: sheet,
+        clock: clock,
+        store: store,
+      );
+      addTearDown(controller.dispose);
 
-        // Verify charForEmoji maps each emoji deterministically to exactly 1 UTF-16 code unit
-        expect(catalog.emojis.length, 969);
-        for (var i = 0; i < catalog.emojis.length; i++) {
-          final char = controller.charForEmoji(catalog.emojis[i])!;
-          expect(char.length, 1);
-          expect(char.codeUnitAt(0), EmojiComposerController.puaBase + i);
-        }
+      // Verify charForEmoji maps each emoji deterministically to exactly 1 UTF-16 code unit
+      expect(catalog.emojis.length, 969);
+      for (var i = 0; i < catalog.emojis.length; i++) {
+        final char = controller.charForEmoji(catalog.emojis[i])!;
+        expect(char.length, 1);
+        expect(char.codeUnitAt(0), EmojiComposerController.puaBase + i);
+      }
 
-        // Roundtrip test: text with mixed shortcodes -> PUA -> shortcode
-        const original = 'Xin chào :studio_microphone: và :nail_polish: nhé!';
-        final decoded = controller.decodeShortcodes(original);
-        expect(decoded.length, 'Xin chào \uE000 và \uE001 nhé!'.length);
-        expect(controller.toShortcodeText(decoded), original);
+      // Roundtrip test: text with mixed shortcodes -> PUA -> shortcode
+      const original = 'Xin chào :studio_microphone: và :nail_polish: nhé!';
+      final decoded = controller.decodeShortcodes(original);
+      expect(decoded.length, 'Xin chào \uE000 và \uE001 nhé!'.length);
+      expect(controller.toShortcodeText(decoded), original);
 
-        // Verify single-tap backspace behavior:
-        // When text is 'Hi \uE000', cursor at index 4 (right after emoji).
-        controller.value = TextEditingValue(
-          text: 'Hi ${String.fromCharCode(EmojiComposerController.puaBase)}',
-          selection: const TextSelection.collapsed(offset: 4),
-        );
-        expect(controller.text.length, 4);
+      // Verify single-tap backspace behavior:
+      // When text is 'Hi \uE000', cursor at index 4 (right after emoji).
+      controller.value = TextEditingValue(
+        text: 'Hi ${String.fromCharCode(EmojiComposerController.puaBase)}',
+        selection: const TextSelection.collapsed(offset: 4),
+      );
+      expect(controller.text.length, 4);
 
-        // Simulate Backspace: delete 1 code unit before caret
-        final textBefore = controller.value.selection.textBefore(
-          controller.text,
-        );
-        final textAfter = controller.value.selection.textAfter(controller.text);
-        final backspaced =
-            textBefore.substring(0, textBefore.length - 1) + textAfter;
-        controller.value = TextEditingValue(
-          text: backspaced,
-          selection: TextSelection.collapsed(offset: textBefore.length - 1),
-        );
-        expect(controller.text, 'Hi ');
-        expect(controller.text.length, 3);
-        expect(
-          controller.text.contains(
-            String.fromCharCode(EmojiComposerController.puaBase),
+      // Simulate Backspace: delete 1 code unit before caret
+      final textBefore = controller.value.selection.textBefore(controller.text);
+      final textAfter = controller.value.selection.textAfter(controller.text);
+      final backspaced =
+          textBefore.substring(0, textBefore.length - 1) + textAfter;
+      controller.value = TextEditingValue(
+        text: backspaced,
+        selection: TextSelection.collapsed(offset: textBefore.length - 1),
+      );
+      expect(controller.text, 'Hi ');
+      expect(controller.text.length, 3);
+      expect(
+        controller.text.contains(
+          String.fromCharCode(EmojiComposerController.puaBase),
+        ),
+        isFalse,
+      );
+    });
+
+    test('EmojiShortcodeTextInputFormatter auto-collapses typed :shortcode: on closing colon', () {
+      final catalog = TgsRemoteCatalog(
+        baseUri: Uri.parse('http://127.0.0.1:8080/'),
+        packs: [],
+        stickers: [],
+        emojis: [
+          TgsRemoteItem(
+            id: 'e0',
+            packId: 'pack_emoji',
+            packTitle: 'Topics',
+            fileName: '0.tgs',
+            kind: TgsItemKind.emoji,
+            relativePath: 'tgs/0.tgs',
+            label: 'Studio Microphone',
+            bytes: 100,
+            uri: Uri.parse('http://127.0.0.1:8080/tgs/0.tgs'),
+            shortcode: ':studio_microphone:',
           ),
-          isFalse,
-        );
-      },
-    );
+          TgsRemoteItem(
+            id: 'e1',
+            packId: 'pack_emoji',
+            packTitle: 'Topics',
+            fileName: '1.tgs',
+            kind: TgsItemKind.emoji,
+            relativePath: 'tgs/1.tgs',
+            label: 'High Voltage',
+            bytes: 100,
+            uri: Uri.parse('http://127.0.0.1:8080/tgs/1.tgs'),
+            shortcode: ':zap:',
+          ),
+        ],
+      );
 
-    test(
-      'EmojiShortcodeTextInputFormatter auto-collapses typed :shortcode: on closing colon',
-      () {
-        final catalog = TgsRemoteCatalog(
-          baseUri: Uri.parse('http://127.0.0.1:8080/'),
-          packs: [],
-          stickers: [],
-          emojis: [
-            TgsRemoteItem(
-              id: 'e0',
-              packId: 'pack_emoji',
-              packTitle: 'Topics',
-              fileName: '0.tgs',
-              kind: TgsItemKind.emoji,
-              relativePath: 'tgs/0.tgs',
-              label: 'Studio Microphone',
-              bytes: 100,
-              uri: Uri.parse('http://127.0.0.1:8080/tgs/0.tgs'),
-              shortcode: ':studio_microphone:',
-            ),
-            TgsRemoteItem(
-              id: 'e1',
-              packId: 'pack_emoji',
-              packTitle: 'Topics',
-              fileName: '1.tgs',
-              kind: TgsItemKind.emoji,
-              relativePath: 'tgs/1.tgs',
-              label: 'High Voltage',
-              bytes: 100,
-              uri: Uri.parse('http://127.0.0.1:8080/tgs/1.tgs'),
-              shortcode: ':zap:',
-            ),
-          ],
-        );
+      final formatter = EmojiShortcodeTextInputFormatter(() => catalog);
 
-        final formatter = EmojiShortcodeTextInputFormatter(() => catalog);
+      // Typing normal text without closing colon does not change text
+      final v1 = formatter.formatEditUpdate(
+        const TextEditingValue(
+          text: 'Hello :studi',
+          selection: TextSelection.collapsed(offset: 12),
+        ),
+        const TextEditingValue(
+          text: 'Hello :studio',
+          selection: TextSelection.collapsed(offset: 13),
+        ),
+      );
+      expect(v1.text, 'Hello :studio');
 
-        // Typing normal text without closing colon does not change text
-        final v1 = formatter.formatEditUpdate(
-          const TextEditingValue(
-            text: 'Hello :studi',
-            selection: TextSelection.collapsed(offset: 12),
-          ),
-          const TextEditingValue(
-            text: 'Hello :studio',
-            selection: TextSelection.collapsed(offset: 13),
-          ),
-        );
-        expect(v1.text, 'Hello :studio');
+      // Typing closing colon finishes shortcode -> converts to 1-char PUA token!
+      final v2 = formatter.formatEditUpdate(
+        const TextEditingValue(
+          text: 'Hello :studio_microphone',
+          selection: TextSelection.collapsed(offset: 24),
+        ),
+        const TextEditingValue(
+          text: 'Hello :studio_microphone:',
+          selection: TextSelection.collapsed(offset: 25),
+        ),
+      );
+      expect(v2.text, 'Hello \uE000');
+      expect(v2.text.length, 7); // 'Hello ' (6) + '\uE000' (1)
+      expect(
+        v2.selection.baseOffset,
+        7,
+      ); // Caret is positioned cleanly right after the emoji
 
-        // Typing closing colon finishes shortcode -> converts to 1-char PUA token!
-        final v2 = formatter.formatEditUpdate(
-          const TextEditingValue(
-            text: 'Hello :studio_microphone',
-            selection: TextSelection.collapsed(offset: 24),
-          ),
-          const TextEditingValue(
-            text: 'Hello :studio_microphone:',
-            selection: TextSelection.collapsed(offset: 25),
-          ),
-        );
-        expect(v2.text, 'Hello \uE000');
-        expect(v2.text.length, 7); // 'Hello ' (6) + '\uE000' (1)
-        expect(
-          v2.selection.baseOffset,
-          7,
-        ); // Caret is positioned cleanly right after the emoji
+      // Unknown shortcode is not collapsed
+      final v3 = formatter.formatEditUpdate(
+        const TextEditingValue(
+          text: ':not_real',
+          selection: TextSelection.collapsed(offset: 9),
+        ),
+        const TextEditingValue(
+          text: ':not_real:',
+          selection: TextSelection.collapsed(offset: 10),
+        ),
+      );
+      expect(v3.text, ':not_real:');
 
-        // Unknown shortcode is not collapsed
-        final v3 = formatter.formatEditUpdate(
-          const TextEditingValue(
-            text: ':not_real',
-            selection: TextSelection.collapsed(offset: 9),
-          ),
-          const TextEditingValue(
-            text: ':not_real:',
-            selection: TextSelection.collapsed(offset: 10),
-          ),
-        );
-        expect(v3.text, ':not_real:');
-
-        // Active IME composing range is respected and untouched
-        final v4 = formatter.formatEditUpdate(
-          const TextEditingValue(
-            text: 'đang gõ',
-            composing: TextRange(start: 5, end: 7),
-          ),
-          const TextEditingValue(
-            text: 'đang gõ :zap:',
-            composing: TextRange(start: 5, end: 13),
-          ),
-        );
-        expect(v4.text, 'đang gõ :zap:');
-      },
-    );
+      // Active IME composing range is respected and untouched
+      final v4 = formatter.formatEditUpdate(
+        const TextEditingValue(
+          text: 'đang gõ',
+          composing: TextRange(start: 5, end: 7),
+        ),
+        const TextEditingValue(
+          text: 'đang gõ :zap:',
+          composing: TextRange(start: 5, end: 13),
+        ),
+      );
+      expect(v4.text, 'đang gõ :zap:');
+    });
 
     testWidgets(
       'EmojiComposerController.buildTextSpan emits WidgetSpan with InlineNetworkSticker',
@@ -799,7 +813,11 @@ void main() {
           frameRate: 30,
         );
         final clock = StickerClock()
-          ..configure(playing: true, reducedMotion: false, maximumFrameRate: 30);
+          ..configure(
+            playing: true,
+            reducedMotion: false,
+            maximumFrameRate: 30,
+          );
 
         final controller = EmojiComposerController(
           catalog: catalog,
@@ -875,13 +893,15 @@ void main() {
           ),
         );
 
-        for (var i = 0;
-            i < 80 &&
-                find
-                    .byKey(const ValueKey('cupertino-message-list'))
-                    .evaluate()
-                    .isEmpty;
-            i++) {
+        for (
+          var i = 0;
+          i < 80 &&
+              find
+                  .byKey(const ValueKey('cupertino-message-list'))
+                  .evaluate()
+                  .isEmpty;
+          i++
+        ) {
           await tester.runAsync(
             () => Future<void>.delayed(const Duration(milliseconds: 10)),
           );

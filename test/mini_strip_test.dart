@@ -24,10 +24,7 @@ void _record(
   recorder.endRecording().dispose();
 }
 
-Future<void> _drain(
-  WidgetTester tester,
-  FastLottieRasterCache cache,
-) async {
+Future<void> _drain(WidgetTester tester, FastLottieRasterCache cache) async {
   for (var i = 0; i < 200 && cache.pendingFrames > 0; i++) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 5)),
@@ -52,7 +49,8 @@ void main() {
   testWidgets(
     'miniStrip (K=4) reduces IPC/uploads 4x, isolates slots with 1px gutters, swaps O(1) at boundaries, and matches vector output',
     (tester) async {
-      final json = fixture('icon')..['op'] = 10; // 10 frames -> 3 strips (4, 4, 2)
+      final json = fixture('icon')
+        ..['op'] = 10; // 10 frames -> 3 strips (4, 4, 2)
       final comp = FastLottieComposition.fromJson(json);
       final total = comp.frameCount;
       expect(total, 10);
@@ -100,21 +98,15 @@ void main() {
       for (final f in [1, 3]) {
         final actual = await tester.runAsync(
           () => render(
-            (c) => player.draw(
-              c,
-              const ui.Rect.fromLTWH(0, 0, 64, 64),
-              f / total,
-            ),
+            (c) =>
+                player.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), f / total),
             size: 64,
           ),
         );
         final expected = await tester.runAsync(
           () => render(
-            (c) => vector.draw(
-              c,
-              const ui.Rect.fromLTWH(0, 0, 64, 64),
-              f / total,
-            ),
+            (c) =>
+                vector.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), f / total),
             size: 64,
           ),
         );
@@ -136,21 +128,15 @@ void main() {
         }
         final actual = await tester.runAsync(
           () => render(
-            (c) => player.draw(
-              c,
-              const ui.Rect.fromLTWH(0, 0, 64, 64),
-              f / total,
-            ),
+            (c) =>
+                player.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), f / total),
             size: 64,
           ),
         );
         final expected = await tester.runAsync(
           () => render(
-            (c) => vector.draw(
-              c,
-              const ui.Rect.fromLTWH(0, 0, 64, 64),
-              f / total,
-            ),
+            (c) =>
+                vector.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), f / total),
             size: 64,
           ),
         );
@@ -162,21 +148,15 @@ void main() {
       await _drain(tester, cache);
       final actualSeek = await tester.runAsync(
         () => render(
-          (c) => player.draw(
-            c,
-            const ui.Rect.fromLTWH(0, 0, 64, 64),
-            1 / total,
-          ),
+          (c) =>
+              player.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), 1 / total),
           size: 64,
         ),
       );
       final expectedSeek = await tester.runAsync(
         () => render(
-          (c) => vector.draw(
-            c,
-            const ui.Rect.fromLTWH(0, 0, 64, 64),
-            1 / total,
-          ),
+          (c) =>
+              vector.draw(c, const ui.Rect.fromLTWH(0, 0, 64, 64), 1 / total),
           size: 64,
         ),
       );
@@ -318,7 +298,9 @@ void main() {
   testWidgets(
     'miniStrip shares canonical .flcache slots with single-frame pingPong across sessions',
     (tester) async {
-      final tempDir = Directory.systemTemp.createTempSync('fastlottie_strip_disk_');
+      final tempDir = Directory.systemTemp.createTempSync(
+        'fastlottie_strip_disk_',
+      );
       addTearDown(() {
         if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
       });
@@ -358,7 +340,10 @@ void main() {
         await _drain(tester, cache2);
       }
       expect(cache2.vectorRasterizedFrames, 0);
-      expect(cache2.compressedCacheHits, greaterThanOrEqualTo(comp2.frameCount));
+      expect(
+        cache2.compressedCacheHits,
+        greaterThanOrEqualTo(comp2.frameCount),
+      );
     },
   );
 
@@ -462,7 +447,10 @@ void main() {
 
       for (final p in burstPlayers) {
         _record(p, 0, size: 32);
-        expect(burstCache.gpuBytes, lessThanOrEqualTo(burstCache.reservedBytes));
+        expect(
+          burstCache.gpuBytes,
+          lessThanOrEqualTo(burstCache.reservedBytes),
+        );
         expect(burstCache.reservedBytes, lessThanOrEqualTo(budget));
       }
       await _drain(tester, burstCache);
@@ -473,78 +461,76 @@ void main() {
     },
   );
 
-  testWidgets(
-    'demoting a partial front strip leaves room for the next strip',
-    (tester) async {
-      // One K=4 entry fits initially. Three pinned entries can fit only after
-      // the first entry drops to K=2 and the others use K=1.
-      const budget = 32 * (4 * 32 + 3) * 4 * 2;
-      final cache = FastLottieRasterCache.miniStrip(
-        maximumBytes: budget,
-        workerCount: 1,
-      );
-      final players = [
-        for (final frames in [11, 12, 13])
-          FastLottiePlayer(
-            FastLottieComposition.fromJson(fixture('icon')..['op'] = frames),
-            rasterCache: cache,
-          ),
-      ];
-      addTearDown(() {
-        for (final player in players) {
-          player.dispose();
-        }
-        cache.dispose();
-      });
-      final first = players.first;
-
-      // Warm the three-frame tail (8–10) before admitting the other clips.
-      _record(first, 8 / 11, size: 32);
-      await _drain(tester, cache);
-      expect(cache.debugEntryStripFrames(first), 4);
-
-      for (final player in players.skip(1)) {
-        _record(player, 0, size: 32);
-      }
-      await _drain(tester, cache);
-      expect(cache.entries, 3);
-      expect(cache.debugEntryStripFrames(first), 2);
-
-      // Advance each clip so both buffers are used.
-      _record(first, 9 / 11, size: 32);
-      for (final player in players.skip(1)) {
-        _record(player, 1 / player.composition.frameCount, size: 32);
-      }
-      await _drain(tester, cache);
-      expect(cache.gpuBytes, lessThanOrEqualTo(cache.reservedBytes));
-      expect(cache.reservedBytes, lessThanOrEqualTo(budget));
-    },
-  );
-
-  testWidgets(
-    'FastLottie default pipeline uses adaptive miniStrip strategy',
-    (tester) async {
-      final comp = FastLottieComposition.fromJson(fixture('icon'));
-      await tester.pumpWidget(
-        Directionality(
-          textDirection: TextDirection.ltr,
-          child: FastLottie(composition: comp, width: 64, height: 64),
+  testWidgets('demoting a partial front strip leaves room for the next strip', (
+    tester,
+  ) async {
+    // One K=4 entry fits initially. Three pinned entries can fit only after
+    // the first entry drops to K=2 and the others use K=1.
+    const budget = 32 * (4 * 32 + 3) * 4 * 2;
+    final cache = FastLottieRasterCache.miniStrip(
+      maximumBytes: budget,
+      workerCount: 1,
+    );
+    final players = [
+      for (final frames in [11, 12, 13])
+        FastLottiePlayer(
+          FastLottieComposition.fromJson(fixture('icon')..['op'] = frames),
+          rasterCache: cache,
         ),
-      );
+    ];
+    addTearDown(() {
+      for (final player in players) {
+        player.dispose();
+      }
+      cache.dispose();
+    });
+    final first = players.first;
 
-      final shared = FastLottieRasterCache.debugSharedDefaultCache;
-      expect(shared, isNotNull);
-      expect(shared!.strategy, FastLottieRasterStrategy.miniStrip);
+    // Warm the three-frame tail (8–10) before admitting the other clips.
+    _record(first, 8 / 11, size: 32);
+    await _drain(tester, cache);
+    expect(cache.debugEntryStripFrames(first), 4);
 
-      await tester.pump(const Duration(milliseconds: 16));
-      await tester.pumpWidget(const SizedBox());
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 20)),
-      );
-      expect(FastLottieRasterCache.debugSharedDefaultCache, isNull);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    for (final player in players.skip(1)) {
+      _record(player, 0, size: 32);
+    }
+    await _drain(tester, cache);
+    expect(cache.entries, 3);
+    expect(cache.debugEntryStripFrames(first), 2);
+
+    // Advance each clip so both buffers are used.
+    _record(first, 9 / 11, size: 32);
+    for (final player in players.skip(1)) {
+      _record(player, 1 / player.composition.frameCount, size: 32);
+    }
+    await _drain(tester, cache);
+    expect(cache.gpuBytes, lessThanOrEqualTo(cache.reservedBytes));
+    expect(cache.reservedBytes, lessThanOrEqualTo(budget));
+  });
+
+  testWidgets('FastLottie default pipeline uses adaptive miniStrip strategy', (
+    tester,
+  ) async {
+    final comp = FastLottieComposition.fromJson(fixture('icon'));
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: FastLottie(composition: comp, width: 64, height: 64),
+      ),
+    );
+
+    final shared = FastLottieRasterCache.debugSharedDefaultCache;
+    expect(shared, isNotNull);
+    expect(shared!.strategy, FastLottieRasterStrategy.miniStrip);
+
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    expect(FastLottieRasterCache.debugSharedDefaultCache, isNull);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'worker survives large-to-small resolution transitions, scene-limit eviction retry, and cache.clear()',
@@ -593,8 +579,10 @@ void main() {
         }
       });
 
-      // Drawing frame on the very first smallPlayer (which was evicted past maxWorkerScenes=64)
-      // must transparently recover via _repSceneMissing re-registration without error.
+      expect(cache.debugRegisteredWorkerScenes, lessThanOrEqualTo(64));
+
+      // The first small player was evicted. Revisiting it must re-register
+      // the scene and render without growing the host's registration table.
       _record(smallPlayers.first, 4 / 8, size: 48);
       await _drain(tester, cache);
       expect(cache.lastError, isNull);
@@ -615,21 +603,14 @@ void main() {
       await _drain(tester, cache);
       final actual = await tester.runAsync(
         () => render(
-          (c) => featuresCheck.draw(
-            c,
-            const ui.Rect.fromLTWH(0, 0, 48, 48),
-            0.25,
-          ),
+          (c) =>
+              featuresCheck.draw(c, const ui.Rect.fromLTWH(0, 0, 48, 48), 0.25),
           size: 48,
         ),
       );
       final expected = await tester.runAsync(
         () => render(
-          (c) => vector.draw(
-            c,
-            const ui.Rect.fromLTWH(0, 0, 48, 48),
-            0.25,
-          ),
+          (c) => vector.draw(c, const ui.Rect.fromLTWH(0, 0, 48, 48), 0.25),
           size: 48,
         ),
       );

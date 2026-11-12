@@ -62,34 +62,32 @@ final class _IoWorkerHandle implements WorkerHandle {
     final hostReceive = ReceivePort();
     _hostReceive = hostReceive;
     _hostSub = hostReceive.listen((msg) {
-      if (_disposed) return;
       if (_workerSendPort == null && msg is SendPort) {
         _workerSendPort = msg;
+        if (_disposed) {
+          msg.send(null);
+          _closeHostPort();
+          return;
+        }
         for (final queued in _pendingPreHandshake) {
           msg.send(queued);
         }
         _pendingPreHandshake.clear();
         return;
       }
-      _messagesController.add(msg);
+      if (!_disposed) _messagesController.add(msg);
     });
     Isolate.spawn(
-          _ioWorkerBootstrap,
-          _IoBootstrapArgs(hostReceive.sendPort, entry),
-          debugName: debugName,
-        )
-        .then((isolate) {
-          if (_disposed) {
-            isolate.kill(priority: Isolate.immediate);
-          } else {
-            _isolate = isolate;
-          }
-        })
-        .catchError((Object error, StackTrace stack) {
-          if (!_disposed && !_messagesController.isClosed) {
-            _messagesController.addError(error, stack);
-          }
-        });
+      _ioWorkerBootstrap,
+      _IoBootstrapArgs(hostReceive.sendPort, entry),
+      debugName: debugName,
+    ).catchError((Object error, StackTrace stack) {
+      _closeHostPort();
+      if (!_disposed && !_messagesController.isClosed) {
+        _messagesController.addError(error, stack);
+      }
+      throw error;
+    }).ignore();
   }
 
   late final ReceivePort _hostReceive;
@@ -97,7 +95,6 @@ final class _IoWorkerHandle implements WorkerHandle {
   final _messagesController = StreamController<Object?>();
   final _pendingPreHandshake = <Object?>[];
   SendPort? _workerSendPort;
-  Isolate? _isolate;
   bool _disposed = false;
 
   @override
@@ -114,18 +111,23 @@ final class _IoWorkerHandle implements WorkerHandle {
   @override
   Stream<Object?> get messages => _messagesController.stream;
 
+  void _closeHostPort() {
+    _hostSub.cancel();
+    _hostReceive.close();
+  }
+
   @override
   void dispose() {
     if (_disposed) return;
     _disposed = true;
     _pendingPreHandshake.clear();
-    try {
-      _workerSendPort?.send(null);
-    } catch (_) {}
-    _isolate?.kill(priority: Isolate.immediate);
-    _isolate = null;
-    _hostSub.cancel();
-    _hostReceive.close();
+    // Let the worker dispose its native workspace and file handles. If the
+    // handshake is still pending, the listener delivers the stop signal then.
+    final port = _workerSendPort;
+    if (port != null) {
+      port.send(null);
+      _closeHostPort();
+    }
     _messagesController.close();
   }
 }

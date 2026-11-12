@@ -71,7 +71,9 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
 
   final hasDiskDir =
       sourceCacheDirectory != null && sourceCacheDirectory.isNotEmpty;
-  final cachePath = hasDiskDir ? _cacheFilePath(sourceCacheDirectory, uri) : null;
+  final cachePath = hasDiskDir
+      ? _cacheFilePath(sourceCacheDirectory, uri)
+      : null;
   if (cachePath != null) {
     try {
       final cachedFile = File(cachePath);

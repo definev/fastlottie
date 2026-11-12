@@ -10,11 +10,7 @@ class FastLottieNetworkCancelledException implements Exception {
 
 /// Thrown when fetching a remote Lottie/TGS resource fails.
 class FastLottieNetworkException implements Exception {
-  const FastLottieNetworkException(
-    this.uri,
-    this.message, {
-    this.statusCode,
-  });
+  const FastLottieNetworkException(this.uri, this.message, {this.statusCode});
 
   final Uri uri;
   final String message;
@@ -62,10 +58,7 @@ final class FastLottieCancelToken {
 /// Result of a platform byte fetch, indicating whether bytes came from the raw
 /// local URL cache instead of an HTTP round-trip.
 final class FastLottieNetworkFetchResult {
-  const FastLottieNetworkFetchResult(
-    this.bytes, {
-    required this.fromDiskCache,
-  });
+  const FastLottieNetworkFetchResult(this.bytes, {required this.fromDiskCache});
 
   final Uint8List bytes;
   final bool fromDiskCache;

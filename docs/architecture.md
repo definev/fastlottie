@@ -1,7 +1,7 @@
 # Kiến trúc và Lựa chọn Thiết kế Chi tiết (`fastlottie`)
 
-`fastlottie` là engine kết xuất Lottie/TGS thuần Dart (không dùng C++ FFI), kết hợp kiến trúc **Hybrid Dual-Engine**:
-1. **Background Software Rasterizer Pipeline (Telegram-style)**: Quét dòng phân tích kiểu FreeType (`ftgrays` 24.8 fixed-point RLE) + pha trộn màu 64-bit SWAR BGRA8888 + nén LZ4 lưu vào RAM LRU và file đĩa append-only `.flcache` (`FLC1`) trên các Worker Isolate. Trên UI Isolate chỉ giữ cặp texture GPU double-buffer (`renderingImage` / `backgroundImage`) để hoán đổi con trỏ $O(1)$.
+`fastlottie` biên dịch scene Lottie/TGS trong Dart và có hai đường kết xuất. Software worker dùng kernel native khi khả dụng, với Dart làm fallback. Xem [native raster và warm playback](native-playback.md).
+1. **Background Software Rasterizer Pipeline (Telegram-style)**: Quét dòng fixed-point RLE, giữ coverage của shape tĩnh và blend BGRA8888 trên worker isolate. RAM cache có thể chia sẻ tile giữa các frame của page đã warm; disk cache `.flcache` (`FLC1`) vẫn lưu LZ4 theo từng frame. Trên UI Isolate chỉ giữ cặp texture GPU double-buffer (`renderingImage` / `backgroundImage`) để hoán đổi con trỏ $O(1)$.
 2. **Direct Flutter Canvas & Picture/Prewarmed Engine**: Vẽ vector trực tiếp lên `ui.Canvas`, lưu display list `ui.Picture` có giới hạn LRU, hoặc dựng trước toàn bộ chuỗi `List<ui.Image>` qua `prepareRaster`.
 
 ---

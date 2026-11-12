@@ -204,6 +204,9 @@ class _Layer {
       (group?.isStatic ?? true) &&
       (child?.isStatic ?? true) &&
       (parent?.isStatic ?? true);
+  late final bool hasStaticSpatialChain =
+      transform.isSpatialStatic && (parent?.hasStaticSpatialChain ?? true);
+
   late final bool hasAnySpatialTransform =
       !transform.isSpatialIdentity || (parent?.hasAnySpatialTransform ?? false);
 
@@ -653,6 +656,32 @@ class _Style implements _Draw {
   ui.Shader? _lastShader;
   double _lastStrokeWidth = double.nan;
   late final bool _staticPath = sources.every((s) => s.isPathStatic);
+  late final Rect? _staticGeometryBounds = _geometryBounds(0);
+  late final _PathSource? staticFillLeaf = _resolveStaticFillLeaf();
+
+  _PathSource? _resolveStaticFillLeaf() {
+    if (stroke || dash != null || sources.length != 1) return null;
+    var source = sources.single;
+    while (source is _Shape) {
+      source = source.content;
+    }
+    if ((source is _Primitive || source is _BezierGeometry) &&
+        source.isPathStatic) {
+      return source;
+    }
+    return null;
+  }
+
+  Rect? _geometryBounds(double frame) {
+    Rect? bounds;
+    for (final source in sources) {
+      bounds = _unionRect(bounds, source.pathBounds(frame));
+    }
+    return bounds;
+  }
+
+  late final bool hasStaticCoverage =
+      _staticPath && (!stroke || width.isStatic) && (dash?.isStatic ?? true);
   @override
   bool get isStatic =>
       _staticPath &&
@@ -672,10 +701,7 @@ class _Style implements _Draw {
       final factor = join == 1 ? math.max(1.42, miter) : 1.42;
       pad = w * 0.5 * factor + 1.0;
     }
-    Rect? acc;
-    for (final s in sources) {
-      acc = _unionRect(acc, s.pathBounds(frame));
-    }
+    final acc = _staticPath ? _staticGeometryBounds : _geometryBounds(frame);
     if (acc == null) return null;
     return pad == 0 ? acc : acc.inflate(pad);
   }
@@ -733,7 +759,10 @@ class _Style implements _Draw {
       final hw = (sz[0] * 0.5).abs(), hh = (sz[1] * 0.5).abs();
       if (hw > 0 && hh > 0) {
         final rect = Rect.fromLTRB(p[0] - hw, p[1] - hh, p[0] + hw, p[1] + hh);
-        final r = prim.radius.scalar(frame).clamp(0.0, math.min(hw, hh)).toDouble();
+        final r = prim.radius
+            .scalar(frame)
+            .clamp(0.0, math.min(hw, hh))
+            .toDouble();
         if (r == 0) {
           canvas.drawRect(rect, paint);
         } else {

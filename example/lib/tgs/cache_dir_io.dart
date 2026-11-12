@@ -37,7 +37,10 @@ Future<String?> resolveExampleUrlDiskCacheDirectory() async {
   return _cachedUrlPath;
 }
 
-Future<void> _clearSubdir(String folderName, void Function(String) onReset) async {
+Future<void> _clearSubdir(
+  String folderName,
+  void Function(String) onReset,
+) async {
   try {
     final base = await getTemporaryDirectory();
     final sep = Platform.pathSeparator;
@@ -51,18 +54,14 @@ Future<void> _clearSubdir(String folderName, void Function(String) onReset) asyn
   } catch (_) {}
 }
 
-Future<void> clearExampleDiskCacheDirectory() => _clearSubdir(
-  'fastlottie_cache',
-  (path) {
-    _cachedPath = path;
-    _resolved = true;
-  },
-);
+Future<void> clearExampleDiskCacheDirectory() =>
+    _clearSubdir('fastlottie_cache', (path) {
+      _cachedPath = path;
+      _resolved = true;
+    });
 
-Future<void> clearExampleUrlDiskCacheDirectory() => _clearSubdir(
-  'fastlottie_url_cache',
-  (path) {
-    _cachedUrlPath = path;
-    _urlResolved = true;
-  },
-);
+Future<void> clearExampleUrlDiskCacheDirectory() =>
+    _clearSubdir('fastlottie_url_cache', (path) {
+      _cachedUrlPath = path;
+      _urlResolved = true;
+    });

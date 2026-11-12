@@ -199,8 +199,9 @@ class _Compiler {
         commands += child.commands;
         hasStroke |= child.hasStroke;
       }
-      final timeRemap =
-          m['tm'] != null ? _track(m['tm'], '$path.tm', 1, [0]) : null;
+      final timeRemap = m['tm'] != null
+          ? _track(m['tm'], '$path.tm', 1, [0])
+          : null;
       final layer = _Layer(
         transform,
         group,
@@ -324,9 +325,10 @@ class _Compiler {
       // Isolate the destination before masking; the source never appears as
       // ordinary artwork. Include both target and matte bounds so Skia/Impeller
       // never clips a curved mask/target contour at an arbitrary boundary.
-      final layerBounds = _unionRect(targetRect, matteRect)!
-          .inflate(1.0)
-          .intersect(bounds);
+      final layerBounds = _unionRect(
+        targetRect,
+        matteRect,
+      )!.inflate(1.0).intersect(bounds);
       canvas.saveLayer(layerBounds, layer.contentPaint);
       layer.draw(canvas, frame, alpha);
       canvas.saveLayer(layerBounds, layer.mattePaint);
@@ -407,7 +409,9 @@ class _Compiler {
       final expression = value['x'];
       if (expression is String && expression.isNotEmpty) {
         if (!resolving.add(value)) fail(path, 'Cyclic expression reference');
-        if (RegExp(r"^var \$bm_rt;\s*\$bm_rt\s*=\s*transform\.[xy]Position;\s*$").hasMatch(expression)) {
+        if (RegExp(
+          r"^var \$bm_rt;\s*\$bm_rt\s*=\s*transform\.[xy]Position;\s*$",
+        ).hasMatch(expression)) {
           value.remove('x');
           resolving.remove(value);
           return;
@@ -646,7 +650,9 @@ class _Compiler {
           // Lottie also permits RGB components encoded in [0,255].
           final values = color.constant ?? color.keyframes!.values;
           for (var base = 0; base < values.length; base += 3) {
-            if (values[base] > 1 || values[base + 1] > 1 || values[base + 2] > 1) {
+            if (values[base] > 1 ||
+                values[base + 1] > 1 ||
+                values[base + 2] > 1) {
               for (var channel = 0; channel < 3; channel++) {
                 values[base + channel] /= 255;
               }

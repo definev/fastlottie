@@ -224,9 +224,15 @@ const _notoMetaByFile = <String, (String shortcode, String label)>{
   'emoji_u1f30a.tgs': (':ocean:', 'Ocean'),
   'emoji_u1f30b.tgs': (':volcano:', 'Volcano'),
   'emoji_u1f30c.tgs': (':milky_way:', 'Milky Way'),
-  'emoji_u1f30d.tgs': (':globe_showing_europe_africa:', 'Globe Showing Europe Africa'),
+  'emoji_u1f30d.tgs': (
+    ':globe_showing_europe_africa:',
+    'Globe Showing Europe Africa',
+  ),
   'emoji_u1f30e.tgs': (':globe_showing_americas:', 'Globe Showing Americas'),
-  'emoji_u1f30f.tgs': (':globe_showing_asia_australia:', 'Globe Showing Asia Australia'),
+  'emoji_u1f30f.tgs': (
+    ':globe_showing_asia_australia:',
+    'Globe Showing Asia Australia',
+  ),
   'emoji_u1f31a.tgs': (':moon_face_new:', 'Moon Face New'),
   'emoji_u1f31b.tgs': (':moon_face_first_quarter:', 'Moon Face First Quarter'),
   'emoji_u1f31c.tgs': (':moon_face_last_quarter:', 'Moon Face Last Quarter'),
@@ -284,8 +290,14 @@ const _notoMetaByFile = <String, (String shortcode, String label)>{
   'emoji_u1f379.tgs': (':tropical_drink_1f379:', 'Tropical Drink'),
   'emoji_u1f37b.tgs': (':clinking_beer_mugs:', 'Clinking Beer Mugs'),
   'emoji_u1f37c.tgs': (':baby_bottle:', 'Baby Bottle'),
-  'emoji_u1f37d_fe0f.tgs': (':fork_and_knife_with_plate:', 'Fork And Knife With Plate'),
-  'emoji_u1f37e.tgs': (':bottle_with_popping_cork:', 'Bottle With Popping Cork'),
+  'emoji_u1f37d_fe0f.tgs': (
+    ':fork_and_knife_with_plate:',
+    'Fork And Knife With Plate',
+  ),
+  'emoji_u1f37e.tgs': (
+    ':bottle_with_popping_cork:',
+    'Bottle With Popping Cork',
+  ),
   'emoji_u1f37f.tgs': (':popcorn:', 'Popcorn'),
   'emoji_u1f381.tgs': (':wrapped_gift:', 'Wrapped Gift'),
   'emoji_u1f382.tgs': (':birthday_cake:', 'Birthday Cake'),
@@ -520,7 +532,10 @@ const _notoMetaByFile = <String, (String shortcode, String label)>{
   'emoji_u1f4fa.tgs': (':television:', 'Television'),
   'emoji_u1f50b.tgs': (':battery_full:', 'Battery Full'),
   'emoji_u1f50c.tgs': (':electric_plug:', 'Electric Plug'),
-  'emoji_u1f50e.tgs': (':magnifying_glass_tilted_right:', 'Magnifying Glass Tilted Right'),
+  'emoji_u1f50e.tgs': (
+    ':magnifying_glass_tilted_right:',
+    'Magnifying Glass Tilted Right',
+  ),
   'emoji_u1f512.tgs': (':locked:', 'Locked'),
   'emoji_u1f514.tgs': (':bell:', 'Bell'),
   'emoji_u1f525.tgs': (':burn:', 'Burn'),
@@ -789,7 +804,10 @@ const _notoMetaByFile = <String, (String shortcode, String label)>{
   'emoji_u1f968.tgs': (':pretzel:', 'Pretzel'),
   'emoji_u1f96c.tgs': (':leafy_green:', 'Leafy Green'),
   'emoji_u1f96d.tgs': (':mango:', 'Mango'),
-  'emoji_u1f970.tgs': (':smiling_face_with_three_hearts:', 'Smiling Face With Hearts'),
+  'emoji_u1f970.tgs': (
+    ':smiling_face_with_three_hearts:',
+    'Smiling Face With Hearts',
+  ),
   'emoji_u1f971.tgs': (':yawn:', 'Yawn'),
   'emoji_u1f972.tgs': (':happy_cry:', 'Happy Cry'),
   'emoji_u1f973.tgs': (':partying_face:', 'Partying Face'),
@@ -920,38 +938,107 @@ const _notoMetaByFile = <String, (String shortcode, String label)>{
   'emoji_u1fae9.tgs': (':tired:', 'Tired'),
   'emoji_u1faea.tgs': (':distorted_face:', 'Distorted Face'),
   'emoji_u1faef.tgs': (':fight:', 'Fight'),
-  'emoji_u1faf0.tgs': (':hand_with_index_finger_and_thumb_crossed:', 'Hand With Index Finger And Thumb Crossed'),
+  'emoji_u1faf0.tgs': (
+    ':hand_with_index_finger_and_thumb_crossed:',
+    'Hand With Index Finger And Thumb Crossed',
+  ),
   'emoji_u1faf0_1f3fb.tgs': (':snap:', 'Snap'),
   'emoji_u1faf0_1f3fc.tgs': (':finger_heart:', 'Finger Heart'),
-  'emoji_u1faf0_1f3fd.tgs': (':hand_with_index_finger_and_thumb_crossed_1faf0:', 'Hand With Index Finger And Thumb Crossed'),
-  'emoji_u1faf0_1f3fe.tgs': (':noto_1faf0_1f3fe:', 'Hand With Index Finger And Thumb Crossed'),
-  'emoji_u1faf0_1f3ff.tgs': (':noto_1faf0_1f3ff:', 'Hand With Index Finger And Thumb Crossed'),
+  'emoji_u1faf0_1f3fd.tgs': (
+    ':hand_with_index_finger_and_thumb_crossed_1faf0:',
+    'Hand With Index Finger And Thumb Crossed',
+  ),
+  'emoji_u1faf0_1f3fe.tgs': (
+    ':noto_1faf0_1f3fe:',
+    'Hand With Index Finger And Thumb Crossed',
+  ),
+  'emoji_u1faf0_1f3ff.tgs': (
+    ':noto_1faf0_1f3ff:',
+    'Hand With Index Finger And Thumb Crossed',
+  ),
   'emoji_u1faf1.tgs': (':rightwards_hand:', 'Rightwards Hand'),
   'emoji_u1faf1_1f3fb.tgs': (':rightwards_hand_1faf1:', 'Rightwards Hand'),
   'emoji_u1faf1_1f3fb_200d_1faf2_1f3fc.tgs': (':handshake_1faf1:', 'Handshake'),
-  'emoji_u1faf1_1f3fb_200d_1faf2_1f3fd.tgs': (':noto_1faf1_1f3fb_200d_1faf2_1f3fd:', 'Handshake'),
-  'emoji_u1faf1_1f3fb_200d_1faf2_1f3fe.tgs': (':noto_1faf1_1f3fb_200d_1faf2_1f3fe:', 'Handshake'),
-  'emoji_u1faf1_1f3fb_200d_1faf2_1f3ff.tgs': (':noto_1faf1_1f3fb_200d_1faf2_1f3ff:', 'Handshake'),
+  'emoji_u1faf1_1f3fb_200d_1faf2_1f3fd.tgs': (
+    ':noto_1faf1_1f3fb_200d_1faf2_1f3fd:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fb_200d_1faf2_1f3fe.tgs': (
+    ':noto_1faf1_1f3fb_200d_1faf2_1f3fe:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fb_200d_1faf2_1f3ff.tgs': (
+    ':noto_1faf1_1f3fb_200d_1faf2_1f3ff:',
+    'Handshake',
+  ),
   'emoji_u1faf1_1f3fc.tgs': (':noto_1faf1_1f3fc:', 'Rightwards Hand'),
-  'emoji_u1faf1_1f3fc_200d_1faf2_1f3fb.tgs': (':noto_1faf1_1f3fc_200d_1faf2_1f3fb:', 'Handshake'),
-  'emoji_u1faf1_1f3fc_200d_1faf2_1f3fd.tgs': (':noto_1faf1_1f3fc_200d_1faf2_1f3fd:', 'Handshake'),
-  'emoji_u1faf1_1f3fc_200d_1faf2_1f3fe.tgs': (':noto_1faf1_1f3fc_200d_1faf2_1f3fe:', 'Handshake'),
-  'emoji_u1faf1_1f3fc_200d_1faf2_1f3ff.tgs': (':noto_1faf1_1f3fc_200d_1faf2_1f3ff:', 'Handshake'),
+  'emoji_u1faf1_1f3fc_200d_1faf2_1f3fb.tgs': (
+    ':noto_1faf1_1f3fc_200d_1faf2_1f3fb:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fc_200d_1faf2_1f3fd.tgs': (
+    ':noto_1faf1_1f3fc_200d_1faf2_1f3fd:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fc_200d_1faf2_1f3fe.tgs': (
+    ':noto_1faf1_1f3fc_200d_1faf2_1f3fe:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fc_200d_1faf2_1f3ff.tgs': (
+    ':noto_1faf1_1f3fc_200d_1faf2_1f3ff:',
+    'Handshake',
+  ),
   'emoji_u1faf1_1f3fd.tgs': (':noto_1faf1_1f3fd:', 'Rightwards Hand'),
-  'emoji_u1faf1_1f3fd_200d_1faf2_1f3fb.tgs': (':noto_1faf1_1f3fd_200d_1faf2_1f3fb:', 'Handshake'),
-  'emoji_u1faf1_1f3fd_200d_1faf2_1f3fc.tgs': (':noto_1faf1_1f3fd_200d_1faf2_1f3fc:', 'Handshake'),
-  'emoji_u1faf1_1f3fd_200d_1faf2_1f3fe.tgs': (':noto_1faf1_1f3fd_200d_1faf2_1f3fe:', 'Handshake'),
-  'emoji_u1faf1_1f3fd_200d_1faf2_1f3ff.tgs': (':noto_1faf1_1f3fd_200d_1faf2_1f3ff:', 'Handshake'),
+  'emoji_u1faf1_1f3fd_200d_1faf2_1f3fb.tgs': (
+    ':noto_1faf1_1f3fd_200d_1faf2_1f3fb:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fd_200d_1faf2_1f3fc.tgs': (
+    ':noto_1faf1_1f3fd_200d_1faf2_1f3fc:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fd_200d_1faf2_1f3fe.tgs': (
+    ':noto_1faf1_1f3fd_200d_1faf2_1f3fe:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fd_200d_1faf2_1f3ff.tgs': (
+    ':noto_1faf1_1f3fd_200d_1faf2_1f3ff:',
+    'Handshake',
+  ),
   'emoji_u1faf1_1f3fe.tgs': (':noto_1faf1_1f3fe:', 'Rightwards Hand'),
-  'emoji_u1faf1_1f3fe_200d_1faf2_1f3fb.tgs': (':noto_1faf1_1f3fe_200d_1faf2_1f3fb:', 'Handshake'),
-  'emoji_u1faf1_1f3fe_200d_1faf2_1f3fc.tgs': (':noto_1faf1_1f3fe_200d_1faf2_1f3fc:', 'Handshake'),
-  'emoji_u1faf1_1f3fe_200d_1faf2_1f3fd.tgs': (':noto_1faf1_1f3fe_200d_1faf2_1f3fd:', 'Handshake'),
-  'emoji_u1faf1_1f3fe_200d_1faf2_1f3ff.tgs': (':noto_1faf1_1f3fe_200d_1faf2_1f3ff:', 'Handshake'),
+  'emoji_u1faf1_1f3fe_200d_1faf2_1f3fb.tgs': (
+    ':noto_1faf1_1f3fe_200d_1faf2_1f3fb:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fe_200d_1faf2_1f3fc.tgs': (
+    ':noto_1faf1_1f3fe_200d_1faf2_1f3fc:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fe_200d_1faf2_1f3fd.tgs': (
+    ':noto_1faf1_1f3fe_200d_1faf2_1f3fd:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3fe_200d_1faf2_1f3ff.tgs': (
+    ':noto_1faf1_1f3fe_200d_1faf2_1f3ff:',
+    'Handshake',
+  ),
   'emoji_u1faf1_1f3ff.tgs': (':noto_1faf1_1f3ff:', 'Rightwards Hand'),
-  'emoji_u1faf1_1f3ff_200d_1faf2_1f3fb.tgs': (':noto_1faf1_1f3ff_200d_1faf2_1f3fb:', 'Handshake'),
-  'emoji_u1faf1_1f3ff_200d_1faf2_1f3fc.tgs': (':noto_1faf1_1f3ff_200d_1faf2_1f3fc:', 'Handshake'),
-  'emoji_u1faf1_1f3ff_200d_1faf2_1f3fd.tgs': (':noto_1faf1_1f3ff_200d_1faf2_1f3fd:', 'Handshake'),
-  'emoji_u1faf1_1f3ff_200d_1faf2_1f3fe.tgs': (':noto_1faf1_1f3ff_200d_1faf2_1f3fe:', 'Handshake'),
+  'emoji_u1faf1_1f3ff_200d_1faf2_1f3fb.tgs': (
+    ':noto_1faf1_1f3ff_200d_1faf2_1f3fb:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3ff_200d_1faf2_1f3fc.tgs': (
+    ':noto_1faf1_1f3ff_200d_1faf2_1f3fc:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3ff_200d_1faf2_1f3fd.tgs': (
+    ':noto_1faf1_1f3ff_200d_1faf2_1f3fd:',
+    'Handshake',
+  ),
+  'emoji_u1faf1_1f3ff_200d_1faf2_1f3fe.tgs': (
+    ':noto_1faf1_1f3ff_200d_1faf2_1f3fe:',
+    'Handshake',
+  ),
   'emoji_u1faf2.tgs': (':leftwards_hand:', 'Leftwards Hand'),
   'emoji_u1faf2_1f3fb.tgs': (':leftwards_hand_1faf2:', 'Leftwards Hand'),
   'emoji_u1faf2_1f3fc.tgs': (':noto_1faf2_1f3fc:', 'Leftwards Hand'),
@@ -995,7 +1082,10 @@ const _notoMetaByFile = <String, (String shortcode, String label)>{
   'emoji_u1faf8_1f3fe.tgs': (':noto_1faf8_1f3fe:', 'Push Rightwards'),
   'emoji_u1faf8_1f3ff.tgs': (':noto_1faf8_1f3ff:', 'Push Rightwards'),
   'emoji_u203c_fe0f.tgs': (':exclamation_double:', 'Exclamation Double'),
-  'emoji_u2049_fe0f.tgs': (':exclamation_question_mark:', 'Exclamation Question Mark'),
+  'emoji_u2049_fe0f.tgs': (
+    ':exclamation_question_mark:',
+    'Exclamation Question Mark',
+  ),
   'emoji_u2122_fe0f.tgs': (':trade_mark:', 'Trade Mark'),
   'emoji_u231b.tgs': (':hourglass_done:', 'Hourglass Done'),
   'emoji_u23f0.tgs': (':alarm_clock:', 'Alarm Clock'),
@@ -1083,7 +1173,10 @@ const _notoMetaByFile = <String, (String shortcode, String label)>{
   'emoji_u274c.tgs': (':cross_mark:', 'Cross Mark'),
   'emoji_u2753.tgs': (':question_mark:', 'Question Mark'),
   'emoji_u2757.tgs': (':exclamation_mark:', 'Exclamation Mark'),
-  'emoji_u2763_fe0f.tgs': (':heart_exclamation_point:', 'Heart Exclamation Point'),
+  'emoji_u2763_fe0f.tgs': (
+    ':heart_exclamation_point:',
+    'Heart Exclamation Point',
+  ),
   'emoji_u2764_fe0f.tgs': (':red_heart:', 'Red Heart'),
   'emoji_u2764_fe0f_200d_1f525.tgs': (':heart_on_fire:', 'Heart on Fire'),
   'emoji_u2764_fe0f_200d_1fa79.tgs': (':bandaged_heart:', 'Bandaged Heart'),
@@ -1195,16 +1288,15 @@ Future<void> main(List<String> args) async {
         hash ^= b;
         hash = (hash * 0x01000193) & 0xFFFFFFFF;
       }
-      final etag = '"${bytes.length.toRadixString(16)}-${hash.toRadixString(16)}"';
+      final etag =
+          '"${bytes.length.toRadixString(16)}-${hash.toRadixString(16)}"';
       final fileName = file.uri.pathSegments.last;
       final relPath = '/tgs/$packId/$fileName';
       final id = '$packId/$fileName';
       final meta = isEmoji
           ? (_topicMetaByFile[fileName] ?? _notoMetaByFile[fileName])
           : null;
-      final shortcode = isEmoji
-          ? (meta?.$1 ?? ':emoji_${i + 1}:')
-          : null;
+      final shortcode = isEmoji ? (meta?.$1 ?? ':emoji_${i + 1}:') : null;
       final label = isEmoji
           ? (meta?.$2 ?? shortcode!.replaceAll(':', ''))
           : '$packTitle #${i + 1}';

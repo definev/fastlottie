@@ -80,10 +80,7 @@ void main() {
     'LoD uses size times DPR times fixed scale, preserving timeline and bilinear output',
     (tester) async {
       final comp = FastLottieComposition.fromJson(fixture('icon'));
-      final cache = FastLottieRasterCache(
-        resolutionScale: .5,
-        workerCount: 2,
-      );
+      final cache = FastLottieRasterCache(resolutionScale: .5, workerCount: 2);
       final p = FastLottiePlayer(
         comp,
         rasterCache: cache,
@@ -261,10 +258,7 @@ void main() {
       final c = distinctIcon(1);
       final other = distinctIcon(2);
       const weight = 32 * 32 * 4 * 2;
-      final cache = FastLottieRasterCache(
-        maximumBytes: weight,
-        workerCount: 1,
-      );
+      final cache = FastLottieRasterCache(maximumBytes: weight, workerCount: 1);
       final a = FastLottiePlayer(c, rasterCache: cache);
       final b = FastLottiePlayer(other, rasterCache: cache);
       addTearDown(() {
@@ -298,10 +292,7 @@ void main() {
     (tester) async {
       final json = fixture('icon')..['fr'] = 60;
       final c = FastLottieComposition.fromJson(json);
-      final cache = FastLottieRasterCache(
-        maximumFrameRate: 24,
-        workerCount: 2,
-      );
+      final cache = FastLottieRasterCache(maximumFrameRate: 24, workerCount: 2);
       final p = FastLottiePlayer(
         c,
         rasterCache: cache,
