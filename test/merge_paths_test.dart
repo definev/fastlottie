@@ -259,6 +259,7 @@ void main() {
 
   test('real TGS stickers with merge paths compile and render', () async {
     final sampleStickers = [
+      'example/assets/tgs/NotoEmoji/emoji_u1f192.tgs',
       'example/assets/tgs/NotoEmoji/emoji_u1f30b.tgs',
       'example/assets/tgs/NotoEmoji/emoji_u1f345.tgs',
       'example/assets/tgs/NotoEmoji/emoji_u1f60a.tgs',
@@ -278,4 +279,41 @@ void main() {
       player.dispose();
     }
   });
+
+  testWidgets(
+    'background worker isolate rasterizes merge path stickers without UI isolate error',
+    (tester) async {
+      final file = File('example/assets/tgs/NotoEmoji/emoji_u1f192.tgs');
+      if (!file.existsSync()) return;
+      final comp = FastLottieComposition.fromBytes(file.readAsBytesSync());
+
+      final cache = FastLottieRasterCache.miniStrip(
+        maximumBytes: 16 * 1024 * 1024,
+        maximumFrameRate: 30.0,
+        workerCount: 1,
+      );
+      try {
+        final player = FastLottiePlayer(
+          comp,
+          rasterCache: cache,
+          cache: FastLottieCache.none,
+        );
+        final rec = ui.PictureRecorder();
+        player.draw(ui.Canvas(rec), const ui.Rect.fromLTWH(0, 0, 96, 96), 0.0);
+        rec.endRecording().dispose();
+
+        for (var i = 0; i < 50 && cache.pendingFrames > 0; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump();
+        }
+        expect(cache.lastError, isNull);
+        expect(cache.renderedFrames, greaterThan(0));
+        player.dispose();
+      } finally {
+        cache.dispose();
+      }
+    },
+  );
 }

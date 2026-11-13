@@ -128,6 +128,7 @@ class _RasterWorkspace {
   final _PolyPath _flattenLeafPoly = _PolyPath();
   final _trimPolyPool = <_PolyPath>[];
   final _trimOutPool = <_PolyPath>[];
+  final _mergeCutPolyPool = <_PolyPath>[];
   final _measurePolyPool = <_PolyPath>[];
   final _groupMatrixPool = <Float64List>[];
   final _layerChain = <_Layer?>[];
@@ -163,6 +164,13 @@ class _RasterWorkspace {
       _trimOutPool.add(_PolyPath());
     }
     return _trimOutPool[depth]..clear();
+  }
+
+  _PolyPath _acquireMergeCutPoly(int depth) {
+    while (_mergeCutPolyPool.length <= depth) {
+      _mergeCutPolyPool.add(_PolyPath());
+    }
+    return _mergeCutPolyPool[depth]..clear();
   }
 
   _PolyPath _acquireMeasurePoly(int depth) {
@@ -274,6 +282,7 @@ class _RasterWorkspace {
       _scratchLayers.clear();
       _trimPolyPool.clear();
       _trimOutPool.clear();
+      _mergeCutPolyPool.clear();
       _measurePolyPool.clear();
       _trimLengthsPool.clear();
       _groupMatrixPool.clear();
@@ -301,6 +310,13 @@ class _RasterWorkspace {
       for (final p in _trimOutPool) {
         p.trimIfOversized();
       }
+      _mergeCutPolyPool.removeRange(
+        math.min(2, _mergeCutPolyPool.length),
+        _mergeCutPolyPool.length,
+      );
+      for (final p in _mergeCutPolyPool) {
+        p.trimIfOversized();
+      }
       _measurePolyPool.removeRange(
         math.min(2, _measurePolyPool.length),
         _measurePolyPool.length,
@@ -324,6 +340,9 @@ class _RasterWorkspace {
     _workPolyB.trimIfOversized(aggressive: aggressive);
     _strokePoly.trimIfOversized(aggressive: aggressive);
     _flattenLeafPoly.trimIfOversized(aggressive: aggressive);
+    for (var i = 0; i < _mergeCutPolyPool.length; i++) {
+      _mergeCutPolyPool[i].trimIfOversized(aggressive: aggressive);
+    }
     _rasterSpans?.trimIfOversized(aggressive: aggressive);
     _precompClipSpans?.trimIfOversized(aggressive: aggressive);
     _maskedSpans?.trimIfOversized(aggressive: aggressive);
@@ -592,6 +611,22 @@ class _PolyPath {
           vy[vertexCount] = b * sx + d * sy + ty;
           vertexCount++;
         }
+      }
+      endContour();
+    }
+  }
+
+  void appendReversed(_PolyPath src) {
+    for (var k = 0; k < src.contourCount; k++) {
+      final start = src.contourStart[k];
+      final end = src.contourEnd[k];
+      if (end <= start) continue;
+      beginContour(src.contourClosed[k] == 1);
+      for (var i = end - 1; i >= start; i--) {
+        if (vertexCount == vx.length) _growVertices();
+        vx[vertexCount] = src.vx[i];
+        vy[vertexCount] = src.vy[i];
+        vertexCount++;
       }
       endContour();
     }
@@ -2415,8 +2450,12 @@ void _renderStyleInto(
     );
     if (bounds == null) return;
     final (x0, y0, x1, y1) = bounds;
-    final useEvenOdd = !style.stroke &&
-        (style.evenOdd || style.sources.any((s) => s is _MergePathSource));
+    final hasExclude =
+        style.sources.any((s) => s is _MergePathSource && s.mode == 5);
+    final hasSubtract =
+        style.sources.any((s) => s is _MergePathSource && s.mode == 3);
+    final useEvenOdd =
+        !style.stroke && (hasExclude || (!hasSubtract && style.evenOdd));
     ws._rasterize(
       ws._workPolyB,
       useEvenOdd,
@@ -2772,6 +2811,64 @@ void _appendSourceLocal(
     return;
   }
 
+  if (src is _MergePathSource) {
+    if (src.mode == 3 && src.sources.length >= 2) {
+      for (var i = 0; i < src.sources.length - 1; i++) {
+        _appendSourceLocal(
+          src.sources[i],
+          frame,
+          ma,
+          mb,
+          mc,
+          md,
+          mtx,
+          mty,
+          flatnessSq,
+          out,
+          ws,
+          trimDepth,
+          groupDepth,
+        );
+      }
+      final cut = ws._acquireMergeCutPoly(groupDepth);
+      _appendSourceLocal(
+        src.sources.last,
+        frame,
+        ma,
+        mb,
+        mc,
+        md,
+        mtx,
+        mty,
+        flatnessSq,
+        cut,
+        ws,
+        trimDepth,
+        groupDepth,
+      );
+      out.appendReversed(cut);
+      return;
+    }
+    for (var i = 0; i < src.sources.length; i++) {
+      _appendSourceLocal(
+        src.sources[i],
+        frame,
+        ma,
+        mb,
+        mc,
+        md,
+        mtx,
+        mty,
+        flatnessSq,
+        out,
+        ws,
+        trimDepth,
+        groupDepth,
+      );
+    }
+    return;
+  }
+
   if (src.isPathStatic) {
     out.appendTransformed(
       ws._staticPolyline(src, frame),
@@ -2807,24 +2904,6 @@ void _flattenLeaf(
   double flatnessSq,
   _PolyPath out,
 ) {
-  if (src is _MergePathSource) {
-    final path = src.path(frame);
-    final metrics = path.computeMetrics();
-    for (final metric in metrics) {
-      final len = metric.length;
-      if (len <= 0) continue;
-      out.beginContour(metric.isClosed);
-      final step = math.max(0.5, math.min(1.5, math.sqrt(flatnessSq)));
-      for (var d = 0.0; d < len; d += step) {
-        final pos = metric.getTangentForOffset(d)!.position;
-        out.addVertex(pos.dx, pos.dy);
-      }
-      final endPos = metric.getTangentForOffset(len)!.position;
-      out.addVertex(endPos.dx, endPos.dy);
-      out.endContour();
-    }
-    return;
-  }
   if (src is _BezierGeometry) {
     final pts = src.track.at(frame);
     final count = pts.length ~/ 6;
