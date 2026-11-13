@@ -847,7 +847,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       Clipboard.setData(ClipboardData(text: emojiText));
     });
     if (isCut) {
-      final nextText = val.selection.textBefore(val.text) +
+      final nextText =
+          val.selection.textBefore(val.text) +
           val.selection.textAfter(val.text);
       _composerController.value = TextEditingValue(
         text: nextText,
@@ -859,7 +860,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   KeyEventResult _handleComposerFocusKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final isMetaOrControl = HardwareKeyboard.instance.isMetaPressed ||
+    final isMetaOrControl =
+        HardwareKeyboard.instance.isMetaPressed ||
         HardwareKeyboard.instance.isControlPressed;
     if (!isMetaOrControl) return KeyEventResult.ignored;
 
@@ -877,7 +879,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   bool _handleGlobalKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
-    final isMetaOrControl = HardwareKeyboard.instance.isMetaPressed ||
+    final isMetaOrControl =
+        HardwareKeyboard.instance.isMetaPressed ||
         HardwareKeyboard.instance.isControlPressed;
     if (!isMetaOrControl) return false;
 
@@ -1361,11 +1364,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     showCupertinoModalPopup<void>(
       context: context,
       builder: (ctx) => CupertinoActionSheet(
-        title: Text(
-          emojiText,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
+        title: Text(emojiText, maxLines: 2, overflow: TextOverflow.ellipsis),
         actions: [
           CupertinoActionSheetAction(
             onPressed: () {
@@ -1871,7 +1870,8 @@ class _ComposerBar extends StatelessWidget {
               contextMenuBuilder: (context, editableTextState) {
                 final buttonItems = editableTextState.contextMenuButtonItems;
                 final modifiedItems = buttonItems.map((item) {
-                  final isCopy = item.type == ContextMenuButtonType.copy ||
+                  final isCopy =
+                      item.type == ContextMenuButtonType.copy ||
                       item.kind == ContextMenuButtonKind.copy ||
                       item.label?.toLowerCase() == 'copy';
                   if (isCopy) {
@@ -1891,7 +1891,8 @@ class _ComposerBar extends StatelessWidget {
                       },
                     );
                   }
-                  final isCut = item.type == ContextMenuButtonType.cut ||
+                  final isCut =
+                      item.type == ContextMenuButtonType.cut ||
                       item.kind == ContextMenuButtonKind.cut ||
                       item.label?.toLowerCase() == 'cut';
                   if (isCut) {

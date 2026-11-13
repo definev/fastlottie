@@ -21,10 +21,7 @@ Future<Uint8List> render(void Function(Canvas) draw, {int size = 256}) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  final fixtures = {
-    'emoji_u1f31a': bytes1f31a,
-    'emoji_u1f31d': bytes1f31d,
-  };
+  final fixtures = {'emoji_u1f31a': bytes1f31a, 'emoji_u1f31d': bytes1f31d};
 
   for (final entry in fixtures.entries) {
     final name = entry.key;
@@ -37,7 +34,11 @@ void main() {
       final duration = comp.endFrame - comp.startFrame;
 
       final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
-      final session = FastLottieSoftwareSession(comp, pixelWidth: size, pixelHeight: size);
+      final session = FastLottieSoftwareSession(
+        comp,
+        pixelWidth: size,
+        pixelHeight: size,
+      );
       addTearDown(player.dispose);
       addTearDown(session.dispose);
 
@@ -84,11 +85,15 @@ void main() {
 
         if (badFraction > 0.05) {
           // ignore: avoid_print
-          print('$name SOFTWARE MISMATCH at frame $f: MAE=$mae, badFraction=$badFraction');
+          print(
+            '$name SOFTWARE MISMATCH at frame $f: MAE=$mae, badFraction=$badFraction',
+          );
         }
       }
       // ignore: avoid_print
-      print('Software vs Vector $name: max MAE=$maxMae at frame $worstFrame, max badFraction=$maxBad');
+      print(
+        'Software vs Vector $name: max MAE=$maxMae at frame $worstFrame, max badFraction=$maxBad',
+      );
       expect(maxMae, lessThan(0.5));
       expect(maxBad, lessThan(0.01));
     });
