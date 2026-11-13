@@ -128,8 +128,20 @@ void main() {
       ],
     );
     final expected = ui.Path()
-      ..addRect(ui.Rect.fromCenter(center: const ui.Offset(50, 50), width: 40, height: 40))
-      ..addRect(ui.Rect.fromCenter(center: const ui.Offset(100, 50), width: 40, height: 40));
+      ..addRect(
+        ui.Rect.fromCenter(
+          center: const ui.Offset(50, 50),
+          width: 40,
+          height: 40,
+        ),
+      )
+      ..addRect(
+        ui.Rect.fromCenter(
+          center: const ui.Offset(100, 50),
+          width: 40,
+          height: 40,
+        ),
+      );
     await compareAgainstPath(json, expected);
   });
 
@@ -142,9 +154,17 @@ void main() {
       ],
     );
     final r = ui.Path()
-      ..addRect(ui.Rect.fromCenter(center: const ui.Offset(80, 80), width: 80, height: 80));
+      ..addRect(
+        ui.Rect.fromCenter(
+          center: const ui.Offset(80, 80),
+          width: 80,
+          height: 80,
+        ),
+      );
     final c = ui.Path()
-      ..addOval(ui.Rect.fromCircle(center: const ui.Offset(100, 80), radius: 40));
+      ..addOval(
+        ui.Rect.fromCircle(center: const ui.Offset(100, 80), radius: 40),
+      );
     final expected = ui.Path.combine(ui.PathOperation.union, c, r);
     await compareAgainstPath(json, expected);
   });
@@ -158,9 +178,17 @@ void main() {
       ],
     );
     final r = ui.Path()
-      ..addRect(ui.Rect.fromCenter(center: const ui.Offset(100, 100), width: 100, height: 100));
+      ..addRect(
+        ui.Rect.fromCenter(
+          center: const ui.Offset(100, 100),
+          width: 100,
+          height: 100,
+        ),
+      );
     final c = ui.Path()
-      ..addOval(ui.Rect.fromCircle(center: const ui.Offset(100, 100), radius: 25));
+      ..addOval(
+        ui.Rect.fromCircle(center: const ui.Offset(100, 100), radius: 25),
+      );
     final expected = ui.Path.combine(ui.PathOperation.reverseDifference, c, r);
     await compareAgainstPath(json, expected);
   });
@@ -174,9 +202,13 @@ void main() {
       ],
     );
     final c1 = ui.Path()
-      ..addOval(ui.Rect.fromCircle(center: const ui.Offset(90, 100), radius: 40));
+      ..addOval(
+        ui.Rect.fromCircle(center: const ui.Offset(90, 100), radius: 40),
+      );
     final c2 = ui.Path()
-      ..addOval(ui.Rect.fromCircle(center: const ui.Offset(110, 100), radius: 40));
+      ..addOval(
+        ui.Rect.fromCircle(center: const ui.Offset(110, 100), radius: 40),
+      );
     final expected = ui.Path.combine(ui.PathOperation.intersect, c2, c1);
     await compareAgainstPath(json, expected);
   });
@@ -190,30 +222,77 @@ void main() {
       ],
     );
     final c1 = ui.Path()
-      ..addOval(ui.Rect.fromCircle(center: const ui.Offset(90, 100), radius: 40));
+      ..addOval(
+        ui.Rect.fromCircle(center: const ui.Offset(90, 100), radius: 40),
+      );
     final c2 = ui.Path()
-      ..addOval(ui.Rect.fromCircle(center: const ui.Offset(110, 100), radius: 40));
+      ..addOval(
+        ui.Rect.fromCircle(center: const ui.Offset(110, 100), radius: 40),
+      );
     final expected = ui.Path.combine(ui.PathOperation.xor, c2, c1);
     await compareAgainstPath(json, expected);
   });
 
-  test('single shape before mode 4 yields empty region', () async {
+  test('software booleans combine nested operands with their own winding', () {
+    final right = rectShape(x: 130, y: 100, w: 100, h: 100)..['d'] = 3;
+    final left = rectShape(x: 90, y: 100, w: 100, h: 100);
+    for (final (mode, expected) in [
+      (1, [255, 0, 255, 0]),
+      (2, [255, 255, 255, 0]),
+      (3, [255, 0, 0, 0]),
+      (4, [0, 255, 0, 0]),
+      (5, [255, 0, 255, 0]),
+    ]) {
+      final comp = FastLottieComposition.fromJson(
+        mergeScene(
+          items: [
+            left,
+            mergeOp(1),
+            {
+              'ty': 'gr',
+              'it': [right],
+            },
+            mergeOp(mode),
+          ],
+        ),
+      );
+      for (final preferNative in [true, false]) {
+        final session = FastLottieSoftwareSession(
+          comp,
+          pixelWidth: 256,
+          pixelHeight: 256,
+          preferNative: preferNative,
+        );
+        addTearDown(session.dispose);
+        final pixels = session.renderFrame(0);
+        expect(
+          [
+            for (final x in [60, 110, 160, 200]) pixels[100 * 256 + x] >>> 24,
+          ],
+          expected,
+          reason: 'mode $mode, preferNative=$preferNative',
+        );
+      }
+    }
+  });
+
+  test('Intersect with one operand preserves the outline', () async {
     final json = mergeScene(
-      items: [
-        circleShape(x: 100, y: 100, r: 40),
-        mergeOp(4),
-      ],
+      items: [circleShape(x: 100, y: 100, r: 40), mergeOp(4)],
+    );
+    await compareAgainstPath(
+      json,
+      ui.Path()..addOval(
+        ui.Rect.fromCircle(center: const ui.Offset(100, 100), radius: 40),
+      ),
     );
     final comp = FastLottieComposition.fromJson(json);
-    final p = FastLottiePlayer(comp, cache: FastLottieCache.none);
-    final pixels = await render(
-      (canvas) => p.draw(canvas, const ui.Rect.fromLTWH(0, 0, 256, 256), 0),
+    final plain = FastLottieComposition.fromJson(
+      mergeScene(items: [circleShape(x: 100, y: 100, r: 40)]),
     );
-    var nonZero = 0;
-    for (var i = 0; i < pixels.length; i += 4) {
-      if (pixels[i + 3] > 0) nonZero++;
-    }
-    expect(nonZero, 0);
+    // Lowering to the original shape also gives the corrected frame a new
+    // cache identity relative to the old, empty boolean result.
+    expect(comp.contentKey, plain.contentKey);
   });
 
   test('software rasterizer renders merge paths accurately', () async {
@@ -252,8 +331,18 @@ void main() {
       ],
     );
     final comp = FastLottieComposition.fromJson(json);
-    final sw0 = debugRenderSoftwareFrame(comp, 0, pixelWidth: 256, pixelHeight: 256);
-    final sw30 = debugRenderSoftwareFrame(comp, 30, pixelWidth: 256, pixelHeight: 256);
+    final sw0 = debugRenderSoftwareFrame(
+      comp,
+      0,
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
+    final sw30 = debugRenderSoftwareFrame(
+      comp,
+      30,
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
     expect(sw0, isNot(equals(sw30)));
   });
 
@@ -283,7 +372,7 @@ void main() {
   testWidgets(
     'background worker isolate rasterizes merge path stickers without UI isolate error',
     (tester) async {
-      final file = File('example/assets/tgs/NotoEmoji/emoji_u1f192.tgs');
+      final file = File('example/assets/tgs/NotoEmoji/emoji_u1f345.tgs');
       if (!file.existsSync()) return;
       final comp = FastLottieComposition.fromBytes(file.readAsBytesSync());
 

@@ -43,6 +43,71 @@ void simdFillSolidSpans(
   int srcPremul,
 ) {}
 
+bool nativeBlendRect(
+  NativePixelBuffer dst,
+  int offset,
+  int stride,
+  NativePixelBuffer src,
+  int width,
+  int height,
+  int mode,
+) => false;
+
+bool nativeBlendSolid(
+  NativePixelBuffer dst,
+  int originX,
+  int originY,
+  int stride,
+  NativeSpansBuffer spans,
+  int count,
+  int color,
+  int mode,
+) => false;
+
+bool get isNativeGradientSupported => false;
+
+bool nativeInnerShadow(
+  NativePixelBuffer dst,
+  int offset,
+  int stride,
+  NativePixelBuffer src,
+  int sw,
+  int sh,
+  int x0,
+  int y0,
+  int w,
+  int h,
+  int stepX,
+  int stepY,
+  int wx,
+  int wy,
+  int tint,
+  int opacity,
+) => false;
+
+void nativeGradientSpans(
+  NativePixelBuffer dst,
+  int ox,
+  int oy,
+  int stride,
+  NativeSpansBuffer spans,
+  int count,
+  NativePixelBuffer lut,
+  int opacity,
+  int mode,
+  bool radial,
+  double ia,
+  double ib,
+  double ic,
+  double id,
+  double itx,
+  double ity,
+  double sx,
+  double sy,
+  double ex,
+  double ey,
+) {}
+
 abstract class NativeCoverageWorkspace {
   static NativeCoverageWorkspace? tryCreate() => null;
   static NativeCoverageWorkspace? acquire() => null;

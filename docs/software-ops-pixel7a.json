@@ -1,0 +1,169 @@
+{
+  "device": "Pixel 7a",
+  "android": "17",
+  "build": "release arm64",
+  "frames_per_run": 384,
+  "warmup_frames_per_run": 128,
+  "results": {
+    "before": {
+      "static_masks": {
+        "size": 256,
+        "sessions": 1,
+        "median_us": 496.176,
+        "p95_us": 541.544,
+        "p95_runs_us": [
+          470.581,
+          541.544,
+          765.909
+        ],
+        "retained_coverage_bytes": 1408,
+        "scratch_pixel_bytes": 0
+      },
+      "multiply_dense": {
+        "size": 512,
+        "sessions": 1,
+        "median_us": 4069.011,
+        "p95_us": 4905.07,
+        "p95_runs_us": [
+          4778.564,
+          4905.07,
+          6436.768
+        ],
+        "retained_coverage_bytes": 8336,
+        "scratch_pixel_bytes": 1032256
+      },
+      "multiply_sparse": {
+        "size": 512,
+        "sessions": 1,
+        "median_us": 1600.749,
+        "p95_us": 1659.953,
+        "p95_runs_us": [
+          1569.214,
+          1659.953,
+          2612.548
+        ],
+        "retained_coverage_bytes": 5440,
+        "scratch_pixel_bytes": 929296
+      },
+      "multiply_gradient": {
+        "size": 512,
+        "sessions": 1,
+        "median_us": 12402.181,
+        "p95_us": 12485.026,
+        "p95_runs_us": [
+          10929.443,
+          12485.026,
+          17252.034
+        ],
+        "retained_coverage_bytes": 8336,
+        "scratch_pixel_bytes": 1032256
+      },
+      "screen_gradient": {
+        "size": 512,
+        "sessions": 1,
+        "median_us": 11762.045,
+        "p95_us": 11852.417,
+        "p95_runs_us": [
+          9743.327,
+          11852.417,
+          15341.43
+        ],
+        "retained_coverage_bytes": 8336,
+        "scratch_pixel_bytes": 1032256
+      },
+      "emoji_16": {
+        "size": 128,
+        "sessions": 16,
+        "median_us": 8689.9,
+        "p95_us": 10264.323,
+        "p95_runs_us": [
+          7888.062,
+          10264.323,
+          14021.078
+        ],
+        "retained_coverage_bytes": 576,
+        "scratch_pixel_bytes": 997120
+      }
+    },
+    "after": {
+      "static_masks": {
+        "size": 256,
+        "sessions": 1,
+        "median_us": 79.712,
+        "p95_us": 80.974,
+        "p95_runs_us": [
+          80.974,
+          80.566,
+          85.612
+        ],
+        "retained_coverage_bytes": 20440,
+        "scratch_pixel_bytes": 0
+      },
+      "multiply_dense": {
+        "size": 512,
+        "sessions": 1,
+        "median_us": 344.564,
+        "p95_us": 382.406,
+        "p95_runs_us": [
+          324.789,
+          382.406,
+          393.637
+        ],
+        "retained_coverage_bytes": 8336,
+        "scratch_pixel_bytes": 0
+      },
+      "multiply_sparse": {
+        "size": 512,
+        "sessions": 1,
+        "median_us": 204.427,
+        "p95_us": 231.608,
+        "p95_runs_us": [
+          163.127,
+          231.608,
+          236.45
+        ],
+        "retained_coverage_bytes": 5440,
+        "scratch_pixel_bytes": 0
+      },
+      "multiply_gradient": {
+        "size": 512,
+        "sessions": 1,
+        "median_us": 5065.551,
+        "p95_us": 5637.573,
+        "p95_runs_us": [
+          5637.573,
+          5440.959,
+          6149.252
+        ],
+        "retained_coverage_bytes": 8336,
+        "scratch_pixel_bytes": 1032256
+      },
+      "screen_gradient": {
+        "size": 512,
+        "sessions": 1,
+        "median_us": 4975.627,
+        "p95_us": 5096.477,
+        "p95_runs_us": [
+          5058.838,
+          5096.477,
+          5995.809
+        ],
+        "retained_coverage_bytes": 8336,
+        "scratch_pixel_bytes": 1032256
+      },
+      "emoji_16": {
+        "size": 128,
+        "sessions": 16,
+        "median_us": 7372.558,
+        "p95_us": 8557.698,
+        "p95_runs_us": [
+          8557.698,
+          8407.023,
+          11068.888
+        ],
+        "retained_coverage_bytes": 576,
+        "scratch_pixel_bytes": 997120
+      }
+    }
+  }
+}

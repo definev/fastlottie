@@ -89,7 +89,8 @@ class BitstreamStore {
   }
 
   static const int magic = 0x464C4331; // 'FLC1'
-  static const int version = 1;
+  // Version 2 invalidates pixels cached before the blend and mask fixes.
+  static const int version = 2;
   static const int headerSize = 32;
   static const int slotSize = 16;
   static const int flagCompleted = 1 << 0;

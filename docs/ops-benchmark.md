@@ -8,6 +8,108 @@ Tất cả các số liệu dưới đây được đo thực tế trên máy ma
 
 ---
 
+## Pixel 7a: bỏ group không đổi hình và chuyên biệt Multiply
+
+Chạy từ `example/` với `--dart-define=FASTLOTTIE_GROUP_BENCH=true` hoặc
+`--dart-define=FASTLOTTIE_GRADIENT_BENCH=true` trên cùng target benchmark bên
+dưới. Bảng lấy trung vị của ba p95; mỗi lượt đo 384 frame sau 128 frame làm
+nóng. [Số đo từng lượt và các fixture đối chứng](software-dispatch-pixel7a.json).
+
+| Fixture | p95 trước | p95 sau |
+| --- | ---: | ---: |
+| 64 hình nhỏ, group sâu 1 | 32.5 µs | 35.1 µs |
+| 64 hình nhỏ, group sâu 8 | 67.3 µs | 35.7 µs |
+| 64 hình nhỏ, group sâu 32 | 170.2 µs | 36.1 µs |
+| Linear + Multiply, 512×512 | 5.37 ms | 4.61 ms |
+| Radial + Multiply, 512×512 | 6.13 ms | 5.00 ms |
+
+Group identity với opacity 100% được bỏ qua trong danh sách lệnh vẽ
+software; cây path và cache key giữ nguyên. Fixture group giữ nguyên hình
+và diện tích phủ ở mọi độ sâu. Kernel gradient chọn công thức Multiply
+trước khi duyệt span. Thử chuyên biệt thêm Screen cho kết quả chậm hơn,
+nên Screen giữ đường ghép chung.
+
+## Pixel 7a: tô gradient trực tiếp trên span
+
+Chạy từ `example/`:
+`flutter run --release --dart-define=FASTLOTTIE_GRADIENT_BENCH=true -t lib/software_ops_benchmark.dart`.
+So sánh với renderer đã có kernel ghép layer NEON ở mục kế tiếp. Mỗi bản
+chạy ba lần xen kẽ ở 512×512; bỏ 128 frame làm nóng rồi đo 384 frame mỗi lượt.
+Bảng lấy trung vị của ba p95. Normal vẽ một layer; Multiply và Screen có
+thêm một layer nền gradient. Cả tám fixture dùng stop màu tĩnh.
+[Số đo từng lượt](software-gradient-pixel7a.json).
+
+| Gradient | Blend | p95 trước (ms) | p95 sau (ms) |
+| --- | --- | ---: | ---: |
+| Linear, điểm cuối tĩnh | Normal | 3,20 | 1,06 |
+| Linear, điểm cuối động | Normal | 3,21 | 1,17 |
+| Linear, điểm cuối động | Multiply | 6,78 | 5,34 |
+| Linear, điểm cuối động | Screen | 7,29 | 3,94 |
+| Radial, điểm cuối tĩnh | Normal | 3,39 | 1,85 |
+| Radial, điểm cuối động | Normal | 3,67 | 1,83 |
+| Radial, điểm cuối động | Multiply | 7,19 | 6,19 |
+| Radial, điểm cuối động | Screen | 7,35 | 5,07 |
+
+Layer chỉ có một gradient trên đường native bỏ được 1.008 KiB buffer pixel
+tạm trong cả bốn fixture Multiply và Screen. Layer có nhiều paint vẫn cần
+gom riêng để giữ đúng phép ghép. Màu và alpha stop tĩnh dùng lại LUT khi
+điểm đầu/cuối thay đổi. Benchmark đo tổng tác động của LUT và kernel native,
+chưa tách riêng phần tăng tốc của LUT.
+
+## Pixel 7a: cache mask và blend theo span / NEON
+
+Chạy từ `example/`: `flutter run --release -t lib/software_ops_benchmark.dart`.
+Đo bản ARM64 release trên Pixel 7a (Android 17), trước và sau đợt tối ưu
+cache mask và blend native. Mỗi bản chạy ba lần, mỗi lần làm nóng 128 frame
+rồi đo 384 mẫu; bảng lấy trung vị của ba p95. Đây là thời gian CPU của
+software renderer, không gồm giải mã, upload ảnh hay lịch khung hình của UI.
+[Số liệu từng lượt và bộ nhớ](software-ops-pixel7a.json).
+
+| Workload | p95 trước (ms) | p95 sau (ms) | Buffer pixel tạm trước → sau |
+| --- | ---: | ---: | ---: |
+| 8 mask tĩnh, layer đổi opacity, 256×256 | 0,542 | 0,081 | 0 → 0 |
+| Multiply màu phẳng phủ gần kín, 512×512 | 4,905 | 0,382 | 1.008 KiB → 0 |
+| Multiply màu phẳng thưa, 512×512 | 1,660 | 0,232 | 908 KiB → 0 |
+| Multiply gradient, 512×512 | 12,485 | 5,638 | 1.008 KiB → 1.008 KiB |
+| Screen gradient, 512×512 | 11,852 | 5,096 | 1.008 KiB → 1.008 KiB |
+| 16 emoji, mỗi emoji 128×128, render tuần tự trong một mẫu | 10,264 | 8,558 | 974 KiB → 974 KiB |
+
+Buffer pixel tạm là dung lượng các plane renderer giữ lại cuối phép đo,
+không gồm framebuffer, span hoặc RSS của tiến trình. Coverage của mask và
+hình vẽ dùng chung LRU giới hạn 1 MiB/workspace; fixture mask giữ khoảng
+20 KiB thay cho khoảng 1,4 KiB trước đó. Cache xét transform và clip box,
+và kết hợp với mask cha sau khi tra cache.
+
+Layer chỉ có một paint màu phẳng blend thẳng trên các span đã phủ. Layer
+cần gom nhiều paint hoặc có gradient vẫn dùng buffer tạm. Multiply và
+Screen ghép buffer bằng NEON trên ARM64; đường Dart vẫn cho cùng pixel.
+Kết quả 16 emoji dao động giữa các lượt (xem JSON), nên không dùng số đo đó
+để suy ra FPS của gallery.
+
+## Software renderer: đo lại sau tối ưu
+
+Chạy `flutter test --no-pub tool/benchmark_warm_ops.dart -r expanded`.
+Kết quả dưới đây đo trên macOS / Apple M5 ở 256×256, so với commit `4ccf32e`.
+Mỗi số là median của 7 lô 600 frame sau một lô làm nóng. Phép đo dùng lại
+`FastLottieSoftwareSession`, nên không tính khởi tạo session, sao chép pixel
+hay upload ảnh.
+
+| Fixture | Trước (µs/frame) | Sau (µs/frame) |
+| --- | ---: | ---: |
+| Multiply | 339,2 | 58,3 |
+| Screen | 415,1 | 65,5 |
+| Overlay | 414,8 | 56,0 |
+| Difference | 513,5 | 56,9 |
+| PolyStar bo góc, xoay động | 63,8 | 57,6 |
+| Phoenix | 310,1 | 282,0 |
+| Ant | 106,6 | 102,2 |
+| Bubble Tea | 42,3 | 304,3 |
+
+Các fixture Merge Paths nằm trong khoảng 2–8 µs/frame khi dùng lại coverage.
+Thời gian Bubble Tea tăng vì bản cũ không vẽ phần lớn thân ly và nội dung
+bên trong. Số liệu bên dưới là benchmark lịch sử đo cả chi phí tạo session,
+không so sánh trực tiếp với bảng này.
+
 ## 1. Tác động lên tỷ lệ hỗ trợ Telegram Sticker (TGS)
 
 Trước khi thực hiện chuỗi tối ưu:
@@ -64,7 +166,7 @@ Các sticker Telegram thực tế có cấu trúc precomposition nhiều tầng,
 
 1. **Dual-Pipeline Parity**:
    - **Vector Canvas**: Sử dụng `Path.combine` cho Merge Paths và `saveLayer(bounds, contentPaint..blendMode)` cho Blend Modes, tận dụng tối đa Skia/Impeller hardware acceleration trên GPU.
-   - **Software RLE Rasterizer**: Sử dụng `_PolyPath` metric sampling với dynamic flatness tolerance và `_SwarBlender.compositeBlended` với integer fixed-point arithmetic, hoàn toàn Isolate-safe, không tốn GPU allocations.
+   - **Software RLE Rasterizer**: Kết hợp coverage của các toán hạng Merge Paths trực tiếp trên span cho fill; biên khử răng cưa là xấp xỉ ở độ phân giải đích. Blend mode dùng số nguyên premultiplied và dùng lại kết quả cho các cặp pixel liên tiếp giống nhau. Hai đường này chạy được trong worker isolate.
 2. **So sánh với `lottie-flutter` (`package:lottie 3.8.2`)**:
    - `fastlottie` khắc phục triệt để lỗi thiết kế trong `package:lottie` (nơi `enableMergePaths` bị bỏ qua trong constructor và không kích hoạt được `MergePathsContent`).
    - Tốc độ render Vector Canvas nhanh hơn từ 3x đến 10x so với `package:lottie`.

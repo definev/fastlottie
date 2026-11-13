@@ -1,8 +1,15 @@
 part of '../fastlottie.dart';
 
 class _GradientSpec {
-  _GradientSpec(this.count, this.stops, this.start, this.end, this.radial)
-    : _alphaCount = math.max(0, (stops.valueCount - count * 4) ~/ 2),
+  _GradientSpec(
+    this.count,
+    this.stops,
+    this.start,
+    this.end,
+    this.radial,
+    this.highlightLength,
+    this.highlightAngle,
+  ) : _alphaCount = math.max(0, (stops.valueCount - count * 4) ~/ 2),
       _rgb = Float32List(count * 3),
       _scratchOffsets = Float64List(
         math.max(2, count + math.max(0, (stops.valueCount - count * 4) ~/ 2)),
@@ -10,14 +17,36 @@ class _GradientSpec {
   final int count;
   final int _alphaCount;
   final _Track stops, start, end;
+  final _Track? highlightLength, highlightAngle;
+  bool get hasFocalPoint =>
+      radial &&
+      highlightLength != null &&
+      (!highlightLength!.isStatic || highlightLength!.scalar(0) != 0);
   final bool radial;
   final Float32List _rgb;
   final Float64List _scratchOffsets;
   List<Color>? _cachedColors;
   List<double>? _cachedOffsets;
-  bool get isStatic => stops.isStatic && start.isStatic && end.isStatic;
+  bool get isStatic =>
+      stops.isStatic &&
+      start.isStatic &&
+      end.isStatic &&
+      (!radial ||
+          ((highlightLength?.isStatic ?? true) &&
+              (highlightAngle?.isStatic ?? true)));
   ui.Shader? _cached;
   double _last = double.nan;
+
+  // Focal point relative to the center, in units of the radius.
+  (double, double)? focalOffset(double frame, double dx, double dy) {
+    final length = (highlightLength?.scalar(frame) ?? 0) * .01;
+    if (length == 0) return null;
+    final fraction = length <= -1 ? -.99 : (length >= 1 ? .99 : length);
+    final angle =
+        math.atan2(dy, dx) +
+        (highlightAngle?.scalar(frame) ?? 0) * math.pi / 180;
+    return (math.cos(angle) * fraction, math.sin(angle) * fraction);
+  }
 
   double _alphaAt(Float32List values, double p) {
     if (_alphaCount == 0) return 1;
@@ -114,13 +143,17 @@ class _GradientSpec {
       offsets[1] = 1;
     }
     final a = Offset(s[0], s[1]), b = Offset(e[0], e[1]);
-    return _cached = radial
-        ? ui.Gradient.radial(
-            a,
-            math.max(.001, (b - a).distance),
-            colors,
-            offsets,
-          )
-        : ui.Gradient.linear(a, b, colors, offsets);
+    if (!radial) return _cached = ui.Gradient.linear(a, b, colors, offsets);
+    final radius = math.max(.001, (b - a).distance);
+    final focus = focalOffset(frame, b.dx - a.dx, b.dy - a.dy);
+    return _cached = ui.Gradient.radial(
+      a,
+      radius,
+      colors,
+      offsets,
+      TileMode.clamp,
+      null,
+      focus == null ? null : a + Offset(focus.$1, focus.$2) * radius,
+    );
   }
 }

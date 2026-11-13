@@ -59,6 +59,318 @@ external void _nativeFillSolidSpansAsset(
   int srcPremul,
 );
 
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+  )
+>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fastlottie_blend_rect',
+)
+external void _blendRect(
+  ffi.Pointer<ffi.Uint32> dst,
+  int offset,
+  int stride,
+  ffi.Pointer<ffi.Uint32> src,
+  int width,
+  int height,
+  int mode,
+);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Int32,
+    ffi.Uint32,
+    ffi.Int32,
+  )
+>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fastlottie_blend_solid',
+)
+external void _blendSolid(
+  ffi.Pointer<ffi.Uint32> dst,
+  int originX,
+  int originY,
+  int stride,
+  ffi.Pointer<ffi.Int32> spans,
+  int count,
+  int color,
+  int mode,
+);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Int32,
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+  )
+>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fastlottie_gradient_spans',
+)
+external void _gradientSpans(
+  ffi.Pointer<ffi.Uint32> dst,
+  int ox,
+  int oy,
+  int stride,
+  ffi.Pointer<ffi.Int32> spans,
+  int count,
+  ffi.Pointer<ffi.Uint32> lut,
+  int opacity,
+  int mode,
+  int radial,
+  double ia,
+  double ib,
+  double ic,
+  double id,
+  double itx,
+  double ity,
+  double sx,
+  double sy,
+  double ex,
+  double ey,
+);
+
+final bool isNativeGradientSupported = () {
+  if (!isSimdSupported) return false;
+  try {
+    // A zero-span call probes the symbol without reading any buffers.
+    _gradientSpans(
+      ffi.nullptr,
+      0,
+      0,
+      0,
+      ffi.nullptr,
+      0,
+      ffi.nullptr,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+    );
+    return true;
+  } on ArgumentError {
+    return false;
+  }
+}();
+
+void nativeGradientSpans(
+  NativePixelBuffer dst,
+  int ox,
+  int oy,
+  int stride,
+  NativeSpansBuffer spans,
+  int count,
+  NativePixelBuffer lut,
+  int opacity,
+  int mode,
+  bool radial,
+  double ia,
+  double ib,
+  double ic,
+  double id,
+  double itx,
+  double ity,
+  double sx,
+  double sy,
+  double ex,
+  double ey,
+) {
+  _gradientSpans(
+    dst.ptr!,
+    ox,
+    oy,
+    stride,
+    spans.ptr!,
+    count,
+    lut.ptr!,
+    opacity,
+    mode,
+    radial ? 1 : 0,
+    ia,
+    ib,
+    ic,
+    id,
+    itx,
+    ity,
+    sx,
+    sy,
+    ex,
+    ey,
+  );
+}
+
+// Older native libraries can still provide coverage and solid fill.
+bool _hasBlendRect = true;
+bool _hasBlendSolid = true;
+bool _hasInnerShadow = true;
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Uint32,
+    ffi.Uint32,
+  )
+>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fastlottie_inner_shadow',
+)
+external void _innerShadow(
+  ffi.Pointer<ffi.Uint32> dst,
+  int offset,
+  int stride,
+  ffi.Pointer<ffi.Uint32> src,
+  int sw,
+  int sh,
+  int x0,
+  int y0,
+  int w,
+  int h,
+  int stepX,
+  int stepY,
+  int wx,
+  int wy,
+  int tint,
+  int opacity,
+);
+
+bool nativeInnerShadow(
+  NativePixelBuffer dst,
+  int offset,
+  int stride,
+  NativePixelBuffer src,
+  int sw,
+  int sh,
+  int x0,
+  int y0,
+  int w,
+  int h,
+  int stepX,
+  int stepY,
+  int wx,
+  int wy,
+  int tint,
+  int opacity,
+) {
+  final d = dst.ptr, s = src.ptr;
+  if (!_hasInnerShadow || d == null || s == null) return false;
+  try {
+    _innerShadow(
+      d,
+      offset,
+      stride,
+      s,
+      sw,
+      sh,
+      x0,
+      y0,
+      w,
+      h,
+      stepX,
+      stepY,
+      wx,
+      wy,
+      tint,
+      opacity,
+    );
+    return true;
+  } on ArgumentError {
+    _hasInnerShadow = false;
+    return false;
+  }
+}
+
+bool nativeBlendRect(
+  NativePixelBuffer dst,
+  int offset,
+  int stride,
+  NativePixelBuffer src,
+  int width,
+  int height,
+  int mode,
+) {
+  final d = dst.ptr, s = src.ptr;
+  if (!_hasBlendRect || d == null || s == null) return false;
+  try {
+    _blendRect(d, offset, stride, s, width, height, mode);
+    return true;
+  } on ArgumentError {
+    _hasBlendRect = false;
+    return false;
+  }
+}
+
+bool nativeBlendSolid(
+  NativePixelBuffer dst,
+  int originX,
+  int originY,
+  int stride,
+  NativeSpansBuffer spans,
+  int count,
+  int color,
+  int mode,
+) {
+  final d = dst.ptr, s = spans.ptr;
+  if (!_hasBlendSolid || d == null || s == null) return false;
+  try {
+    _blendSolid(d, originX, originY, stride, s, count, color, mode);
+    return true;
+  } on ArgumentError {
+    _hasBlendSolid = false;
+    return false;
+  }
+}
+
 _DartClearPixels? _nativeClearPixels;
 _DartFillSolidSpans? _nativeFillSolidSpans;
 

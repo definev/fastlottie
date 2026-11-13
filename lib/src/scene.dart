@@ -80,6 +80,8 @@ class _Transform {
           ? _isConst2(position, 0, 0)
           : (_isConst1(x, 0) && _isConst1(y, 0)));
   late final bool isStatic = isSpatialStatic && opacity.isStatic;
+  late final bool isFullyOpaque = _isConst1(opacity, 100);
+  bool get isDrawIdentity => isSpatialIdentity && isFullyOpaque;
 
   void _evalTranslation(double frame) {
     if (_lastFrame == frame || (isSpatialStatic && !_lastFrame.isNaN)) return;
@@ -146,13 +148,7 @@ class _Transform {
 }
 
 class _Mask {
-  _Mask(
-    this.geometry,
-    this.mode,
-    this.opacity,
-    this.inverted, {
-    this.expand,
-  });
+  _Mask(this.geometry, this.mode, this.opacity, this.inverted, {this.expand});
   final _BezierGeometry geometry;
   final String mode; // 'a', 's', 'i', 'f', 'n'
   final _Track opacity;
@@ -160,11 +156,68 @@ class _Mask {
   final _Track? expand;
 
   late final bool isStatic =
-      geometry.isStatic &&
-      opacity.isStatic &&
-      (expand?.isStatic ?? true);
+      geometry.isStatic && opacity.isStatic && (expand?.isStatic ?? true);
 
-  Path path(double frame) => geometry.path(frame);
+  bool get clipsToPathAlone =>
+      !inverted && (mode == 'a' || mode == 'i' || mode == 'f');
+
+  Path path(double frame) {
+    final amount = expand?.scalar(frame) ?? 0;
+    final original = geometry.path(frame);
+    if (amount == 0) return original;
+    final outline = _PolyPath();
+    final band = _PolyPath();
+    _flattenLeaf(geometry, frame, .01, outline);
+    _expandMaskBand(outline, amount, .1, band, _StrokeScratch());
+    final border = Path();
+    for (var i = 0; i < band.contourCount; i++) {
+      final start = band.contourStart[i], end = band.contourEnd[i];
+      border.moveTo(band.vx[start], band.vy[start]);
+      for (var j = start + 1; j < end; j++) {
+        border.lineTo(band.vx[j], band.vy[j]);
+      }
+      border.close();
+    }
+    return Path.combine(
+      amount > 0 ? PathOperation.union : PathOperation.difference,
+      original,
+      border,
+    );
+  }
+}
+
+/// Style parameters in composition coordinates (applied after layer transforms).
+class _InnerShadow {
+  _InnerShadow(this.dx, this.dy, this.argb);
+  final double dx, dy;
+  final int argb;
+
+  int get opacity => argb >>> 24;
+
+  late final Paint modulate = Paint()..blendMode = BlendMode.modulate;
+  late final Paint whiteSilhouette = Paint()
+    ..colorFilter = const ColorFilter.mode(Color(0xffffffff), BlendMode.srcIn);
+  late final Paint tint = Paint()
+    ..color = Color.fromARGB(255, channel(16), channel(8), channel(0));
+
+  int channel(int shift) =>
+      255 - _SwarBlender._div255((255 - ((argb >>> shift) & 255)) * opacity);
+}
+
+class _FillEffect {
+  _FillEffect(this.color, this.opacity);
+  final _Track color, opacity;
+
+  bool get isStatic => color.isStatic && opacity.isStatic;
+
+  int argb(double frame) {
+    final rgb = color.at(frame);
+    int byte(double value) => (value.clamp(0.0, 1.0) * 255).round();
+    return (byte(opacity.scalar(frame)) << 24) |
+        (byte(rgb[0]) << 16) |
+        (byte(rgb[1]) << 8) |
+        byte(rgb[2]);
+  }
 }
 
 class _Layer {
@@ -181,6 +234,9 @@ class _Layer {
     this.matteType = 0,
     this.masks,
     this.blendMode = 0,
+    this.innerShadow,
+    this.fillEffect,
+    this.usesSetMatte = false,
   });
   final _Transform transform;
   final _Group? group;
@@ -192,6 +248,9 @@ class _Layer {
   final int matteType;
   final List<_Mask>? masks;
   final int blendMode;
+  final _InnerShadow? innerShadow;
+  final _FillEffect? fillEffect;
+  final bool usesSetMatte;
   _Layer? matte;
   bool isMatteSource = false;
   late final Paint contentPaint = Paint();
@@ -229,8 +288,12 @@ class _Layer {
       (timeRemap?.isStatic ?? true) &&
       (group?.isStatic ?? true) &&
       (child?.isStatic ?? true) &&
+      (fillEffect?.isStatic ?? true) &&
       (parent?.isStatic ?? true) &&
       (masks?.every((m) => m.isStatic) ?? true);
+  late final bool hasActiveMasks = masks?.any((m) => m.mode != 'n') ?? false;
+  late final bool hasStaticMaskCoverage =
+      masks?.every((m) => m.mode == 'n' || m.isStatic) ?? false;
   late final bool hasStaticSpatialChain =
       transform.isSpatialStatic && (parent?.hasStaticSpatialChain ?? true);
 
@@ -269,12 +332,16 @@ class _Layer {
       bounds = _unionRect(bounds, child!.worldBounds(childFrame));
     }
     if (bounds == null) return _cachedWorldBounds = null;
-    if (masks != null && masks!.isNotEmpty) {
+    if (masks != null &&
+        (masks!.length == 1 && masks!.single.clipsToPathAlone ||
+            masks!.every((m) => m.mode == 'a' && !m.inverted))) {
       Rect? maskBounds;
       for (var i = 0; i < masks!.length; i++) {
         final m = masks![i];
-        if (m.mode == 'a' && !m.inverted) {
-          final mb = m.geometry.pathBounds(frame);
+        if (m.clipsToPathAlone) {
+          final mb = m.geometry
+              .pathBounds(frame)
+              ?.inflate(math.max(0, m.expand?.scalar(frame) ?? 0));
           if (mb != null) maskBounds = _unionRect(maskBounds, mb);
         }
       }
@@ -292,29 +359,81 @@ class _Layer {
   bool visible(double frame) =>
       !hidden && (group != null || child != null) && frame >= ip && frame < op;
 
-  int effectiveAlpha(double frame, int parentAlpha) {
-    var a = (parentAlpha * transform.opacity.scalar(frame).round() / 100)
-        .toInt()
-        .clamp(0, 255);
+  int layerAlpha(double frame, int parentAlpha) =>
+      (parentAlpha * transform.opacity.scalar(frame).round() / 100)
+          .toInt()
+          .clamp(0, 255);
+
+  int singleMaskAlpha(double frame) {
     final ms = masks;
-    if (ms != null && ms.length == 1 && ms[0].mode == 'a') {
-      final mo = ms[0].opacity.scalar(frame);
-      if (mo < 100) {
-        a = (a * mo / 100).round().clamp(0, 255);
-      }
+    if (ms != null && ms.length == 1 && ms[0].clipsToPathAlone) {
+      return (ms[0].opacity.scalar(frame) * 255 / 100).round().clamp(0, 255);
     }
-    return a;
+    return 255;
   }
 
-  void draw(Canvas canvas, double frame, int parentAlpha) {
+  int effectiveAlpha(double frame, int parentAlpha) =>
+      (layerAlpha(frame, parentAlpha) * singleMaskAlpha(frame) / 255).round();
+
+  void draw(
+    Canvas canvas,
+    double frame,
+    int parentAlpha, {
+    bool alphaOnly = false,
+  }) {
     if (!visible(frame)) return;
-    final alpha = effectiveAlpha(frame, parentAlpha);
-    if (alpha == 0) return;
+    final alpha = layerAlpha(frame, parentAlpha);
+    final maskAlpha = singleMaskAlpha(frame);
+    if (alpha == 0 || maskAlpha == 0) return;
     final childFrame = timeRemap != null
         ? timeRemap!.scalar(frame) * child!.fps - child!.start
         : (frame - offset) / stretch;
-    final hasActiveMasks = masks != null && masks!.any((m) => m.mode != 'n');
     final uiBlendMode = _resolveBlendMode(blendMode);
+    final fill = fillEffect?.argb(frame);
+    if (fill != null && (!alphaOnly || fill >>> 24 != 255)) {
+      final bounds = worldBounds(frame)?.inflate(1);
+      if (bounds == null) return;
+      final opacity = _SwarBlender._div255((fill >>> 24) * maskAlpha);
+      if (opacity == 0) return;
+      canvas.saveLayer(
+        bounds,
+        Paint()
+          ..blendMode = uiBlendMode ?? BlendMode.srcOver
+          ..colorFilter = ColorFilter.mode(
+            Color((fill & 0xffffff) | (opacity << 24)),
+            BlendMode.srcIn,
+          ),
+      );
+      _drawContent(canvas, frame, childFrame, alpha);
+      canvas.restore();
+      return;
+    }
+    final shadow = alphaOnly && alpha == 255 && maskAlpha == 255
+        ? null
+        : innerShadow;
+    if (shadow != null) {
+      final bounds = worldBounds(frame)?.inflate(1);
+      if (bounds == null) return;
+      final opacity = _SwarBlender._div255(alpha * maskAlpha);
+      canvas.saveLayer(
+        bounds,
+        Paint()
+          ..blendMode = uiBlendMode ?? BlendMode.srcOver
+          ..color = Color.fromARGB(opacity, 0, 0, 0),
+      );
+      _drawContent(canvas, frame, childFrame, 255);
+      // Modulate RGB by an opaque tint. A white copy of the translated
+      // silhouette removes that tint wherever the shadow should not appear.
+      canvas.saveLayer(bounds, shadow.modulate);
+      canvas.drawRect(bounds, shadow.tint);
+      canvas.saveLayer(bounds, shadow.whiteSilhouette);
+      canvas.translate(shadow.dx, shadow.dy);
+      _drawContent(canvas, frame, childFrame, 255);
+      canvas.restore();
+      canvas.restore();
+      canvas.restore();
+      return;
+    }
     if (!hasAnySpatialTransform && !hasActiveMasks && uiBlendMode == null) {
       group?.draw(canvas, frame, alpha);
       child?.draw(canvas, childFrame, alpha);
@@ -330,6 +449,22 @@ class _Layer {
     if (hasActiveMasks) {
       _applyCanvasMasks(canvas, frame);
     }
+    if (maskAlpha != 255) {
+      canvas.saveLayer(
+        null,
+        Paint()..color = Color.fromARGB(maskAlpha, 0, 0, 0),
+      );
+    }
+    group?.draw(canvas, frame, alpha);
+    child?.draw(canvas, childFrame, alpha);
+    if (maskAlpha != 255) canvas.restore();
+    canvas.restore();
+  }
+
+  void _drawContent(Canvas canvas, double frame, double childFrame, int alpha) {
+    canvas.save();
+    applyParents(canvas, frame);
+    if (hasActiveMasks) _applyCanvasMasks(canvas, frame);
     group?.draw(canvas, frame, alpha);
     child?.draw(canvas, childFrame, alpha);
     canvas.restore();
@@ -340,7 +475,7 @@ class _Layer {
     if (list == null || list.isEmpty) return;
     if (list.length == 1) {
       final m = list[0];
-      if (m.mode == 'a' && !m.inverted) {
+      if (m.clipsToPathAlone) {
         canvas.clipPath(m.path(frame));
         return;
       }
@@ -360,9 +495,9 @@ class _Layer {
         final base = combined ?? (Path()..addRect(b));
         combined = Path.combine(PathOperation.difference, base, p);
       } else if (m.mode == 'i' && !m.inverted) {
-        if (combined != null) {
-          combined = Path.combine(PathOperation.intersect, combined, p);
-        }
+        combined = combined == null
+            ? p
+            : Path.combine(PathOperation.intersect, combined, p);
       } else if (m.mode == 'f' && !m.inverted) {
         combined = combined == null
             ? p
@@ -410,6 +545,42 @@ class _Group implements _PathSource, _Draw {
   final List<_PathSource> sources;
   final List<_Draw> draws;
   final _Transform transform;
+  late final bool hasPathContent = sources.any(
+    (s) => s is! _Group || s.hasPathContent,
+  );
+  // Software traversal can bypass groups that cannot change their children's
+  // drawing. Keep the original tree for paths, bounds and content keys.
+  late final List<_Draw> softwareDraws = _flattenIdentityDraws();
+
+  List<_Draw> _flattenIdentityDraws() {
+    if (draws.length == 1) {
+      final child = draws.single;
+      return child is _Group && child.transform.isDrawIdentity
+          ? child.softwareDraws
+          : draws;
+    }
+    List<_Draw>? flat;
+    for (var i = 0; i < draws.length; i++) {
+      final draw = draws[i];
+      if (draw is _Group && draw.transform.isDrawIdentity) {
+        flat ??= draws.sublist(0, i);
+        flat.addAll(draw.softwareDraws);
+      } else {
+        flat?.add(draw);
+      }
+    }
+    return flat ?? draws;
+  }
+
+  // Multiple paint commands must first composite together using source-over.
+  late final _Style? singlePaint = softwareDraws.length != 1
+      ? null
+      : switch (softwareDraws.single) {
+          _Style style => style,
+          _Group group => group.singlePaint,
+          _ => null,
+        };
+  late final bool hasBooleanPath = sources.any(_hasBooleanPath);
   Path? _cachedPath;
   Path? _ownedPath;
   double _lastFrame = double.nan;
@@ -524,6 +695,7 @@ class _MergePathSource implements _PathSource {
   _MergePathSource(this.sources, this.mode);
   final List<_PathSource> sources;
   final int mode;
+  late final bool hasBooleanPath = mode != 1 || sources.any(_hasBooleanPath);
 
   @override
   late final bool isStatic = sources.every((s) => s.isStatic);
@@ -585,7 +757,11 @@ class _MergePathSource implements _PathSource {
     if (_lastBoundsFrame == frame) return _cachedBounds;
     _lastBoundsFrame = frame;
     if (sources.isEmpty) return _cachedBounds = null;
-    if (sources.length == 1) return _cachedBounds = sources[0].pathBounds(frame);
+    if (sources.length == 1) {
+      return _cachedBounds = (mode == 3 || mode == 4)
+          ? null
+          : sources[0].pathBounds(frame);
+    }
 
     if (mode == 4) {
       final b1 = sources.last.pathBounds(frame);
@@ -600,7 +776,8 @@ class _MergePathSource implements _PathSource {
     }
 
     Rect? acc;
-    for (var i = 0; i < sources.length; i++) {
+    final count = mode == 3 ? sources.length - 1 : sources.length;
+    for (var i = 0; i < count; i++) {
       acc = _unionRect(acc, sources[i].pathBounds(frame));
     }
     return _cachedBounds = acc;
@@ -917,21 +1094,23 @@ class _PolyStarGeometry extends _Geometry {
       final outerRoundedness = os / 100.0;
 
       double x, y;
+      var sin = math.sin(currentAngle), cos = math.cos(currentAngle);
       double previousX, previousY;
       var partialPointRadius = 0.0;
       if (partialPointAmount != 0.0) {
         partialPointRadius = ir + partialPointAmount * (or - ir);
-        x = px + partialPointRadius * math.cos(currentAngle);
-        y = py + partialPointRadius * math.sin(currentAngle);
+        x = px + partialPointRadius * cos;
+        y = py + partialPointRadius * sin;
         moveTo(x, y);
         currentAngle += anglePerPoint * partialPointAmount / 2.0;
       } else {
-        x = px + or * math.cos(currentAngle);
-        y = py + or * math.sin(currentAngle);
+        x = px + or * cos;
+        y = py + or * sin;
         moveTo(x, y);
         currentAngle += halfAnglePerPoint;
       }
 
+      var previousRadius = partialPointAmount == 0 ? or : partialPointRadius;
       var longSegment = false;
       final numPoints = (pts.ceil() * 2);
       for (var i = 0; i < numPoints; i++) {
@@ -945,21 +1124,21 @@ class _PolyStarGeometry extends _Geometry {
         }
         previousX = x;
         previousY = y;
-        x = px + radius * math.cos(currentAngle);
-        y = py + radius * math.sin(currentAngle);
+        final prevSin = sin, prevCos = cos;
+        sin = math.sin(currentAngle);
+        cos = math.cos(currentAngle);
+        x = px + radius * cos;
+        y = py + radius * sin;
 
         if (innerRoundedness == 0.0 && outerRoundedness == 0.0) {
           lineTo(x, y);
         } else {
-          final cp1Theta =
-              math.atan2(previousY - py, previousX - px) - math.pi / 2.0;
-          final cp1Dx = math.cos(cp1Theta);
-          final cp1Dy = math.sin(cp1Theta);
-
-          final cp2Theta = math.atan2(y - py, x - px) - math.pi / 2.0;
-          final cp2Dx = math.cos(cp2Theta);
-          final cp2Dy = math.sin(cp2Theta);
-
+          final (cp1Dx, cp1Dy) = _polyStarTangent(
+            prevSin,
+            prevCos,
+            previousRadius,
+          );
+          final (cp2Dx, cp2Dy) = _polyStarTangent(sin, cos, radius);
           final cp1Roundedness = longSegment
               ? innerRoundedness
               : outerRoundedness;
@@ -996,6 +1175,7 @@ class _PolyStarGeometry extends _Geometry {
         }
         currentAngle += dTheta;
         longSegment = !longSegment;
+        previousRadius = radius;
       }
       close();
     } else {
@@ -1006,27 +1186,24 @@ class _PolyStarGeometry extends _Geometry {
       final roundedness = os / 100.0;
 
       double previousX, previousY;
-      var x = px + or * math.cos(currentAngle);
-      var y = py + or * math.sin(currentAngle);
+      var sin = math.sin(currentAngle), cos = math.cos(currentAngle);
+      var x = px + or * cos;
+      var y = py + or * sin;
       moveTo(x, y);
       currentAngle += anglePerPoint;
 
       for (var i = 0; i < pts; i++) {
         previousX = x;
         previousY = y;
-        x = px + or * math.cos(currentAngle);
-        y = py + or * math.sin(currentAngle);
+        final prevSin = sin, prevCos = cos;
+        sin = math.sin(currentAngle);
+        cos = math.cos(currentAngle);
+        x = px + or * cos;
+        y = py + or * sin;
 
         if (roundedness != 0.0) {
-          final cp1Theta =
-              math.atan2(previousY - py, previousX - px) - math.pi / 2.0;
-          final cp1Dx = math.cos(cp1Theta);
-          final cp1Dy = math.sin(cp1Theta);
-
-          final cp2Theta = math.atan2(y - py, x - px) - math.pi / 2.0;
-          final cp2Dx = math.cos(cp2Theta);
-          final cp2Dy = math.sin(cp2Theta);
-
+          final (cp1Dx, cp1Dy) = _polyStarTangent(prevSin, prevCos, or);
+          final (cp2Dx, cp2Dy) = _polyStarTangent(sin, cos, or);
           final cp1x = or * roundedness * 0.25 * cp1Dx;
           final cp1y = or * roundedness * 0.25 * cp1Dy;
           final cp2x = or * roundedness * 0.25 * cp2Dx;
@@ -1050,6 +1227,12 @@ class _PolyStarGeometry extends _Geometry {
       close();
     }
   }
+}
+
+(double, double) _polyStarTangent(double sin, double cos, double radius) {
+  if (radius > 0) return (sin, -cos);
+  if (radius < 0) return (-sin, cos);
+  return (0, -1);
 }
 
 class _Style implements _Draw {
@@ -1096,6 +1279,7 @@ class _Style implements _Draw {
   ui.Shader? _lastShader;
   double _lastStrokeWidth = double.nan;
   late final bool _staticPath = sources.every((s) => s.isPathStatic);
+  late final bool hasBooleanFill = sources.any(_hasBooleanPath);
   late final Rect? _staticGeometryBounds = _geometryBounds(0);
   late final _PathSource? staticFillLeaf = _resolveStaticFillLeaf();
 

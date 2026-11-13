@@ -90,15 +90,17 @@ class _Compiler {
     }
     final list = json['layers'];
     if (list is! List) fail(r'$.layers', 'Expected layers');
+    final paths = _ShapePathCompiler(this, list);
     final byId = <int, _Layer>{};
     final parents = <_Layer, int>{};
+    final setMattes = <_Layer, (int, String)>{};
     for (var i = 0; i < list.length; i++) {
       final path = '\$.layers[$i]';
       final m = map(list[i], path);
       check(
         m,
         path,
-        'ddd ind ty nm sr st ip op ks shapes parent ao bm tt td tp masksProperties hasMask ef hd cl ln refId w h ct sw sh sc tm',
+        'ddd ind ty nm sr st ip op ks shapes parent ao bm tt td tp masksProperties hasMask ef hd cl ln refId w h ct sw sh sc tm sy',
       );
       final bm = m['bm'] ?? 0;
       if (bm is! int || bm < 0 || bm > 16) {
@@ -158,7 +160,6 @@ class _Compiler {
           }
         }
       }
-      _controls(m['ef'], '$path.ef', list);
       if (_hasExpression(m)) {
         _resolveContentExpressions(
           m,
@@ -175,10 +176,21 @@ class _Compiler {
       if (type != 4 && type != 3 && type != 0 && type != 1) {
         fail('$path.ty', 'Layer type $type');
       }
+      final (fillEffect, setMatte) = _effects(m['ef'], '$path.ef', list);
+      final shadow = _innerShadow(m['sy'], '$path.sy');
+      if (shadow != null && fillEffect != null) {
+        fail('$path.ef', 'Fill with Inner Shadow');
+      }
+      if (setMatte != null && (type != 4 || matteType != 0 || bm != 0)) {
+        fail(
+          setMatte.$2,
+          'Set Matte requires a normal shape layer without a track matte',
+        );
+      }
       final transform = _transform(m['ks'], '$path.ks');
       _Group? group;
       if (type == 4) {
-        group = _group(m['shapes'], '$path.shapes');
+        group = _group(m['shapes'], '$path.shapes', paths);
       } else if (type == 1) {
         final sw = number(m['sw'] ?? 0, '$path.sw');
         final sh = number(m['sh'] ?? 0, '$path.sh');
@@ -250,10 +262,14 @@ class _Compiler {
         offset: number(m['st'] ?? 0, '$path.st'),
         stretch: stretch,
         timeRemap: timeRemap,
-        matteType: matteType,
+        matteType: setMatte == null ? matteType : 1,
         masks: masks,
         blendMode: bm,
+        innerShadow: shadow,
+        fillEffect: fillEffect,
+        usesSetMatte: setMatte != null,
       );
+      if (setMatte != null) setMattes[layer] = setMatte;
       layers.add(layer);
       final id = m['ind'] ?? i;
       if (id is! int || byId.containsKey(id)) {
@@ -267,7 +283,7 @@ class _Compiler {
     }
     for (var i = 0; i < layers.length; i++) {
       final layer = layers[i];
-      if (layer.matteType != 0) {
+      if (layer.matteType != 0 && !layer.usesSetMatte) {
         if (i == 0) fail('\$.layers[$i].tt', 'Missing preceding matte source');
         final source = layers[i - 1];
         if (source.matteType != 0) {
@@ -277,6 +293,24 @@ class _Compiler {
         source.isMatteSource = true;
         commands += 4;
       }
+    }
+    for (final entry in setMattes.entries) {
+      final target = entry.key;
+      final (id, at) = entry.value;
+      final source = byId[id];
+      if (source == null ||
+          source.group == null ||
+          source.hidden ||
+          source != target && source.matteType != 0) {
+        fail(
+          at,
+          'Set Matte requires a visible shape source without its own matte',
+        );
+      }
+      // Set Matte samples a source without consuming its ordinary draw.
+      // A self reference samples the layer before its own matte.
+      target.matte = source;
+      commands += 4;
     }
     for (var i = 0; i < layers.length; i++) {
       if (list[i]['td'] == 1 && !layers[i].isMatteSource) {
@@ -340,8 +374,9 @@ class _Compiler {
         continue;
       }
       final isDstOut = layer.matteType == 2 || layer.matteType == 4;
+      final matteParentAlpha = layer.usesSetMatte ? 255 : alpha;
       final matteAlpha = matte.visible(frame)
-          ? matte.effectiveAlpha(frame, alpha)
+          ? matte.effectiveAlpha(frame, matteParentAlpha)
           : 0;
       if (matteAlpha == 0) {
         // Invisible or transparent matte: dstIn erases target, dstOut leaves target intact.
@@ -372,7 +407,12 @@ class _Compiler {
       canvas.saveLayer(layerBounds, layer.contentPaint);
       layer.draw(canvas, frame, alpha);
       canvas.saveLayer(layerBounds, layer.mattePaint);
-      matte.draw(canvas, frame, alpha);
+      matte.draw(
+        canvas,
+        frame,
+        matteParentAlpha,
+        alphaOnly: layer.matteType < 3,
+      );
       canvas.restore();
       canvas.restore();
     }
@@ -410,14 +450,80 @@ class _Compiler {
     return result;
   }
 
-  void _controls(dynamic raw, String path, List layers) {
-    if (raw == null) return;
+  (_FillEffect?, (int, String)?) _effects(
+    dynamic raw,
+    String path,
+    List layers,
+  ) {
+    if (raw == null) return (null, null);
     if (raw is! List) fail(path, 'Expected effects array');
+    _FillEffect? fill;
+    (int, String)? matte;
     for (var i = 0; i < raw.length; i++) {
       final at = '$path[$i]', effect = map(raw[i], '$path[$i]');
       check(effect, at, 'ty nm np mn ix en ef');
-      if (effect['ty'] != 5 || effect['mn'] != 'ADBE Layer Control') {
+      final isFill = effect['ty'] == 21 && effect['mn'] == 'ADBE Fill';
+      final isSetMatte =
+          effect['ty'] == 28 && effect['mn'] == 'ADBE Set Matte3';
+      final isControl =
+          effect['ty'] == 5 && effect['mn'] == 'ADBE Layer Control';
+      if (!isFill && !isSetMatte && !isControl) {
         fail(at, 'Unsupported visual effect');
+      }
+      if (effect['en'] == 0 || effect['en'] == false) continue;
+      if (effect['en'] != null && effect['en'] != 1 && effect['en'] != true) {
+        fail('$at.en', 'Invalid effect enabled flag');
+      }
+      if (isFill || isSetMatte) {
+        if (fill != null || matte != null) fail(at, 'Multiple visual effects');
+        final types = isFill
+            ? const [10, 7, 2, 7, 0, 0, 0]
+            : const [10, 7, 7, 7, 7, 7];
+        final parameters = effect['ef'];
+        if (parameters is! List || parameters.length != types.length) {
+          fail('$at.ef', 'Invalid effect parameters');
+        }
+        _Track parameter(int index, {int dimensions = 1}) {
+          final p = '$at.ef[$index]';
+          final value = map(parameters[index], p);
+          check(value, p, 'ty nm mn ix v');
+          if (value['ty'] != types[index] || value['v'] == null) {
+            fail(p, 'Invalid effect parameter');
+          }
+          return _track(value['v'], '$p.v', dimensions, []);
+        }
+
+        void require(int index, int expected) {
+          final track = parameter(index);
+          if (!track.isStatic || track.scalar(0) != expected) {
+            fail('$at.ef[$index].v', 'Unsupported effect parameter value');
+          }
+        }
+
+        if (isFill) {
+          for (final index in [0, 1, 3, 4, 5]) {
+            require(index, 0);
+          }
+          fill = _FillEffect(parameter(2, dimensions: 3), parameter(6));
+        } else {
+          for (final (index, value) in [
+            (1, 4),
+            (2, 0),
+            (3, 1),
+            (4, 1),
+            (5, 1),
+          ]) {
+            require(index, value);
+          }
+          final track = parameter(0);
+          final id = track.scalar(0);
+          final ref = '$at.ef[0].v';
+          if (!track.isStatic || id <= 0 || id != id.roundToDouble()) {
+            fail(ref, 'Expected a static layer index');
+          }
+          matte = (id.toInt(), ref);
+        }
+        continue;
       }
       final children = effect['ef'];
       if (children is! List || children.length != 1) {
@@ -437,17 +543,63 @@ class _Compiler {
         }
       }
     }
+    return (fill, matte);
+  }
+
+  _InnerShadow? _innerShadow(dynamic raw, String path) {
+    if (raw == null || raw is List && raw.isEmpty) return null;
+    if (raw is! List || raw.length != 1) {
+      fail(path, 'Expected one Inner Shadow style');
+    }
+    final at = '$path[0]';
+    final style = map(raw.single, at);
+    if (style['ty'] != 2) fail('$at.ty', 'Unsupported layer style');
+    check(style, at, 'ty nm mn c o a s d ch bm no');
+    double scalar(String key, double fallback) {
+      final track = _track(style[key], '$at.$key', 1, [fallback]);
+      if (!track.isStatic) fail('$at.$key', 'Animated Inner Shadow');
+      return track.scalar(0);
+    }
+
+    for (final key in ['s', 'ch', 'no']) {
+      if (scalar(key, 0) != 0) {
+        fail('$at.$key', 'Unsupported Inner Shadow parameter');
+      }
+    }
+    if (scalar('bm', 1) != 1) fail('$at.bm', 'Inner Shadow requires Multiply');
+    final color = _track(style['c'], '$at.c', 3, [0, 0, 0]);
+    if (!color.isStatic) fail('$at.c', 'Animated Inner Shadow');
+    final rgb = color.at(0);
+    final opacity = (scalar('o', 100) * 255 / 100).round().clamp(0, 255);
+    final angle = (scalar('a', 0) % 360) * math.pi / 180;
+    final distance = scalar('d', 0);
+    if (distance < 0) fail('$at.d', 'Negative Inner Shadow distance');
+    if (distance == 0 || opacity == 0) return null;
+    return _InnerShadow(
+      // The local light angle points toward the light (Y up).
+      -math.cos(angle) * distance,
+      math.sin(angle) * distance,
+      (opacity << 24) |
+          ((rgb[0] * 255).round().clamp(0, 255) << 16) |
+          ((rgb[1] * 255).round().clamp(0, 255) << 8) |
+          (rgb[2] * 255).round().clamp(0, 255),
+    );
   }
 
   void _resolveContentExpressions(
     dynamic value,
     List roots,
     String path,
-    Set<Object> resolving,
-  ) {
+    Set<Object> resolving, {
+    bool shapePath = false,
+  }) {
     if (value is Map<String, dynamic>) {
       final expression = value['x'];
       if (expression is String && expression.isNotEmpty) {
+        if (shapePath && _ShapePathCompiler.reference.hasMatch(expression)) {
+          // Shape paths are resolved together with their source geometry.
+          return;
+        }
         if (!resolving.add(value)) fail(path, 'Cyclic expression reference');
         if (RegExp(
           r"^var \$bm_rt;\s*\$bm_rt\s*=\s*transform\.[xy]Position;\s*$",
@@ -507,7 +659,13 @@ class _Compiler {
         resolving.remove(value);
       }
       for (final key in value.keys.toList()) {
-        _resolveContentExpressions(value[key], roots, '$path.$key', resolving);
+        _resolveContentExpressions(
+          value[key],
+          roots,
+          '$path.$key',
+          resolving,
+          shapePath: key == 'ks' && value['ty'] == 'sh',
+        );
       }
     } else if (value is List) {
       for (var i = 0; i < value.length; i++) {
@@ -596,7 +754,7 @@ class _Compiler {
     return _BezierGeometry(track, closed ?? true, closureKeys);
   }
 
-  _Group _group(dynamic value, String path) {
+  _Group _group(dynamic value, String path, _ShapePathCompiler paths) {
     if (value is! List) fail(path, 'Expected shape list');
     final sources = <_PathSource>[];
     final draws = <_Draw>[];
@@ -620,7 +778,7 @@ class _Compiler {
           transform = _transform(m, p);
         case 'gr':
           check(m, p, 'ty nm mn ix hd it np cix bm cl');
-          final group = _group(m['it'], '$p.it');
+          final group = _group(m['it'], '$p.it', paths);
           if (!hidden) {
             sources.add(group);
             draws.add(group);
@@ -628,7 +786,7 @@ class _Compiler {
         case 'sh':
           check(m, p, 'ty nm mn ix hd ks ind d bm');
           if (m['ks'] == null) fail('$p.ks', 'Missing path data');
-          final geom = _parseBezierTrack(m['ks'], '$p.ks');
+          final geom = paths.geometry(m['ks'], '$p.ks');
           if (!hidden) {
             sources.add(_Shape(geom));
           }
@@ -778,9 +936,20 @@ class _Compiler {
             fail('$p.mm', 'Shape op mm mode $mode');
           }
           if (!hidden && sources.isNotEmpty) {
-            final merged = _MergePathSource(List.of(sources), mode);
+            final operands = sources.where((s) {
+              return s is! _Group || s.hasPathContent;
+            }).toList();
+            // Some exports leave Intersect after a lone outline (or keep a
+            // transform-only group in place of the removed operand). With no
+            // second operand, preserve the remaining outline.
+            final incomplete =
+                operands.length == 1 && (mode == 4 || sources.length > 1);
             sources.clear();
-            sources.add(merged);
+            if (operands.isNotEmpty) {
+              sources.add(
+                incomplete ? operands.single : _MergePathSource(operands, mode),
+              );
+            }
           } else if (hidden) {
             sources.clear();
           }
@@ -848,17 +1017,14 @@ class _Compiler {
       },
     );
     if (m['t'] != 1 && m['t'] != 2) fail('$path.t', 'Gradient type');
-    for (final field in ['h', 'a']) {
-      if (m[field] != null) {
-        _track(m[field], '$path.$field', 1, [0]);
-      }
-    }
     return _GradientSpec(
       count,
       stops,
       _track(m['s'], '$path.s', 2, [0, 0], separateEasing: true),
       _track(m['e'], '$path.e', 2, [0, 0], separateEasing: true),
       m['t'] == 2,
+      m['h'] == null ? null : _track(m['h'], '$path.h', 1, [0]),
+      m['a'] == null ? null : _track(m['a'], '$path.a', 1, [0]),
     );
   }
 
@@ -989,5 +1155,93 @@ class _Compiler {
     }
     if (keys.length == 1) return _Track.constant(keys.first.start.toList());
     return _Track.animated(keys, options.useSimd);
+  }
+}
+
+/// Links raw shape paths in a single composition before they reach either
+/// renderer. Only the source geometry is shared: each shape keeps its own
+/// transform, styles and modifiers, and samples the same composition frame.
+class _ShapePathCompiler {
+  _ShapePathCompiler(this.compiler, this.layers);
+
+  static final reference = RegExp(
+    r"^var \$bm_rt;\s*\$bm_rt\s*=\s*thisComp\.layer\('([^']*)'\)\.((?:content\('[^']*'\)\.)+)path;\s*$",
+  );
+  static final _content = RegExp(r"content\('([^']*)'\)");
+
+  final _Compiler compiler;
+  final List<dynamic> layers;
+  final _geometry = Map<Map<String, dynamic>, _BezierGeometry>.identity();
+  final _resolving = Set<Map<String, dynamic>>.identity();
+
+  _BezierGeometry geometry(dynamic raw, String path) {
+    final property = compiler.map(raw, path);
+    final cached = _geometry[property];
+    if (cached != null) return cached;
+    final expression = property['x'];
+    final match = expression is String
+        ? reference.firstMatch(expression)
+        : null;
+    if (match == null) {
+      return _geometry[property] = compiler._parseBezierTrack(property, path);
+    }
+    final at = '$path.x';
+    compiler.check(property, path, 'a k ix x l');
+    if (property['a'] != null && property['a'] != 0 && property['a'] != 1) {
+      compiler.fail('$path.a', 'Invalid animated flag');
+    }
+    if (!_resolving.add(property)) {
+      compiler.fail(at, 'Cyclic path reference');
+    }
+    try {
+      final (source, sourcePath) = _target(match, at);
+      return _geometry[property] = geometry(source, sourcePath);
+    } finally {
+      _resolving.remove(property);
+    }
+  }
+
+  (Map<String, dynamic>, String) _target(RegExpMatch match, String at) {
+    var (node, path) = _named(layers, match[1]!, r'$.layers', at, 'layer');
+    if (node['ty'] != 4) {
+      compiler.fail(at, 'Path reference needs a shape layer');
+    }
+    var items = node['shapes'];
+    path = '$path.shapes';
+    for (final name in _content.allMatches(match[2]!)) {
+      (node, path) = _named(items, name[1]!, path, at, 'content');
+      items = node['ty'] == 'gr' ? node['it'] : null;
+      if (items != null) path = '$path.it';
+    }
+    final property = node['ks'];
+    if (node['ty'] != 'sh' || property is! Map<String, dynamic>) {
+      compiler.fail(at, 'Path reference needs a Bézier path');
+    }
+    return (property, '$path.ks');
+  }
+
+  (Map<String, dynamic>, String) _named(
+    dynamic items,
+    String name,
+    String path,
+    String at,
+    String kind,
+  ) {
+    if (items is List) {
+      Map<String, dynamic>? found;
+      var index = 0;
+      for (var i = 0; i < items.length; i++) {
+        final item = items[i];
+        if (item is Map<String, dynamic> && item['nm'] == name) {
+          if (found != null) {
+            compiler.fail(at, 'Ambiguous $kind reference: $name');
+          }
+          found = item;
+          index = i;
+        }
+      }
+      if (found != null) return (found, '$path[$index]');
+    }
+    compiler.fail(at, 'Missing $kind reference: $name');
   }
 }

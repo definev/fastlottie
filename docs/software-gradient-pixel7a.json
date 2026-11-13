@@ -1,0 +1,157 @@
+{
+  "device": "Pixel 7a",
+  "build": "release arm64",
+  "size": 512,
+  "warmup_frames_per_run": 128,
+  "frames_per_run": 384,
+  "results": {
+    "before": {
+      "linear_static_bm0": {
+        "p95_us": 3200.561,
+        "p95_runs_us": [
+          2507.365,
+          3200.561,
+          3537.353
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "linear_moving_bm0": {
+        "p95_us": 3206.34,
+        "p95_runs_us": [
+          2513.021,
+          3206.34,
+          3412.231
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "linear_moving_bm1": {
+        "p95_us": 6780.355,
+        "p95_runs_us": [
+          5369.71,
+          6780.355,
+          7520.223
+        ],
+        "scratch_pixel_bytes": 1032256
+      },
+      "linear_moving_bm2": {
+        "p95_us": 7294.637,
+        "p95_runs_us": [
+          5574.463,
+          7294.637,
+          7474.691
+        ],
+        "scratch_pixel_bytes": 1032256
+      },
+      "radial_static_bm0": {
+        "p95_us": 3387.207,
+        "p95_runs_us": [
+          2918.905,
+          3387.207,
+          3969.198
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "radial_moving_bm0": {
+        "p95_us": 3670.613,
+        "p95_runs_us": [
+          2925.537,
+          3670.613,
+          3975.586
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "radial_moving_bm1": {
+        "p95_us": 7191.772,
+        "p95_runs_us": [
+          6000.285,
+          7191.772,
+          7649.78
+        ],
+        "scratch_pixel_bytes": 1032256
+      },
+      "radial_moving_bm2": {
+        "p95_us": 7345.378,
+        "p95_runs_us": [
+          5525.268,
+          7345.378,
+          8398.56
+        ],
+        "scratch_pixel_bytes": 1032256
+      }
+    },
+    "after": {
+      "linear_static_bm0": {
+        "p95_us": 1062.46,
+        "p95_runs_us": [
+          1046.916,
+          1062.46,
+          1351.359
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "linear_moving_bm0": {
+        "p95_us": 1166.667,
+        "p95_runs_us": [
+          1166.667,
+          1053.182,
+          1319.091
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "linear_moving_bm1": {
+        "p95_us": 5344.198,
+        "p95_runs_us": [
+          4524.618,
+          5344.198,
+          5833.902
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "linear_moving_bm2": {
+        "p95_us": 3936.605,
+        "p95_runs_us": [
+          3387.411,
+          3936.605,
+          4670.817
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "radial_static_bm0": {
+        "p95_us": 1847.737,
+        "p95_runs_us": [
+          1475.789,
+          1847.737,
+          2275.472
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "radial_moving_bm0": {
+        "p95_us": 1830.282,
+        "p95_runs_us": [
+          1439.127,
+          1830.282,
+          2242.879
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "radial_moving_bm1": {
+        "p95_us": 6193.278,
+        "p95_runs_us": [
+          4745.321,
+          6193.278,
+          7083.251
+        ],
+        "scratch_pixel_bytes": 0
+      },
+      "radial_moving_bm2": {
+        "p95_us": 5069.417,
+        "p95_runs_us": [
+          4133.504,
+          5069.417,
+          5386.515
+        ],
+        "scratch_pixel_bytes": 0
+      }
+    }
+  }
+}

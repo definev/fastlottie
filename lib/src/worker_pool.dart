@@ -87,8 +87,8 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
   ) {
     if (!store.hasAllFrames(entryKey, totalFrames)) return;
     if (scenes.remove(contentKey) == null) return;
-    // Coverage entries keep the compiled styles alive after the scene map
-    // drops them.
+    // Coverage entries keep compiled draws and masked layers alive after
+    // the scene map drops them.
     ws.resetCaches();
   }
 

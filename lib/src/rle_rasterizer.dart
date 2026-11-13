@@ -21,7 +21,7 @@ class _RasterWorkspace {
   bool _usedLargeNativeGeometry = false;
   static const _coverageByteBudget = 1024 * 1024;
   static const _coverageEntryLimit = 256;
-  final _coverage = Map<_Style, _CoverageEntry>.identity();
+  final _coverage = Map<Object, _CoverageEntry>.identity();
   int _coverageBytes = 0;
 
   NativeCoverageWorkspace? get _native {
@@ -76,11 +76,11 @@ class _RasterWorkspace {
     )).rasterizePolyPath(path, evenOdd, out, x0, y0, x1, y1);
   }
 
-  _RleSpans? _retained(_Style style, _CoverageKey key) {
-    final entry = _coverage.remove(style);
+  _RleSpans? _retained(Object owner, _CoverageKey key) {
+    final entry = _coverage.remove(owner);
     if (entry == null) return null;
     if (entry.key == key) {
-      _coverage[style] = entry;
+      _coverage[owner] = entry;
       return entry.spans;
     }
     _coverageBytes -= entry.bytes;
@@ -88,7 +88,7 @@ class _RasterWorkspace {
     return null;
   }
 
-  void _retain(_Style style, _CoverageKey key, _RleSpans spans) {
+  void _retain(Object owner, _CoverageKey key, _RleSpans spans) {
     final bytes = 96 + spans.spanCount * 8;
     if (bytes > _coverageByteBudget ~/ 8) return;
     while (_coverageBytes + bytes > _coverageByteBudget ||
@@ -97,7 +97,7 @@ class _RasterWorkspace {
       _coverageBytes -= old.bytes;
       old.spans.dispose();
     }
-    _coverage[style] = _CoverageEntry(key, spans._copy(), bytes);
+    _coverage[owner] = _CoverageEntry(key, spans._copy(), bytes);
     _coverageBytes += bytes;
   }
 
@@ -166,6 +166,15 @@ class _RasterWorkspace {
     return _trimOutPool[depth]..clear();
   }
 
+  final _booleanSpans = <_RleSpans>[];
+
+  _RleSpans _acquireBooleanSpans(int slot) {
+    while (_booleanSpans.length <= slot) {
+      _booleanSpans.add(_RleSpans());
+    }
+    return _booleanSpans[slot]..clear();
+  }
+
   _PolyPath _acquireMergeCutPoly(int depth) {
     while (_mergeCutPolyPool.length <= depth) {
       _mergeCutPolyPool.add(_PolyPath());
@@ -220,9 +229,9 @@ class _RasterWorkspace {
     return _maskIntersectSpansPool[depth];
   }
 
-  // Only matte and rotated precomp draws need a scratch plane. Allocate each
+  // Mattes, blend modes and rotated precomps need scratch planes. Allocate each
   // nesting slot on first use, sized to the affected bounds rather than the frame.
-  final _scratchLayers = <Uint32List?>[];
+  final _scratchLayers = <NativePixelBuffer?>[];
   int _framePeakScratchPixels = 0;
   int _smallFrameStreak = 0;
 
@@ -230,9 +239,17 @@ class _RasterWorkspace {
   // worker workspace so repeated frames never re-flatten static paths.
   final Map<Object, _PolyPath> staticPaths = Map<Object, _PolyPath>.identity();
   final Map<Object, double> staticTrimMetrics = Map<Object, double>.identity();
-  final Map<_GradientSpec, Uint32List> staticGradientLuts =
-      Map<_GradientSpec, Uint32List>.identity();
-  final Uint32List scratchGradientLut = Uint32List(1024);
+  final Map<_GradientSpec, NativePixelBuffer> staticGradientLuts =
+      Map<_GradientSpec, NativePixelBuffer>.identity();
+  NativePixelBuffer? _scratchGradientLut;
+
+  void _releaseGradientLuts() {
+    for (final lut in staticGradientLuts.values) {
+      lut.dispose();
+    }
+    staticGradientLuts.clear();
+  }
+
   final _matrixStack = <Float64List>[];
 
   void resetCaches() {
@@ -243,11 +260,13 @@ class _RasterWorkspace {
     _coverageBytes = 0;
     staticPaths.clear();
     staticTrimMetrics.clear();
-    staticGradientLuts.clear();
+    _releaseGradientLuts();
   }
 
   void dispose() {
     resetCaches();
+    _scratchGradientLut?.dispose();
+    _scratchGradientLut = null;
     _nativeCoverage?.release();
     _nativeCoverage = null;
     _rasterSpans?.dispose();
@@ -264,7 +283,11 @@ class _RasterWorkspace {
     _maskIntersectSpansPool.clear();
     _maskPolyPool.clear();
     _maskLocalPolyPool.clear();
-    _scratchLayers.clear();
+    for (final spans in _booleanSpans) {
+      spans.dispose();
+    }
+    _booleanSpans.clear();
+    _releaseScratchLayers();
     _scanline = null;
   }
 
@@ -279,7 +302,9 @@ class _RasterWorkspace {
       native.trimIfOversized();
     }
     if (aggressive) {
-      _scratchLayers.clear();
+      _scratchGradientLut?.dispose();
+      _scratchGradientLut = null;
+      _releaseScratchLayers();
       _trimPolyPool.clear();
       _trimOutPool.clear();
       _mergeCutPolyPool.clear();
@@ -290,12 +315,15 @@ class _RasterWorkspace {
       _matrixStack.clear();
       _strokeScratchState = null;
     } else {
-      if (_scratchLayers.length > 5) _scratchLayers.length = 5;
       for (var i = 0; i < _scratchLayers.length; i++) {
-        if ((_scratchLayers[i]?.length ?? 0) > _softScratchPixels) {
+        final plane = _scratchLayers[i];
+        if (plane != null &&
+            (i >= 5 || plane.typedList.length > _softScratchPixels)) {
+          plane.dispose();
           _scratchLayers[i] = null;
         }
       }
+      if (_scratchLayers.length > 5) _scratchLayers.length = 5;
       _trimPolyPool.removeRange(
         math.min(2, _trimPolyPool.length),
         _trimPolyPool.length,
@@ -314,9 +342,6 @@ class _RasterWorkspace {
         math.min(2, _mergeCutPolyPool.length),
         _mergeCutPolyPool.length,
       );
-      for (final p in _mergeCutPolyPool) {
-        p.trimIfOversized();
-      }
       _measurePolyPool.removeRange(
         math.min(2, _measurePolyPool.length),
         _measurePolyPool.length,
@@ -342,6 +367,16 @@ class _RasterWorkspace {
     _flattenLeafPoly.trimIfOversized(aggressive: aggressive);
     for (var i = 0; i < _mergeCutPolyPool.length; i++) {
       _mergeCutPolyPool[i].trimIfOversized(aggressive: aggressive);
+    }
+    if (aggressive) {
+      for (final spans in _booleanSpans) {
+        spans.dispose();
+      }
+      _booleanSpans.clear();
+    } else {
+      for (final spans in _booleanSpans) {
+        spans.trimIfOversized();
+      }
     }
     _rasterSpans?.trimIfOversized(aggressive: aggressive);
     _precompClipSpans?.trimIfOversized(aggressive: aggressive);
@@ -381,14 +416,26 @@ class _RasterWorkspace {
     }
   }
 
-  Uint32List _acquireScratch(int depth, int pixelsNeeded) {
+  void _releaseScratchLayers() {
+    for (final plane in _scratchLayers) {
+      plane?.dispose();
+    }
+    _scratchLayers.clear();
+  }
+
+  NativePixelBuffer _acquireScratch(int depth, int pixelsNeeded) {
     if (pixelsNeeded > _framePeakScratchPixels) {
       _framePeakScratchPixels = pixelsNeeded;
     }
     if (_scratchLayers.length <= depth) _scratchLayers.length = depth + 1;
     final buffer = _scratchLayers[depth];
-    if (buffer != null && buffer.length >= pixelsNeeded) return buffer;
-    return _scratchLayers[depth] = Uint32List(pixelsNeeded);
+    if (buffer == null) {
+      return _scratchLayers[depth] = NativePixelBuffer(pixelsNeeded);
+    }
+    if (buffer.typedList.length < pixelsNeeded) {
+      buffer.reallocate(pixelsNeeded, 0);
+    }
+    return buffer;
   }
 
   Float64List _stackMatrix(int depth) {
@@ -663,7 +710,7 @@ class _RleSpans {
   _RleSpans({int initialSpans = defaultSpans})
     : _buf = NativeSpansBuffer(initialSpans * 2);
 
-  final NativeSpansBuffer _buf;
+  NativeSpansBuffer _buf;
   Int32List get data => _buf.typedList;
   int spanCount = 0;
   int minX = 0x7FFFFFFF;
@@ -683,6 +730,29 @@ class _RleSpans {
     maxY = 0;
   }
 
+  void swap(_RleSpans other) {
+    final (oldBuf, oldSpanCount, oldMinX, oldMinY, oldMaxX, oldMaxY) = (
+      _buf,
+      spanCount,
+      minX,
+      minY,
+      maxX,
+      maxY,
+    );
+    _buf = other._buf;
+    other._buf = oldBuf;
+    spanCount = other.spanCount;
+    other.spanCount = oldSpanCount;
+    minX = other.minX;
+    other.minX = oldMinX;
+    minY = other.minY;
+    other.minY = oldMinY;
+    maxX = other.maxX;
+    other.maxX = oldMaxX;
+    maxY = other.maxY;
+    other.maxY = oldMaxY;
+  }
+
   void trimIfOversized({bool aggressive = false}) {
     clear();
     final limitWords = (aggressive ? defaultSpans : softMaxSpans) * 2;
@@ -695,15 +765,18 @@ class _RleSpans {
     _buf.reallocate(_buf.typedList.length * 2, spanCount * 2);
   }
 
-  _RleSpans _copy() {
-    final copy = _RleSpans(initialSpans: math.max(1, spanCount))
-      ..spanCount = spanCount
-      ..minX = minX
-      ..minY = minY
-      ..maxX = maxX
-      ..maxY = maxY;
-    copy.data.setRange(0, spanCount * 2, data);
-    return copy;
+  _RleSpans _copy() =>
+      _RleSpans(initialSpans: math.max(1, spanCount))..copyFrom(this);
+
+  void copyFrom(_RleSpans source) {
+    final words = source.spanCount * 2;
+    if (data.length < words) _buf.reallocate(words, 0);
+    data.setRange(0, words, source.data);
+    spanCount = source.spanCount;
+    minX = source.minX;
+    minY = source.minY;
+    maxX = source.maxX;
+    maxY = source.maxY;
   }
 
   void addSpan(int y, int x, int len, int cov) {
@@ -744,16 +817,94 @@ class _RleSpans {
     if (y + 1 > maxY) maxY = y + 1;
   }
 
+  void scaleCoverage(int opacity) {
+    if (opacity == 0) {
+      clear();
+      return;
+    }
+    final d = data;
+    var write = 0;
+    for (var read = 0; read < spanCount * 2; read += 2) {
+      final w = d[read + 1];
+      final coverage = (((w & 255) + 1) * opacity + 128) >> 8;
+      if (coverage == 0) continue;
+      d[write++] = d[read];
+      d[write++] = (w & ~255) | (coverage - 1);
+    }
+    spanCount = write ~/ 2;
+  }
+
+  bool overlaps(_RleSpans other) =>
+      minX < other.maxX &&
+      other.minX < maxX &&
+      minY < other.maxY &&
+      other.minY < maxY;
+
+  /// Combine two coverage masks by sweeping their span boundaries.
+  /// Even wide opaque interiors take one step.
+  static void combine(_RleSpans a, _RleSpans b, _RleSpans out, int mode) {
+    if (mode == 4) {
+      intersect(a, b, out);
+      return;
+    }
+    out.clear();
+    final da = a.data, db = b.data;
+    final na = a.spanCount * 2, nb = b.spanCount * 2;
+    var ia = 0, ib = 0;
+    while (ia < na || ib < nb) {
+      final wa = ia < na ? da[ia] : 0;
+      final wb = ib < nb ? db[ib] : 0;
+      final ay = ia < na ? wa >>> 16 : 0x10000;
+      final by = ib < nb ? wb >>> 16 : 0x10000;
+      final y = math.min(ay, by);
+      var ax = ay == y ? wa & 65535 : 0x10000;
+      var bx = by == y ? wb & 65535 : 0x10000;
+      var x = math.min(ax, bx);
+      while (x < 0x10000) {
+        var ac = 0, bc = 0;
+        int end;
+        if (ax <= x) {
+          final w = da[ia + 1];
+          ac = (w & 255) + 1;
+          end = ax + (w >>> 8);
+        } else {
+          end = ax;
+        }
+        if (bx <= x) {
+          final w = db[ib + 1];
+          bc = (w & 255) + 1;
+          end = math.min(end, bx + (w >>> 8));
+        } else {
+          end = math.min(end, bx);
+        }
+        final overlap = (ac * bc + 128) >> 8;
+        final coverage = switch (mode) {
+          2 => ac + bc - overlap,
+          3 => ac - overlap,
+          _ => ac + bc - 2 * overlap,
+        };
+        out.addSpan(y, x, end - x, coverage);
+        if (ac != 0 && ax + (da[ia + 1] >>> 8) == end) {
+          ia += 2;
+          final w = ia < na ? da[ia] : 0;
+          ax = ia < na && w >>> 16 == y ? w & 65535 : 0x10000;
+        }
+        if (bc != 0 && bx + (db[ib + 1] >>> 8) == end) {
+          ib += 2;
+          final w = ib < nb ? db[ib] : 0;
+          bx = ib < nb && w >>> 16 == y ? w & 65535 : 0x10000;
+        }
+        x = ac != 0 || bc != 0 ? end : math.min(ax, bx);
+        if (ax == 0x10000 && bx == 0x10000) break;
+      }
+    }
+  }
+
   /// Intersects [a] and [clip] sorted RLE spans into [out], multiplying coverage.
   static void intersect(_RleSpans a, _RleSpans clip, _RleSpans out) {
     out.clear();
     if (a.spanCount == 0 || clip.spanCount == 0) return;
-    if (a.maxX <= clip.minX ||
-        clip.maxX <= a.minX ||
-        a.maxY <= clip.minY ||
-        clip.maxY <= a.minY) {
-      return;
-    }
+    if (!a.overlaps(clip)) return;
     var ia = 0;
     var ic = 0;
     final na = a.spanCount * 2;
@@ -1501,68 +1652,192 @@ abstract final class _SwarBlender {
     }
   }
 
+  // Round x / 255 without integer division (0 <= x <= 255 * 255).
+  static int _div255(int x) {
+    final biased = x + 128;
+    return (biased + (biased >> 8)) >> 8;
+  }
+
+  static int _blendChannel(int sc, int dc, int sa, int da, int mode) {
+    // Keep the entire premultiplied result in a single numerator, so rounding
+    // happens once. These are the blend equations in premultiplied form.
+    final linear = sc * (255 - da) + dc * (255 - sa);
+    final overlap = switch (mode) {
+      1 => sc * dc,
+      3 => 2 * dc <= da ? 2 * sc * dc : sa * da - 2 * (sa - sc) * (da - dc),
+      4 => math.min(sc * da, dc * sa),
+      5 => math.max(sc * da, dc * sa),
+      8 => 2 * sc <= sa ? 2 * sc * dc : sa * da - 2 * (sa - sc) * (da - dc),
+      10 => (sc * da - dc * sa).abs(),
+      11 => sc * da + dc * sa - 2 * sc * dc,
+      _ => sc * da,
+    };
+    return _div255(linear + overlap);
+  }
+
   static int blendPixel(int src, int dst, int mode) {
     if (src == 0) return dst;
     if (dst == 0) return src;
 
-    final sa = src >>> 24;
-    final sr = (src >> 16) & 0xFF;
-    final sg = (src >> 8) & 0xFF;
-    final sb = src & 0xFF;
+    final sa = src >>> 24, da = dst >>> 24;
+    final sr = (src >>> 16) & 255, dr = (dst >>> 16) & 255;
+    final sg = (src >>> 8) & 255, dg = (dst >>> 8) & 255;
+    final sb = src & 255, db = dst & 255;
 
-    final da = dst >>> 24;
-    final dr = (dst >> 16) & 0xFF;
-    final dg = (dst >> 8) & 0xFF;
-    final db = dst & 0xFF;
+    if (mode == 16) {
+      return (math.min(255, sa + da) << 24) |
+          (math.min(255, sr + dr) << 16) |
+          (math.min(255, sg + dg) << 8) |
+          math.min(255, sb + db);
+    }
+    final a = sa + da - _div255(sa * da);
+    if (_usesAdvancedBlend(mode)) {
+      return _advancedBlend(sr, sg, sb, dr, dg, db, sa, da, a, mode);
+    }
+    if (mode == 2) {
+      // Screen simplifies to s + d - s*d for premultiplied channels.
+      return (a << 24) |
+          ((sr + dr - _div255(sr * dr)) << 16) |
+          ((sg + dg - _div255(sg * dg)) << 8) |
+          (sb + db - _div255(sb * db));
+    }
+    return (a << 24) |
+        (_blendChannel(sr, dr, sa, da, mode) << 16) |
+        (_blendChannel(sg, dg, sa, da, mode) << 8) |
+        _blendChannel(sb, db, sa, da, mode);
+  }
 
-    final outA = (sa + da - ((sa * da + 127) ~/ 255)).clamp(0, 255);
-    if (outA == 0) return 0;
+  // W3C Compositing and Blending Level 1, §10. The overlap color is
+  // computed in straight RGB; the result is composed in premultiplied RGB.
+  static bool _usesAdvancedBlend(int mode) =>
+      mode == 6 || mode == 7 || mode == 9 || (mode >= 12 && mode <= 15);
 
-    int blendChannel(int sc, int dc) {
-      final invDa = 255 - da;
-      final invSa = 255 - sa;
-      final linearPart = (sc * invDa + dc * invSa + 127) ~/ 255;
-      int term;
-      switch (mode) {
-        case 1:
-          term = (sc * dc + 127) ~/ 255;
-        case 2:
-          term = (sc * da + dc * sa - sc * dc + 127) ~/ 255;
-        case 3:
-          if (2 * dc <= da) {
-            term = da == 0 ? 0 : (2 * sc * dc + (da ~/ 2)) ~/ da;
-          } else {
-            term = da == 0
-                ? 0
-                : (sa * da - (2 * (da - dc) * (sa - sc) + (da ~/ 2)) ~/ da);
-          }
-          term = (term + 127) ~/ 255;
-        case 4:
-          final m1 = sc * da;
-          final m2 = dc * sa;
-          term = (m1 < m2 ? m1 : m2) ~/ 255;
-        case 5:
-          final m1 = sc * da;
-          final m2 = dc * sa;
-          term = (m1 > m2 ? m1 : m2) ~/ 255;
-        case 10:
-          final diff = (sc * da - dc * sa).abs();
-          term = diff ~/ 255;
-        case 11:
-          term = (sc * da + dc * sa - 2 * sc * dc + 127) ~/ 255;
-        case 16:
-          return (sc + dc).clamp(0, 255);
-        default:
-          term = (sc * da + 127) ~/ 255;
-      }
-      return (term + linearPart).clamp(0, 255);
+  static int _advancedBlend(
+    int sr,
+    int sg,
+    int sb,
+    int dr,
+    int dg,
+    int db,
+    int sa,
+    int da,
+    int alpha,
+    int mode,
+  ) {
+    final s = (sr / sa, sg / sa, sb / sa);
+    final d = (dr / da, dg / da, db / da);
+    final (r, g, b) = switch (mode) {
+      12 => _setLum(_setSat(s, _sat(d)), _lum(d)),
+      13 => _setLum(_setSat(d, _sat(s)), _lum(d)),
+      14 => _setLum(s, _lum(d)),
+      15 => _setLum(d, _lum(s)),
+      _ => (
+        _advancedChannel(d.$1, s.$1, mode),
+        _advancedChannel(d.$2, s.$2, mode),
+        _advancedChannel(d.$3, s.$3, mode),
+      ),
+    };
+    int premul(int s, int d, double overlap) =>
+        ((s * (255 - da) + d * (255 - sa) + sa * da * overlap) / 255)
+            .round()
+            .clamp(0, alpha);
+    return (alpha << 24) |
+        (premul(sr, dr, r) << 16) |
+        (premul(sg, dg, g) << 8) |
+        premul(sb, db, b);
+  }
+
+  static double _advancedChannel(double d, double s, int mode) {
+    if (mode == 6) return d == 0 ? 0 : (s == 1 ? 1 : math.min(1, d / (1 - s)));
+    if (mode == 7) {
+      return d == 1 ? 1 : (s == 0 ? 0 : 1 - math.min(1, (1 - d) / s));
+    }
+    if (s <= .5) return d - (1 - 2 * s) * d * (1 - d);
+    final curve = d <= .25 ? ((16 * d - 12) * d + 4) * d : math.sqrt(d);
+    return d + (2 * s - 1) * (curve - d);
+  }
+
+  static double _lum((double, double, double) c) =>
+      .3 * c.$1 + .59 * c.$2 + .11 * c.$3;
+
+  static double _sat((double, double, double) c) =>
+      math.max(c.$1, math.max(c.$2, c.$3)) -
+      math.min(c.$1, math.min(c.$2, c.$3));
+
+  static (double, double, double) _setSat(
+    (double, double, double) c,
+    double sat,
+  ) {
+    final low = math.min(c.$1, math.min(c.$2, c.$3));
+    final span = _sat(c);
+    if (span == 0) return (0, 0, 0);
+    return (
+      (c.$1 - low) * sat / span,
+      (c.$2 - low) * sat / span,
+      (c.$3 - low) * sat / span,
+    );
+  }
+
+  static (double, double, double) _setLum(
+    (double, double, double) c,
+    double lum,
+  ) {
+    final delta = lum - _lum(c);
+    final low = math.min(c.$1, math.min(c.$2, c.$3)) + delta;
+    final high = math.max(c.$1, math.max(c.$2, c.$3)) + delta;
+    double clip(double v) {
+      v += delta;
+      if (low < 0) v = lum + (v - lum) * lum / (lum - low);
+      if (high > 1) v = lum + (v - lum) * (1 - lum) / (high - lum);
+      return v;
     }
 
-    final outR = blendChannel(sr, dr).clamp(0, outA);
-    final outG = blendChannel(sg, dg).clamp(0, outA);
-    final outB = blendChannel(sb, db).clamp(0, outA);
+    return (clip(c.$1), clip(c.$2), clip(c.$3));
+  }
 
-    return (outA << 24) | (outR << 16) | (outG << 8) | outB;
+  static void blendSolidSpans(
+    Uint32List dst,
+    int originX,
+    int originY,
+    int stride,
+    _RleSpans spans,
+    int color,
+    int mode,
+    NativePixelBuffer? nativeDst,
+  ) {
+    if (color == 0) return;
+    if (nativeDst != null &&
+        !_usesAdvancedBlend(mode) &&
+        nativeBlendSolid(
+          nativeDst,
+          originX,
+          originY,
+          stride,
+          spans._buf,
+          spans.spanCount,
+          color,
+          mode,
+        )) {
+      return;
+    }
+    final data = spans.data;
+    var prevSrc = 0, prevDst = 0, result = 0;
+    for (var i = 0; i < spans.spanCount * 2; i += 2) {
+      final xy = data[i], run = data[i + 1];
+      final src = scalePremul(color, (run & 255) + 1);
+      if (src == 0) continue;
+      final start = ((xy >>> 16) - originY) * stride + (xy & 65535) - originX;
+      final end = start + (run >>> 8);
+      for (var p = start; p < end; p++) {
+        final d = dst[p];
+        if (src != prevSrc || d != prevDst) {
+          prevSrc = src;
+          prevDst = d;
+          result = blendPixel(src, d, mode);
+        }
+        dst[p] = result;
+      }
+    }
   }
 
   static void compositeBlended(
@@ -1578,14 +1853,26 @@ abstract final class _SwarBlender {
     int h,
     int blendMode,
   ) {
-    for (var y = 0; y < h; y++) {
-      final dstRow = (dstOriginY + y) * dstStride + dstOriginX;
-      final srcRow = (srcOriginY + y) * srcStride + srcOriginX;
+    // Solid shapes and RLE interiors frequently repeat the same pixel pair.
+    // Reuse the last result across runs and rows without allocating a LUT.
+    var prevSrc = 0, prevDst = 0, result = 0;
+    var dstRow = dstOriginY * dstStride + dstOriginX;
+    var srcRow = srcOriginY * srcStride + srcOriginX;
+    for (var y = 0; y < h; y++, dstRow += dstStride, srcRow += srcStride) {
       for (var x = 0; x < w; x++) {
         final s = src[srcRow + x];
         if (s == 0) continue;
         final d = dst[dstRow + x];
-        dst[dstRow + x] = blendPixel(s, d, blendMode);
+        if (d == 0) {
+          dst[dstRow + x] = s;
+          continue;
+        }
+        if (s != prevSrc || d != prevDst) {
+          prevSrc = s;
+          prevDst = d;
+          result = blendPixel(s, d, blendMode);
+        }
+        dst[dstRow + x] = result;
       }
     }
   }
@@ -1678,7 +1965,14 @@ void _renderCompilerInto(
 
     final matte = layer.matte;
     final bm = layer.blendMode;
-    if (matte == null) {
+    final isDstOut = layer.matteType == 2 || layer.matteType == 4;
+    final matteParentAlpha = layer.usesSetMatte ? 255 : alpha;
+    final matteActive =
+        matte != null &&
+        matte.visible(frame) &&
+        matte.effectiveAlpha(frame, matteParentAlpha) > 0;
+    if (matte != null && !matteActive && !isDstOut) continue;
+    if (!matteActive) {
       if (bm == 0) {
         _renderLayerInto(
           layer,
@@ -1718,8 +2012,47 @@ void _renderCompilerInto(
           final bw = bx1 - bx0;
           final bh = by1 - by0;
           if (bw > 0 && bh > 0) {
-            final layerBuf = ws._acquireScratch(depth * 3 + 2, bw * bh);
-            layerBuf.fillRange(0, bw * bh, 0);
+            final paint = layer.child == null ? layer.group?.singlePaint : null;
+            if (paint != null &&
+                (paint.gradient == null ||
+                    (nativeDst != null &&
+                        isNativeGradientSupported &&
+                        !_SwarBlender._usesAdvancedBlend(bm) &&
+                        !paint.gradient!.hasFocalPoint))) {
+              _renderLayerInto(
+                layer,
+                frame,
+                alpha,
+                dst,
+                dstOriginX,
+                dstOriginY,
+                dstStride,
+                bx0,
+                by0,
+                bx1,
+                by1,
+                ma,
+                mb,
+                mc,
+                md,
+                mtx,
+                mty,
+                clipMask,
+                ws,
+                depth,
+                stableTransform,
+                nativeDst,
+                bm,
+              );
+              continue;
+            }
+            final layerBufPlane = ws._acquireScratch(depth * 3 + 2, bw * bh);
+            final layerBuf = layerBufPlane.typedList;
+            if (ws.preferNative) {
+              simdClearPixels(layerBufPlane, bw * bh);
+            } else {
+              layerBuf.fillRange(0, bw * bh, 0);
+            }
 
             _renderLayerInto(
               layer,
@@ -1743,61 +2076,46 @@ void _renderCompilerInto(
               ws,
               depth + 1,
               stableTransform,
+              ws.preferNative ? layerBufPlane : null,
+              0,
+              true,
+              true,
             );
 
-            _SwarBlender.compositeBlended(
-              dst,
-              bx0 - dstOriginX,
-              by0 - dstOriginY,
-              dstStride,
-              layerBuf,
-              0,
-              0,
-              bw,
-              bw,
-              bh,
-              bm,
-            );
+            final nativeComposited =
+                nativeDst != null &&
+                !_SwarBlender._usesAdvancedBlend(bm) &&
+                nativeBlendRect(
+                  nativeDst,
+                  (by0 - dstOriginY) * dstStride + bx0 - dstOriginX,
+                  dstStride,
+                  layerBufPlane,
+                  bw,
+                  bh,
+                  bm,
+                );
+            if (!nativeComposited) {
+              _SwarBlender.compositeBlended(
+                dst,
+                bx0 - dstOriginX,
+                by0 - dstOriginY,
+                dstStride,
+                layerBuf,
+                0,
+                0,
+                bw,
+                bw,
+                bh,
+                bm,
+              );
+            }
           }
         }
       }
       continue;
     }
 
-    final isDstOut = layer.matteType == 2 || layer.matteType == 4;
     final isLuma = layer.matteType == 3 || layer.matteType == 4;
-    final matteAlpha = matte.visible(frame)
-        ? matte.effectiveAlpha(frame, alpha)
-        : 0;
-    if (matteAlpha == 0) {
-      if (isDstOut) {
-        _renderLayerInto(
-          layer,
-          frame,
-          alpha,
-          dst,
-          dstOriginX,
-          dstOriginY,
-          dstStride,
-          clipX0,
-          clipY0,
-          clipX1,
-          clipY1,
-          ma,
-          mb,
-          mc,
-          md,
-          mtx,
-          mty,
-          clipMask,
-          ws,
-          depth,
-          stableTransform,
-          nativeDst,
-        );
-      }
-      continue;
-    }
 
     // Tight world-to-device pixel box for target layer (+ 1px padding for AA).
     final targetBounds = layer.worldBounds(frame);
@@ -1834,7 +2152,7 @@ void _renderCompilerInto(
     }
     final overlap = mx0 < mx1 && my0 < my1;
     if (!isDstOut && !overlap) continue;
-    if (isDstOut && !overlap) {
+    if (isDstOut && !overlap && bm == 0) {
       _renderLayerInto(
         layer,
         frame,
@@ -1871,7 +2189,8 @@ void _renderCompilerInto(
     final bh = by1 - by0;
     final boxPixels = bw * bh;
 
-    final layerBuf = ws._acquireScratch(depth * 3, boxPixels);
+    final layerBufPlane = ws._acquireScratch(depth * 3, boxPixels);
+    final layerBuf = layerBufPlane.typedList;
     layerBuf.fillRange(0, boxPixels, 0);
     _renderLayerInto(
       layer,
@@ -1895,33 +2214,45 @@ void _renderCompilerInto(
       ws,
       depth + 1,
       stableTransform,
+      layer.innerShadow != null && ws.preferNative ? layerBufPlane : null,
+      0,
+      true,
+      true,
     );
 
-    final matteBuf = ws._acquireScratch(depth * 3 + 1, boxPixels);
+    final matteBufPlane = ws._acquireScratch(depth * 3 + 1, boxPixels);
+    final matteBuf = matteBufPlane.typedList;
     matteBuf.fillRange(0, boxPixels, 0);
-    _renderLayerInto(
-      matte,
-      frame,
-      alpha,
-      matteBuf,
-      bx0,
-      by0,
-      bw,
-      mx0,
-      my0,
-      mx1,
-      my1,
-      ma,
-      mb,
-      mc,
-      md,
-      mtx,
-      mty,
-      null,
-      ws,
-      depth + 1,
-      stableTransform,
-    );
+    if (overlap) {
+      _renderLayerInto(
+        matte,
+        frame,
+        matteParentAlpha,
+        matteBuf,
+        bx0,
+        by0,
+        bw,
+        mx0,
+        my0,
+        mx1,
+        my1,
+        ma,
+        mb,
+        mc,
+        md,
+        mtx,
+        mty,
+        null,
+        ws,
+        depth + 1,
+        stableTransform,
+        matte.innerShadow != null && ws.preferNative ? matteBufPlane : null,
+        0,
+        true,
+        true,
+        !isLuma,
+      );
+    }
 
     // Composite matte into layerBuf, and blend layerBuf onto dst.
     for (var row = 0; row < bh; row++) {
@@ -1960,10 +2291,10 @@ void _renderCompilerInto(
         final masked = factor == 255
             ? tPx
             : _SwarBlender.scalePremul255(tPx, factor);
-        dst[dstRow + col] = _SwarBlender.blendSrcOver(
-          masked,
-          dst[dstRow + col],
-        );
+        final i = dstRow + col;
+        dst[i] = bm == 0
+            ? _SwarBlender.blendSrcOver(masked, dst[i])
+            : _SwarBlender.blendPixel(masked, dst[i], bm);
       }
     }
   }
@@ -2050,10 +2381,227 @@ void _renderLayerInto(
   int depth,
   bool stableTransform, [
   NativePixelBuffer? nativeDst,
+  int blendMode = 0,
+  bool applyMaskAlpha = true,
+  bool isolated = false,
+  bool alphaOnly = false,
+  bool rawShadowContent = false,
+  bool applyFill = true,
 ]) {
   if (!layer.visible(frame)) return;
-  final alpha = layer.effectiveAlpha(frame, parentAlpha);
-  if (alpha == 0) return;
+  final alpha = rawShadowContent ? 255 : layer.layerAlpha(frame, parentAlpha);
+  final maskAlpha = applyMaskAlpha ? layer.singleMaskAlpha(frame) : 255;
+  if (alpha == 0 || maskAlpha == 0) return;
+  final shadow =
+      rawShadowContent || alphaOnly && alpha == 255 && maskAlpha == 255
+      ? null
+      : layer.innerShadow;
+  if (shadow != null) {
+    final bounds = layer.worldBounds(frame);
+    if (bounds == null) return;
+    final left = _transformedMinX(bounds, ma, mc, mtx).floor() - 1;
+    final top = _transformedMinY(bounds, mb, md, mty).floor() - 1;
+    final right = _transformedMaxX(bounds, ma, mc, mtx).ceil() + 1;
+    final bottom = _transformedMaxY(bounds, mb, md, mty).ceil() + 1;
+    final x0 = math.max(left, clipX0), y0 = math.max(top, clipY0);
+    final x1 = math.min(right, clipX1), y1 = math.min(bottom, clipY1);
+    if (x0 >= x1 || y0 >= y1) return;
+    // The style follows the layer transform, but still scales with the
+    // composition (including any enclosing precomp).
+    final dx = ma * shadow.dx + mc * shadow.dy;
+    final dy = mb * shadow.dx + md * shadow.dy;
+    final shiftX = (dx * 256).round();
+    final shiftY = (dy * 256).round();
+    final stepX = -shiftX >> 8, stepY = -shiftY >> 8;
+    final weightX = -shiftX & 255, weightY = -shiftY & 255;
+    // Include alpha just outside the output clip when the shifted sample
+    // needs it. The unsigned span coordinates cannot address negative pixels.
+    final sx0 = math.max(0, math.max(left, math.min(x0, x0 + stepX)));
+    final sy0 = math.max(0, math.max(top, math.min(y0, y0 + stepY)));
+    final sx1 = math.min(
+      65535,
+      math.min(right, math.max(x1, x1 + stepX + (weightX == 0 ? 0 : 1))),
+    );
+    final sy1 = math.min(
+      65535,
+      math.min(bottom, math.max(y1, y1 + stepY + (weightY == 0 ? 0 : 1))),
+    );
+    final reuse = isolated && sx0 == x0 && sy0 == y0 && sx1 == x1 && sy1 == y1;
+    final w = sx1 - sx0, h = sy1 - sy0;
+    final plane = reuse ? nativeDst : ws._acquireScratch(depth * 3 + 2, w * h);
+    final pixels = reuse ? dst : plane!.typedList;
+    final ox = reuse ? dstOriginX : sx0, oy = reuse ? dstOriginY : sy0;
+    final stride = reuse ? dstStride : w;
+    if (!reuse) {
+      if (ws.preferNative) {
+        simdClearPixels(plane!, w * h);
+      } else {
+        pixels.fillRange(0, w * h, 0);
+      }
+    }
+    _renderLayerInto(
+      layer,
+      frame,
+      255,
+      pixels,
+      ox,
+      oy,
+      stride,
+      sx0,
+      sy0,
+      sx1,
+      sy1,
+      ma,
+      mb,
+      mc,
+      md,
+      mtx,
+      mty,
+      clipMask,
+      ws,
+      reuse ? depth : depth + 1,
+      stableTransform,
+      ws.preferNative ? plane : null,
+      0,
+      false,
+      false,
+      false,
+      true,
+    );
+    final opacity = _SwarBlender._div255(alpha * maskAlpha);
+    final skipTint = alphaOnly || (shiftX == 0 && shiftY == 0);
+    if (!skipTint &&
+        blendMode == 0 &&
+        nativeDst != null &&
+        plane != null &&
+        stride == w &&
+        ox == sx0 &&
+        oy == sy0 &&
+        (!reuse || opacity == 255) &&
+        nativeInnerShadow(
+          nativeDst,
+          (y0 - dstOriginY) * dstStride + x0 - dstOriginX,
+          dstStride,
+          plane,
+          w,
+          h,
+          x0 - sx0,
+          y0 - sy0,
+          x1 - x0,
+          y1 - y0,
+          stepX,
+          stepY,
+          weightX,
+          weightY,
+          ((255 - shadow.channel(16)) << 16) |
+              ((255 - shadow.channel(8)) << 8) |
+              (255 - shadow.channel(0)),
+          opacity,
+        )) {
+      return;
+    }
+    _compositeInnerShadow(
+      shadow,
+      opacity,
+      blendMode,
+      pixels,
+      ox,
+      oy,
+      stride,
+      (sx0, sy0, sx1, sy1),
+      dst,
+      dstOriginX,
+      dstOriginY,
+      dstStride,
+      (x0, y0, x1, y1),
+      stepX,
+      stepY,
+      weightX,
+      weightY,
+      reuse,
+      skipTint,
+    );
+    return;
+  }
+  final fill = applyFill ? layer.fillEffect : null;
+  final color = fill?.argb(frame);
+  final argb = alphaOnly && color != null && color >>> 24 == 255 ? null : color;
+  if (maskAlpha != 255 || argb != null) {
+    final opacity = argb == null
+        ? maskAlpha
+        : _SwarBlender._div255((argb >>> 24) * maskAlpha);
+    if (opacity == 0) return;
+    final bounds = layer.worldBounds(frame);
+    if (bounds == null) return;
+    final x0 = math.max(
+      clipX0,
+      _transformedMinX(bounds, ma, mc, mtx).floor() - 1,
+    );
+    final y0 = math.max(
+      clipY0,
+      _transformedMinY(bounds, mb, md, mty).floor() - 1,
+    );
+    final x1 = math.min(
+      clipX1,
+      _transformedMaxX(bounds, ma, mc, mtx).ceil() + 1,
+    );
+    final y1 = math.min(
+      clipY1,
+      _transformedMaxY(bounds, mb, md, mty).ceil() + 1,
+    );
+    final w = x1 - x0, h = y1 - y0;
+    if (w <= 0 || h <= 0) return;
+    final plane = ws._acquireScratch(depth * 3 + 2, w * h);
+    final pixels = plane.typedList..fillRange(0, w * h, 0);
+    _renderLayerInto(
+      layer,
+      frame,
+      parentAlpha,
+      pixels,
+      x0,
+      y0,
+      w,
+      x0,
+      y0,
+      x1,
+      y1,
+      ma,
+      mb,
+      mc,
+      md,
+      mtx,
+      mty,
+      clipMask,
+      ws,
+      depth + 1,
+      stableTransform,
+      ws.preferNative ? plane : null,
+      0,
+      false,
+      false,
+      alphaOnly,
+      false,
+      false,
+    );
+    var row = (y0 - dstOriginY) * dstStride + x0 - dstOriginX;
+    for (var y = 0; y < h; y++, row += dstStride) {
+      for (var x = 0; x < w; x++) {
+        final p = pixels[y * w + x];
+        if (p == 0) continue;
+        final src = argb == null
+            ? _SwarBlender.scalePremul255(p, opacity)
+            : _SwarBlender.scalePremul255(
+                0xff000000 | (argb & 0xffffff),
+                _SwarBlender._div255((p >>> 24) * opacity),
+              );
+        final i = row + x;
+        dst[i] = blendMode == 0
+            ? _SwarBlender.blendSrcOver(src, dst[i])
+            : _SwarBlender.blendPixel(src, dst[i], blendMode);
+      }
+    }
+    return;
+  }
 
   // Build parent->child transform chain iteratively into affine matrix.
   var ca = ma, cb = mb, cc = mc, cd = md, ctx = mtx, cty = mty;
@@ -2097,63 +2645,60 @@ void _renderLayerInto(
 
   final stable = stableTransform && layer.hasStaticSpatialChain;
   _RleSpans? effectiveClipMask = clipMask;
-  var effClipX0 = clipX0, effClipY0 = clipY0, effClipX1 = clipX1, effClipY1 = clipY1;
+  var effClipX0 = clipX0,
+      effClipY0 = clipY0,
+      effClipX1 = clipX1,
+      effClipY1 = clipY1;
   final masks = layer.masks;
-  if (masks != null && masks.isNotEmpty) {
-    var hasActive = false;
-    for (var i = 0; i < masks.length; i++) {
-      if (masks[i].mode != 'n') {
-        hasActive = true;
-        break;
-      }
+  if (masks != null && layer.hasActiveMasks) {
+    // Retain the mask before intersecting any ancestor coverage. An ancestor's
+    // animated mask can change even while this transform and clip box are fixed.
+    final key = ws.retainCoverage && stable && layer.hasStaticMaskCoverage
+        ? (ca, cb, cc, cd, ctx, cty, clipX0, clipY0, clipX1, clipY1)
+        : null;
+    final retained = key == null ? null : ws._retained(layer, key);
+    _RleSpans layerMaskSpans;
+    if (retained == null) {
+      layerMaskSpans = ws._acquireMaskSpans(depth)..clear();
+      _rasterLayerMask(
+        masks,
+        frame,
+        ca,
+        cb,
+        cc,
+        cd,
+        ctx,
+        cty,
+        clipX0,
+        clipY0,
+        clipX1,
+        clipY1,
+        layerMaskSpans,
+        ws,
+        depth,
+      );
+      if (key != null) ws._retain(layer, key, layerMaskSpans);
+    } else if (clipMask == null && retained.spanCount != 0) {
+      // Children can populate the shared cache and evict this entry. Keep
+      // the active clip in depth-local scratch for the duration of the draw.
+      layerMaskSpans = ws._acquireMaskSpans(depth)..copyFrom(retained);
+    } else {
+      layerMaskSpans = retained;
     }
-    if (hasActive) {
-      final maskPoly = ws._acquireMaskPoly(depth);
-      final scaleX = math.sqrt(ca * ca + cb * cb);
-      final scaleY = math.sqrt(cc * cc + cd * cd);
-      final maxScale = math.max(scaleX, scaleY);
-      final localFlatness = maxScale <= 1e-6
-          ? 0.25
-          : (0.25 / maxScale).clamp(0.005, 1.5);
-      final flatnessSq = localFlatness * localFlatness;
-      final localPoly = ws._acquireMaskLocalPoly(depth);
-
-      for (var i = 0; i < masks.length; i++) {
-        final m = masks[i];
-        if (m.mode == 'a' && !m.inverted) {
-          localPoly.clear();
-          _flattenLeaf(m.geometry, frame, flatnessSq, localPoly);
-          maskPoly.appendTransformed(localPoly, ca, cb, cc, cd, ctx, cty);
-        }
-      }
-
-      if (maskPoly.contourCount > 0) {
-        final layerMaskSpans = ws._acquireMaskSpans(depth);
-        ws._rasterize(
-          maskPoly,
-          false /* nonZero */,
-          layerMaskSpans,
-          clipX0,
-          clipY0,
-          clipX1,
-          clipY1,
-        );
-        if (layerMaskSpans.spanCount == 0) return;
-        if (clipMask != null) {
-          final intersected = ws._acquireIntersectMaskSpans(depth);
-          _RleSpans.intersect(layerMaskSpans, clipMask, intersected);
-          if (intersected.spanCount == 0) return;
-          effectiveClipMask = intersected;
-        } else {
-          effectiveClipMask = layerMaskSpans;
-        }
-        effClipX0 = math.max(effClipX0, effectiveClipMask.minX);
-        effClipY0 = math.max(effClipY0, effectiveClipMask.minY);
-        effClipX1 = math.min(effClipX1, effectiveClipMask.maxX);
-        effClipY1 = math.min(effClipY1, effectiveClipMask.maxY);
-        if (effClipX0 >= effClipX1 || effClipY0 >= effClipY1) return;
-      }
+    if (layerMaskSpans.spanCount == 0) return;
+    if (clipMask != null) {
+      final intersected = ws._acquireIntersectMaskSpans(depth);
+      _RleSpans.intersect(layerMaskSpans, clipMask, intersected);
+      if (intersected.spanCount == 0) return;
+      effectiveClipMask = intersected;
+    } else {
+      effectiveClipMask = layerMaskSpans;
     }
+    effClipX0 = math.max(effClipX0, effectiveClipMask.minX);
+    effClipY0 = math.max(effClipY0, effectiveClipMask.minY);
+    effClipX1 = math.min(effClipX1, effectiveClipMask.maxX);
+    effClipY1 = math.min(effClipY1, effectiveClipMask.maxY);
+    if (effClipX0 >= effClipX1 || effClipY0 >= effClipY1) return;
   }
 
   final group = layer.group;
@@ -2181,6 +2726,7 @@ void _renderLayerInto(
       depth + 1,
       stable,
       nativeDst,
+      blendMode,
     );
   }
 
@@ -2246,7 +2792,8 @@ void _renderLayerInto(
       );
       if (rx0 < rx1 && ry0 < ry1) {
         final bw = rx1 - rx0, bh = ry1 - ry0;
-        final preBuf = ws._acquireScratch(depth * 3 + 2, bw * bh);
+        final preBufPlane = ws._acquireScratch(depth * 3 + 2, bw * bh);
+        final preBuf = preBufPlane.typedList;
         preBuf.fillRange(0, bw * bh, 0);
         _renderCompilerInto(
           child,
@@ -2283,7 +2830,11 @@ void _renderLayerInto(
         ws._rasterize(ws._polyPath, false, ws._clipSpans, rx0, ry0, rx1, ry1);
         var spansToBlend = ws._clipSpans;
         if (effectiveClipMask != null) {
-          _RleSpans.intersect(ws._clipSpans, effectiveClipMask, ws._intersectSpans);
+          _RleSpans.intersect(
+            ws._clipSpans,
+            effectiveClipMask,
+            ws._intersectSpans,
+          );
           spansToBlend = ws._intersectSpans;
         }
         final count = spansToBlend.spanCount * 2;
@@ -2309,6 +2860,193 @@ void _renderLayerInto(
   }
 }
 
+void _compositeInnerShadow(
+  _InnerShadow shadow,
+  int opacity,
+  int blendMode,
+  Uint32List src,
+  int sx,
+  int sy,
+  int srcStride,
+  _RasterClip samples,
+  Uint32List dst,
+  int dx,
+  int dy,
+  int dstStride,
+  _RasterClip output,
+  int stepX,
+  int stepY,
+  int wx,
+  int wy,
+  bool inPlace,
+  bool skipTint,
+) {
+  final (sx0, sy0, sx1, sy1) = samples;
+  final (x0, y0, x1, y1) = output;
+  final r = 255 - shadow.channel(16), g = 255 - shadow.channel(8);
+  final b = 255 - shadow.channel(0);
+  final div255 = _SwarBlender._div255;
+  // An in-place pass needs the original sample alpha. RGB writes preserve it;
+  // apply layer opacity only after all samples have been read.
+  for (var y = y0; y < y1; y++) {
+    final row0 = y + stepY;
+    final row1 = row0 + 1;
+    final i0 = row0 >= sy0 && row0 < sy1 ? (row0 - sy) * srcStride - sx : null;
+    final i1 = row1 >= sy0 && row1 < sy1 ? (row1 - sy) * srcStride - sx : null;
+    final srcRow = (y - sy) * srcStride - sx;
+    final dstRow = (y - dy) * dstStride - dx;
+    for (var x = x0; x < x1; x++) {
+      var p = src[srcRow + x];
+      if (p == 0) continue;
+      if (!skipTint) {
+        final xA = x + stepX, xB = xA + 1;
+        final validA = xA >= sx0 && xA < sx1;
+        final validB = xB >= sx0 && xB < sx1;
+        final a00 = i0 != null && validA ? src[i0 + xA] >>> 24 : 0;
+        final a01 = i0 != null && validB ? src[i0 + xB] >>> 24 : 0;
+        final a10 = i1 != null && validA ? src[i1 + xA] >>> 24 : 0;
+        final a11 = i1 != null && validB ? src[i1 + xB] >>> 24 : 0;
+        final edge =
+            255 -
+            (a00 & a01 & a10 & a11 == 255
+                ? 255
+                : (((a00 * (256 - wx) + a01 * wx) * (256 - wy) +
+                          (a10 * (256 - wx) + a11 * wx) * wy +
+                          32768) >>>
+                      16));
+        if (edge != 0) {
+          p =
+              (p & 0xff000000) |
+              (div255(((p >>> 16) & 255) * (255 - div255(r * edge))) << 16) |
+              (div255(((p >>> 8) & 255) * (255 - div255(g * edge))) << 8) |
+              div255((p & 255) * (255 - div255(b * edge)));
+        }
+      }
+      final i = dstRow + x;
+      if (inPlace) {
+        dst[i] = p;
+      } else {
+        if (opacity != 255) p = _SwarBlender.scalePremul255(p, opacity);
+        dst[i] = blendMode == 0
+            ? _SwarBlender.blendSrcOver(p, dst[i])
+            : _SwarBlender.blendPixel(p, dst[i], blendMode);
+      }
+    }
+  }
+  if (inPlace && opacity != 255) {
+    for (var y = y0; y < y1; y++) {
+      final row = (y - dy) * dstStride - dx;
+      for (var x = x0; x < x1; x++) {
+        dst[row + x] = _SwarBlender.scalePremul255(dst[row + x], opacity);
+      }
+    }
+  }
+}
+
+void _rasterLayerMask(
+  List<_Mask> masks,
+  double frame,
+  double ca,
+  double cb,
+  double cc,
+  double cd,
+  double ctx,
+  double cty,
+  int x0,
+  int y0,
+  int x1,
+  int y1,
+  _RleSpans out,
+  _RasterWorkspace ws,
+  int depth,
+) {
+  final maskPoly = ws._acquireMaskPoly(depth);
+  final scaleX = math.sqrt(ca * ca + cb * cb);
+  final scaleY = math.sqrt(cc * cc + cd * cd);
+  final maxScale = math.max(scaleX, scaleY);
+  final localFlatness = maxScale <= 1e-6
+      ? 0.25
+      : (0.25 / maxScale).clamp(0.005, 1.5);
+  final flatnessSq = localFlatness * localFlatness;
+  final localPoly = ws._acquireMaskLocalPoly(depth);
+
+  void rasterMask(_Mask mask, _RleSpans target) {
+    localPoly.clear();
+    maskPoly.clear();
+    _flattenLeaf(mask.geometry, frame, flatnessSq, localPoly);
+    maskPoly.appendTransformed(localPoly, ca, cb, cc, cd, ctx, cty);
+    ws._rasterize(maskPoly, false, target, x0, y0, x1, y1);
+    final amount = mask.expand?.scalar(frame) ?? 0;
+    if (amount == 0 || target.spanCount == 0 && amount < 0) return;
+    final band = ws._strokePoly..clear();
+    _expandMaskBand(localPoly, amount, localFlatness, band, ws._strokeScratch);
+    maskPoly.clear();
+    maskPoly.appendTransformed(band, ca, cb, cc, cd, ctx, cty);
+    final edge = ws._acquireBooleanSpans(3);
+    final original = ws._acquireBooleanSpans(4);
+    ws._rasterize(maskPoly, false, edge, x0, y0, x1, y1);
+    target.swap(original);
+    _RleSpans.combine(original, edge, target, amount > 0 ? 2 : 3);
+  }
+
+  if (masks.length == 1 && masks.single.clipsToPathAlone) {
+    // Single-mask opacity is applied when compositing the rendered layer.
+    rasterMask(masks.single, out);
+  } else {
+    final operand = ws._acquireBooleanSpans(0);
+    final previous = ws._acquireBooleanSpans(1);
+    final full = ws._acquireBooleanSpans(2);
+    var started = false;
+    for (final mask in masks) {
+      if (mask.mode == 'n') continue;
+      final op = switch (mask.mode) {
+        's' => 3,
+        'i' => 4,
+        'f' => 5,
+        _ => 2,
+      };
+      rasterMask(mask, operand);
+      final opacity = (mask.opacity.scalar(frame) * 2.56).round().clamp(0, 256);
+      if (opacity != 256) operand.scaleCoverage(opacity);
+      if (mask.inverted || (!started && op == 3)) {
+        if (full.spanCount == 0) {
+          for (var y = y0; y < y1; y++) {
+            full.addSpan(y, x0, x1 - x0, 256);
+          }
+        }
+        if (mask.inverted) {
+          operand.swap(previous);
+          _RleSpans.combine(full, previous, operand, 3);
+        }
+      }
+      if (!started && op != 3) {
+        out.swap(operand);
+      } else if (!started) {
+        _RleSpans.combine(full, operand, out, op);
+      } else {
+        out.swap(previous);
+        _RleSpans.combine(previous, operand, out, op);
+      }
+      started = true;
+    }
+  }
+}
+
+void _expandMaskBand(
+  _PolyPath outline,
+  double amount,
+  double flatness,
+  _PolyPath band,
+  _StrokeScratch scratch,
+) {
+  // Filled mask contours are implicitly closed. Add or remove a round band
+  // in mask space so nonuniform transforms also scale the expansion.
+  for (var i = 0; i < outline.contourCount; i++) {
+    outline.contourClosed[i] = 1;
+  }
+  _expandStroke(outline, amount.abs(), 2, 2, 4, flatness, band, scratch);
+}
+
 void _renderGroupInto(
   _Group group,
   double frame,
@@ -2332,19 +3070,31 @@ void _renderGroupInto(
   int depth,
   bool stableTransform, [
   NativePixelBuffer? nativeDst,
+  int blendMode = 0,
 ]) {
-  final nextAlpha =
-      (alpha * group.transform.opacity.scalar(frame).round() / 100)
-          .round()
-          .clamp(0, 255);
+  final transform = group.transform;
+  final nextAlpha = transform.isFullyOpaque
+      ? alpha
+      : (alpha * transform.opacity.scalar(frame).round() / 100).round().clamp(
+          0,
+          255,
+        );
   if (nextAlpha == 0) return;
 
-  final m = ws._stackMatrix(depth);
-  _composeAffine(group.transform, frame, ma, mb, mc, md, mtx, mty, m);
-  final ga = m[0], gb = m[1], gc = m[2], gd = m[3], gtx = m[4], gty = m[5];
+  var ga = ma, gb = mb, gc = mc, gd = md, gtx = mtx, gty = mty;
+  if (!transform.isSpatialIdentity) {
+    final m = ws._stackMatrix(depth);
+    _composeAffine(transform, frame, ma, mb, mc, md, mtx, mty, m);
+    ga = m[0];
+    gb = m[1];
+    gc = m[2];
+    gd = m[3];
+    gtx = m[4];
+    gty = m[5];
+  }
 
-  final stable = stableTransform && group.transform.isSpatialStatic;
-  final draws = group.draws;
+  final stable = stableTransform && transform.isSpatialStatic;
+  final draws = group.softwareDraws;
   for (var i = draws.length - 1; i >= 0; i--) {
     final d = draws[i];
     if (d is _Group) {
@@ -2371,6 +3121,7 @@ void _renderGroupInto(
         depth + 1,
         stable,
         nativeDst,
+        blendMode,
       );
     } else if (d is _Style) {
       _renderStyleInto(
@@ -2395,6 +3146,7 @@ void _renderGroupInto(
         ws,
         stable,
         nativeDst,
+        blendMode,
       );
     }
   }
@@ -2422,6 +3174,7 @@ void _renderStyleInto(
   _RasterWorkspace ws,
   bool stableTransform, [
   NativePixelBuffer? nativeDst,
+  int blendMode = 0,
 ]) {
   final a = (alpha * style.opacity.scalar(frame).round() / 100).round().clamp(
     0,
@@ -2433,39 +3186,51 @@ void _renderStyleInto(
       : null;
   var spans = key == null ? null : ws._retained(style, key);
   if (spans == null) {
-    final bounds = _prepareStylePolygon(
-      style,
-      frame,
-      clipX0,
-      clipY0,
-      clipX1,
-      clipY1,
-      ma,
-      mb,
-      mc,
-      md,
-      mtx,
-      mty,
-      ws,
-    );
-    if (bounds == null) return;
-    final (x0, y0, x1, y1) = bounds;
-    final hasExclude =
-        style.sources.any((s) => s is _MergePathSource && s.mode == 5);
-    final hasSubtract =
-        style.sources.any((s) => s is _MergePathSource && s.mode == 3);
-    final useEvenOdd =
-        !style.stroke && (hasExclude || (!hasSubtract && style.evenOdd));
-    ws._rasterize(
-      ws._workPolyB,
-      useEvenOdd,
-      ws._spans,
-      x0,
-      y0,
-      x1,
-      y1,
-    );
-    spans = ws._spans;
+    if (!style.stroke && style.hasBooleanFill) {
+      final bounds = style.drawBounds(frame);
+      if (bounds == null) return;
+      final clip = (
+        math.max(clipX0, _transformedMinX(bounds, ma, mc, mtx).floor() - 2),
+        math.max(clipY0, _transformedMinY(bounds, mb, md, mty).floor() - 2),
+        math.min(clipX1, _transformedMaxX(bounds, ma, mc, mtx).ceil() + 2),
+        math.min(clipY1, _transformedMaxY(bounds, mb, md, mty).ceil() + 2),
+      );
+      if (clip.$1 >= clip.$3 || clip.$2 >= clip.$4) return;
+      spans = ws._spans;
+      _rasterBooleanSources(
+        style.sources,
+        0,
+        style.sources.length,
+        frame,
+        (ma, mb, mc, md, mtx, mty),
+        clip,
+        style.evenOdd,
+        spans,
+        ws,
+        0,
+      );
+    } else {
+      final bounds = _prepareStylePolygon(
+        style,
+        frame,
+        clipX0,
+        clipY0,
+        clipX1,
+        clipY1,
+        ma,
+        mb,
+        mc,
+        md,
+        mtx,
+        mty,
+        ws,
+      );
+      if (bounds == null) return;
+      final (x0, y0, x1, y1) = bounds;
+      final useEvenOdd = !style.stroke && style.evenOdd;
+      ws._rasterize(ws._workPolyB, useEvenOdd, ws._spans, x0, y0, x1, y1);
+      spans = ws._spans;
+    }
     if (key != null && spans.spanCount > 0) ws._retain(style, key, spans);
   }
   if (clipMask != null) {
@@ -2476,15 +3241,29 @@ void _renderStyleInto(
 
   final grad = style.gradient;
   if (grad == null) {
-    _SwarBlender.fillSolidSpans(
-      dst,
-      dstOriginX,
-      dstOriginY,
-      dstStride,
-      spans,
-      _stylePremul(style, frame, a),
-      nativeDst,
-    );
+    final color = _stylePremul(style, frame, a);
+    if (blendMode == 0) {
+      _SwarBlender.fillSolidSpans(
+        dst,
+        dstOriginX,
+        dstOriginY,
+        dstStride,
+        spans,
+        color,
+        nativeDst,
+      );
+    } else {
+      _SwarBlender.blendSolidSpans(
+        dst,
+        dstOriginX,
+        dstOriginY,
+        dstStride,
+        spans,
+        color,
+        blendMode,
+        nativeDst,
+      );
+    }
   } else {
     final det = ma * md - mb * mc;
     if (det.abs() <= 1e-12) return;
@@ -2498,6 +3277,52 @@ void _renderStyleInto(
     final lut = _evalGradientLut(grad, frame, ws);
     final s = grad.start.at(frame);
     final e = grad.end.at(frame);
+    if (grad.hasFocalPoint) {
+      final fx = e[0] - s[0], fy = e[1] - s[1];
+      final focus = grad.focalOffset(frame, fx, fy);
+      if (focus != null) {
+        _fillFocalGradientSpans(
+          dst,
+          dstOriginX,
+          dstOriginY,
+          dstStride,
+          spans,
+          lut.typedList,
+          a,
+          (ia, ib, ic, id, itx, ity),
+          s[0],
+          s[1],
+          math.max(.001, _hypot(fx, fy)),
+          focus,
+        );
+        return;
+      }
+    }
+    if (nativeDst != null && isNativeGradientSupported) {
+      nativeGradientSpans(
+        nativeDst,
+        dstOriginX,
+        dstOriginY,
+        dstStride,
+        spans._buf,
+        spans.spanCount,
+        lut,
+        a,
+        blendMode,
+        grad.radial,
+        ia,
+        ib,
+        ic,
+        id,
+        itx,
+        ity,
+        s[0],
+        s[1],
+        e[0],
+        e[1],
+      );
+      return;
+    }
     if (grad.radial) {
       _SwarBlender.fillRadialGradientSpans(
         dst,
@@ -2505,7 +3330,7 @@ void _renderStyleInto(
         dstOriginY,
         dstStride,
         spans,
-        lut,
+        lut.typedList,
         a,
         ia,
         ib,
@@ -2525,7 +3350,7 @@ void _renderStyleInto(
         dstOriginY,
         dstStride,
         spans,
-        lut,
+        lut.typedList,
         a,
         ia,
         ib,
@@ -2539,6 +3364,233 @@ void _renderStyleInto(
         e[1],
       );
     }
+  }
+}
+
+void _fillFocalGradientSpans(
+  Uint32List dst,
+  int ox,
+  int oy,
+  int stride,
+  _RleSpans spans,
+  Uint32List lut,
+  int opacity,
+  _RasterAffine inverse,
+  double cx,
+  double cy,
+  double radius,
+  (double, double) focus,
+) {
+  final (ia, ib, ic, id, itx, ity) = inverse;
+  final (fx, fy) = focus;
+  final k = 1 - fx * fx - fy * fy;
+  final stepX = ia / radius, stepY = ib / radius;
+  final data = spans.data;
+  for (var i = 0; i < spans.spanCount * 2; i += 2) {
+    final xy = data[i], run = data[i + 1];
+    final x = xy & 65535, y = xy >>> 16;
+    final cov = (run & 255) + 1;
+    var dx = (ia * (x + .5) + ic * (y + .5) + itx - cx) / radius - fx;
+    var dy = (ib * (x + .5) + id * (y + .5) + ity - cy) / radius - fy;
+    final start = (y - oy) * stride + x - ox;
+    final end = start + (run >>> 8);
+    for (var p = start; p < end; p++, dx += stepX, dy += stepY) {
+      // Solve |focus + (pixel - focus) / t| = 1 for the positive t.
+      final dot = dx * fx + dy * fy;
+      final t = (dot + math.sqrt(dot * dot + k * (dx * dx + dy * dy))) / k;
+      var color = lut[t >= 1 ? 1023 : (t * 1023 + .5).toInt()];
+      if (opacity != 255) color = _SwarBlender.scalePremul255(color, opacity);
+      if (cov != 256) color = _SwarBlender.scalePremul(color, cov);
+      dst[p] = _SwarBlender.blendSrcOver(color, dst[p]);
+    }
+  }
+}
+
+// Evaluate boolean fills in device-space coverage, so this path can run on
+// worker isolates. Coverage multiplication approximates subpixel intersections;
+// strokes and trims still need contour geometry.
+typedef _RasterAffine = (double, double, double, double, double, double);
+typedef _RasterClip = (int, int, int, int);
+
+bool _hasBooleanPath(_PathSource source) => switch (source) {
+  _MergePathSource s => s.hasBooleanPath,
+  _Group s => s.hasBooleanPath,
+  _Shape s => _hasBooleanPath(s.content),
+  _ => false,
+};
+
+void _rasterBooleanSources(
+  List<_PathSource> sources,
+  int start,
+  int end,
+  double frame,
+  _RasterAffine matrix,
+  _RasterClip clip,
+  bool evenOdd,
+  _RleSpans out,
+  _RasterWorkspace ws,
+  int depth,
+) {
+  if (end - start == 1 && _hasBooleanPath(sources[start])) {
+    _rasterBooleanSource(
+      sources[start],
+      frame,
+      matrix,
+      clip,
+      evenOdd,
+      out,
+      ws,
+      depth,
+    );
+    return;
+  }
+  final (a, b, c, d, tx, ty) = matrix;
+  final poly = ws._workPolyB..clear();
+  for (var i = start; i < end; i++) {
+    final source = sources[i];
+    if (!_hasBooleanPath(source)) {
+      _appendSourceLocal(source, frame, a, b, c, d, tx, ty, 0.0625, poly, ws);
+    }
+  }
+  if (poly.contourCount == 0) {
+    out.clear();
+  } else {
+    ws._rasterize(poly, evenOdd, out, clip.$1, clip.$2, clip.$3, clip.$4);
+  }
+
+  final base = depth * 2;
+  _RleSpans? operand, previous;
+  for (var i = start; i < end; i++) {
+    final source = sources[i];
+    if (!_hasBooleanPath(source)) continue;
+    if (out.spanCount == 0) {
+      _rasterBooleanSource(
+        source,
+        frame,
+        matrix,
+        clip,
+        evenOdd,
+        out,
+        ws,
+        depth + 1,
+      );
+    } else {
+      operand ??= ws._acquireBooleanSpans(base);
+      _rasterBooleanSource(
+        source,
+        frame,
+        matrix,
+        clip,
+        evenOdd,
+        operand,
+        ws,
+        depth + 1,
+      );
+      previous ??= ws._acquireBooleanSpans(base + 1);
+      previous.swap(out);
+      _RleSpans.combine(previous, operand, out, evenOdd ? 5 : 2);
+    }
+  }
+}
+
+void _rasterBooleanSource(
+  _PathSource source,
+  double frame,
+  _RasterAffine matrix,
+  _RasterClip clip,
+  bool evenOdd,
+  _RleSpans out,
+  _RasterWorkspace ws,
+  int depth,
+) {
+  switch (source) {
+    case _Group group:
+      final (a, b, c, d, tx, ty) = matrix;
+      if (!group.transform.isSpatialIdentity) {
+        final m = ws._groupMatrix(depth);
+        _composeAffine(group.transform, frame, a, b, c, d, tx, ty, m);
+        matrix = (m[0], m[1], m[2], m[3], m[4], m[5]);
+      }
+      _rasterBooleanSources(
+        group.sources,
+        0,
+        group.sources.length,
+        frame,
+        matrix,
+        clip,
+        evenOdd,
+        out,
+        ws,
+        depth + 1,
+      );
+    case _Shape shape:
+      _rasterBooleanSource(
+        shape.content,
+        frame,
+        matrix,
+        clip,
+        evenOdd,
+        out,
+        ws,
+        depth + 1,
+      );
+    case _MergePathSource merge:
+      final sources = merge.sources;
+      if (merge.mode == 1) {
+        _rasterBooleanSources(
+          sources,
+          0,
+          sources.length,
+          frame,
+          matrix,
+          clip,
+          evenOdd,
+          out,
+          ws,
+          depth + 1,
+        );
+        return;
+      }
+      final base = depth * 2;
+      final rest = ws._acquireBooleanSpans(base);
+      final first = ws._acquireBooleanSpans(base + 1);
+      _rasterBooleanSources(
+        sources,
+        0,
+        sources.length - 1,
+        frame,
+        matrix,
+        clip,
+        false,
+        rest,
+        ws,
+        depth + 1,
+      );
+      if (rest.spanCount == 0 && (merge.mode == 3 || merge.mode == 4)) {
+        out.clear();
+        return;
+      }
+      final last = sources.last;
+      if (_hasBooleanPath(last)) {
+        _rasterBooleanSource(
+          last,
+          frame,
+          matrix,
+          clip,
+          false,
+          first,
+          ws,
+          depth + 1,
+        );
+      } else {
+        final (a, b, c, d, tx, ty) = matrix;
+        final poly = ws._workPolyB..clear();
+        _appendSourceLocal(last, frame, a, b, c, d, tx, ty, 0.0625, poly, ws);
+        ws._rasterize(poly, false, first, clip.$1, clip.$2, clip.$3, clip.$4);
+      }
+      _RleSpans.combine(rest, first, out, merge.mode);
+    default:
+      throw StateError('Expected a boolean path');
   }
 }
 
@@ -2666,23 +3718,27 @@ int _stylePremul(_Style style, double frame, int alpha) {
   );
 }
 
-Uint32List _evalGradientLut(
+NativePixelBuffer _evalGradientLut(
   _GradientSpec grad,
   double frame,
   _RasterWorkspace ws,
 ) {
-  if (grad.isStatic) {
+  // The LUT is sampled in normalized gradient space. Moving either endpoint
+  // changes which index a pixel reads, not the contents of the table.
+  if (grad.stops.isStatic) {
     final cached = ws.staticGradientLuts[grad];
     if (cached != null) return cached;
     if (ws.staticGradientLuts.length >= _RasterWorkspace.maxStaticLuts) {
-      ws.staticGradientLuts.clear();
+      final oldest = ws.staticGradientLuts.keys.first;
+      ws.staticGradientLuts.remove(oldest)!.dispose();
     }
-    final lut = ws.staticGradientLuts[grad] = Uint32List(1024);
-    _fillGradientLut(grad, frame, lut);
+    final lut = ws.staticGradientLuts[grad] = NativePixelBuffer(1024);
+    _fillGradientLut(grad, frame, lut.typedList);
     return lut;
   }
-  _fillGradientLut(grad, frame, ws.scratchGradientLut);
-  return ws.scratchGradientLut;
+  final lut = ws._scratchGradientLut ??= NativePixelBuffer(1024);
+  _fillGradientLut(grad, frame, lut.typedList);
+  return lut;
 }
 
 void _fillGradientLut(_GradientSpec grad, double frame, Uint32List lut) {
@@ -2738,31 +3794,8 @@ void _appendSourceLocal(
   int trimDepth = 0,
   int groupDepth = 0,
 ]) {
-  final effectiveFlatSq = () {
-    final scale = math.max(
-      math.sqrt(ma * ma + mb * mb),
-      math.sqrt(mc * mc + md * md),
-    );
-    return scale <= 1e-6 ? flatnessSq : flatnessSq / (scale * scale);
-  }();
-
-  if (src is _Shape) {
-    _appendSourceLocal(
-      src.content,
-      frame,
-      ma,
-      mb,
-      mc,
-      md,
-      mtx,
-      mty,
-      flatnessSq,
-      out,
-      ws,
-      trimDepth,
-      groupDepth,
-    );
-    return;
+  while (src is _Shape) {
+    src = src.content;
   }
   if (src is _Group) {
     var ga = ma, gb = mb, gc = mc, gd = md, gtx = mtx, gty = mty;
@@ -2800,7 +3833,7 @@ void _appendSourceLocal(
       src.trim,
       src.index,
       frame,
-      effectiveFlatSq,
+      _localFlatnessSq(ma, mb, mc, md, flatnessSq),
       ws,
       trimDepth,
       groupDepth,
@@ -2844,7 +3877,7 @@ void _appendSourceLocal(
         cut,
         ws,
         trimDepth,
-        groupDepth,
+        groupDepth + 1,
       );
       out.appendReversed(cut);
       return;
@@ -2890,12 +3923,28 @@ void _appendSourceLocal(
       mtx == 0.0 &&
       mty == 0.0;
   if (isIdentity) {
-    _flattenLeaf(src, frame, effectiveFlatSq, out);
+    _flattenLeaf(src, frame, flatnessSq, out);
   } else {
     final local = ws._flattenLeafPoly..clear();
-    _flattenLeaf(src, frame, effectiveFlatSq, local);
+    _flattenLeaf(
+      src,
+      frame,
+      _localFlatnessSq(ma, mb, mc, md, flatnessSq),
+      local,
+    );
     out.appendTransformed(local, ma, mb, mc, md, mtx, mty);
   }
+}
+
+double _localFlatnessSq(
+  double a,
+  double b,
+  double c,
+  double d,
+  double flatnessSq,
+) {
+  final scaleSq = math.max(a * a + b * b, c * c + d * d);
+  return scaleSq <= 1e-12 ? flatnessSq : flatnessSq / scaleSq;
 }
 
 void _flattenLeaf(
@@ -3891,6 +4940,7 @@ final class _ContentKeyHasher {
       }
     } else if (s is _MergePathSource) {
       _mixInt(9 + s.mode);
+      if (s.mode != 1) _mixInt(0x424f4f4c); // Coverage boolean raster revision.
       for (final sub in s.sources) {
         _mixSource(sub);
       }
@@ -3923,6 +4973,12 @@ final class _ContentKeyHasher {
         _mixTrack(g.stops);
         _mixTrack(g.start);
         _mixTrack(g.end);
+        if (g.hasFocalPoint) {
+          _mixInt(0x666f6361); // Radial focal point.
+          _mixTrack(g.highlightLength!);
+          _mixInt(g.highlightAngle == null ? 0 : 1);
+          if (g.highlightAngle != null) _mixTrack(g.highlightAngle!);
+        }
       }
       final dash = d.dash;
       if (dash != null) {
@@ -3946,7 +5002,38 @@ final class _ContentKeyHasher {
       _mixDouble(l.op);
       _mixDouble(l.offset);
       _mixInt((l.hidden ? 1 : 0) | (l.matteType << 2) | (l.blendMode << 6));
+      if (l.blendMode != 0) _mixInt(0x424c454e); // Blend raster revision.
+      if (l.usesSetMatte) {
+        _mixInt(0x534d4154);
+        _mixInt(comp.layers.indexOf(l.matte!));
+      }
+      final fill = l.fillEffect;
+      if (fill != null) {
+        _mixInt(0x46494c4c);
+        _mixTrack(fill.color);
+        _mixTrack(fill.opacity);
+      }
+      final shadow = l.innerShadow;
+      if (shadow != null) {
+        _mixInt(0x53484457); // Inner Shadow.
+        _mixDouble(shadow.dx);
+        _mixDouble(shadow.dy);
+        _mixInt(shadow.argb);
+      }
       _mixTransform(l.transform);
+      final masks = l.masks;
+      if (masks != null && masks.isNotEmpty) {
+        _mixInt(0x4d41534b);
+        _mixInt(masks.length);
+        for (final mask in masks) {
+          _mixInt(mask.mode.codeUnitAt(0));
+          _mixInt(mask.inverted ? 1 : 0);
+          _mixSource(mask.geometry);
+          _mixTrack(mask.opacity);
+          final expand = mask.expand;
+          if (expand != null) _mixTrack(expand);
+        }
+      }
       final g = l.group;
       if (g != null) _mixDraw(g);
       final ch = l.child;
@@ -3984,6 +5071,15 @@ class FastLottieSoftwareSession {
   final _RasterWorkspace _ws;
   final _Compiler _scene;
   final NativePixelBuffer _pixelBuffer;
+
+  /// Retained mask and draw coverage, including per-entry overhead estimates.
+  int get retainedCoverageBytes => _ws._coverageBytes;
+
+  /// Allocated temporary pixel planes, excluding the output and span buffers.
+  int get scratchPixelBytes => _ws._scratchLayers.fold(
+    0,
+    (bytes, plane) => bytes + (plane?.typedList.lengthInBytes ?? 0),
+  );
 
   Uint32List get pixels => _pixelBuffer.typedList;
 

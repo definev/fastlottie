@@ -113,6 +113,33 @@ List<int> _stripOsnovaSpatialTangents(List<int> raw) {
   return utf8.encode(jsonEncode(doc));
 }
 
+List<int> _withoutRadialHighlights(List<int> raw) {
+  final doc = jsonDecode(utf8.decode(raw));
+  var changed = false;
+  void visit(Object? value) {
+    if (value is Map<String, dynamic>) {
+      if ((value['ty'] == 'gf' || value['ty'] == 'gs') && value['t'] == 2) {
+        final length = value['h'];
+        if (length is Map && length['k'] != 0) {
+          value.remove('h');
+          value.remove('a');
+          changed = true;
+        }
+      }
+      for (final child in value.values) {
+        visit(child);
+      }
+    } else if (value is List) {
+      for (final child in value) {
+        visit(child);
+      }
+    }
+  }
+
+  visit(doc);
+  return changed ? utf8.encode(jsonEncode(doc)) : raw;
+}
+
 bool isBundledTgs(File file) {
   final path = file.path.substring('example/'.length);
   return File('example/pubspec.yaml')
@@ -207,9 +234,9 @@ void main() {
     var compared = 0;
     final dump = Platform.environment['TGS_DIFF_IMAGES'] == '1';
     for (final file in files) {
-      final raw = decodeLottieBytes(file.readAsBytesSync());
+      final original = decodeLottieBytes(file.readAsBytesSync());
       try {
-        FastLottieComposition.fromBytes(raw);
+        FastLottieComposition.fromBytes(original);
       } on UnsupportedLottieException {
         continue;
       }
@@ -218,11 +245,22 @@ void main() {
       // layer blend modes (`bm: 1..16`) on Flutter Canvas. Skip differential
       // comparison against package:lottie for these stickers; they are verified
       // against Skia ground truth in `test/merge_paths_test.dart` and
-      // `test/blend_mode_test.dart`.
-      final jsonStr = utf8.decode(raw, allowMalformed: true);
-      if (jsonStr.contains('"ty":"mm"') || RegExp(r'"bm":\s*[1-9]').hasMatch(jsonStr)) {
+      // `test/blend_mode_test.dart`. It also ignores cross-layer path
+      // expressions, layer styles, and Fill/Set Matte effects. Dedicated tests
+      // render the original assets and verify each operation on simple shapes.
+      final jsonStr = utf8.decode(original, allowMalformed: true);
+      if (jsonStr.contains('"ty":"mm"') ||
+          RegExp(r'"bm":\s*[1-9]').hasMatch(jsonStr) ||
+          (jsonStr.contains("thisComp.layer('") &&
+              jsonStr.contains('.path;')) ||
+          RegExp(r'"sy":\s*\[').hasMatch(jsonStr) ||
+          RegExp(r'"mn":\s*"ADBE (Fill|Set Matte3)"').hasMatch(jsonStr)) {
         continue;
       }
+      // package:lottie 3.8.2 draws centered radial gradients even when h/a
+      // are authored. Compare the shared subset on both sides; focal gradients
+      // are checked on the unmodified art in software_rasterizer_test.dart.
+      final raw = _withoutRadialHighlights(original);
       // Topics/file_4798713.tgs moves an 81-layer wireframe cart along curved
       // spatial Bézier tangents (`to`/`ti`) on `OSNOVA`. `package:lottie` uses
       // Skia `PathMetric` (`kDefaultTolerance=0.25px` coarse chordification),
@@ -333,7 +371,7 @@ void main() {
     }
     // ignore: avoid_print
     print('TGS_AUDIT $accepted native, $rejected unsupported');
-    expect(accepted, 1030);
-    expect(rejected, 33);
+    expect(accepted, 1063);
+    expect(rejected, 0);
   });
 }

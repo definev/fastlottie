@@ -123,6 +123,8 @@ class _Fork {
       track(v.start),
       track(v.end),
       v.radial,
+      v.highlightLength == null ? null : track(v.highlightLength!),
+      v.highlightAngle == null ? null : track(v.highlightAngle!),
     ),
   );
   _Trim trim(_Trim v) => _copy(
@@ -167,6 +169,20 @@ class _Fork {
             matteType: v.matteType,
             masks: v.masks?.map(mask).toList(),
             blendMode: v.blendMode,
+            usesSetMatte: v.usesSetMatte,
+            fillEffect: v.fillEffect == null
+                ? null
+                : _FillEffect(
+                    track(v.fillEffect!.color),
+                    track(v.fillEffect!.opacity),
+                  ),
+            innerShadow: v.innerShadow == null
+                ? null
+                : _InnerShadow(
+                    v.innerShadow!.dx,
+                    v.innerShadow!.dy,
+                    v.innerShadow!.argb,
+                  ),
           )
           ..parent = v.parent == null ? null : layer(v.parent!)
           ..isMatteSource = v.isMatteSource,

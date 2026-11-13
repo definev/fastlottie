@@ -41,13 +41,7 @@ Map<String, dynamic> maskObject({
   bool inv = false,
   dynamic o,
   dynamic x,
-}) => {
-  'inv': inv,
-  'mode': mode,
-  'pt': pt,
-  'o': o ?? constant(100),
-  'x': ?x,
-};
+}) => {'inv': inv, 'mode': mode, 'pt': pt, 'o': o ?? constant(100), 'x': ?x};
 
 Map<String, dynamic> solidSceneWithMask({
   required List<Map<String, dynamic>> masks,
@@ -112,7 +106,18 @@ Map<String, dynamic> shapeSceneWithMask({
       'shapes': [
         {
           'ty': 'gr',
-          'it': [shape, paint, {'ty': 'tr', 'p': constant([0, 0]), 'a': constant([0, 0]), 's': constant([100, 100]), 'r': constant(0), 'o': constant(100)}],
+          'it': [
+            shape,
+            paint,
+            {
+              'ty': 'tr',
+              'p': constant([0, 0]),
+              'a': constant([0, 0]),
+              's': constant([100, 100]),
+              'r': constant(0),
+              'o': constant(100),
+            },
+          ],
         },
       ],
     },
@@ -125,10 +130,7 @@ void main() {
   test('static Add mask on solid layer matches reference', () async {
     final doc = solidSceneWithMask(
       masks: [
-        maskObject(
-          pt: constant(maskPathRect(50, 50, 100, 100)),
-          mode: 'a',
-        ),
+        maskObject(pt: constant(maskPathRect(50, 50, 100, 100)), mode: 'a'),
       ],
       sc: '#00AAFF',
     );
@@ -138,10 +140,7 @@ void main() {
   test('static Add mask on shape layer matches reference', () async {
     final doc = shapeSceneWithMask(
       masks: [
-        maskObject(
-          pt: constant(maskPathRect(60, 60, 80, 80)),
-          mode: 'a',
-        ),
+        maskObject(pt: constant(maskPathRect(60, 60, 80, 80)), mode: 'a'),
       ],
       shape: {
         'ty': 'rc',
@@ -173,10 +172,7 @@ void main() {
   test('None mask (mode: n) does not clip layer content', () async {
     final doc = solidSceneWithMask(
       masks: [
-        maskObject(
-          pt: constant(maskPathRect(50, 50, 50, 50)),
-          mode: 'n',
-        ),
+        maskObject(pt: constant(maskPathRect(50, 50, 50, 50)), mode: 'n'),
       ],
       sc: '#EE3322',
     );
@@ -232,10 +228,7 @@ void main() {
           },
           'hasMask': true,
           'masksProperties': [
-            maskObject(
-              pt: constant(maskPathRect(40, 40, 120, 120)),
-              mode: 'a',
-            ),
+            maskObject(pt: constant(maskPathRect(40, 40, 120, 120)), mode: 'a'),
           ],
         },
       ],
@@ -246,15 +239,17 @@ void main() {
   test('Software RLE rasterizer renders masked layers correctly', () {
     final doc = solidSceneWithMask(
       masks: [
-        maskObject(
-          pt: constant(maskPathRect(50, 50, 100, 100)),
-          mode: 'a',
-        ),
+        maskObject(pt: constant(maskPathRect(50, 50, 100, 100)), mode: 'a'),
       ],
       sc: '#0000FF',
     );
     final comp = FastLottieComposition.fromJson(doc);
-    final buf = debugRenderSoftwareFrame(comp, 0, pixelWidth: 256, pixelHeight: 256);
+    final buf = debugRenderSoftwareFrame(
+      comp,
+      0,
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
     expect(buf.length, 256 * 256 * 4);
 
     // Pixel at (100, 100) is inside mask (50..150, 50..150) -> should be colored.
@@ -272,17 +267,141 @@ void main() {
     expect(buf[outsideIdx2 + 3], 0);
   });
 
-  test('multiple Add masks on solid layer combine correctly', () async {
+  test('software difference and subtract masks compose in authoring order', () {
+    final doc = solidSceneWithMask(
+      masks: [
+        maskObject(pt: constant(maskPathRect(20, 20, 100, 100))),
+        maskObject(pt: constant(maskPathRect(60, 20, 100, 100)), mode: 'f'),
+        maskObject(
+          pt: constant(maskPathRect(130, 20, 20, 100)),
+          mode: 's',
+          o: constant(50),
+        ),
+      ],
+    );
+    final composition = FastLottieComposition.fromJson(doc);
+    final session = FastLottieSoftwareSession(
+      composition,
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
+    addTearDown(session.dispose);
+    final pixels = session.renderFrame(0);
+    int alpha(int x) => pixels[60 * 256 + x] >>> 24;
+    expect(
+      [alpha(30), alpha(80), alpha(125), alpha(155), alpha(170)],
+      [255, 0, 255, 255, 0],
+    );
+    expect(alpha(140), closeTo(128, 1));
+  });
+
+  test('single mask opacity scales the composite of overlapping paints', () {
+    final doc = shapeSceneWithMask(
+      masks: [
+        maskObject(
+          pt: constant(maskPathRect(35, 35, 100, 100)),
+          o: animated([50], [0]),
+        ),
+      ],
+      shape: {
+        'ty': 'rc',
+        'p': constant([85, 85]),
+        's': constant([200, 200]),
+      },
+      paint: fill([1, 0, 0]),
+    );
+    final items = doc['layers'][0]['shapes'][0]['it'] as List;
+    items.insert(2, fill([0, 0, 1]));
+    final session = FastLottieSoftwareSession(
+      FastLottieComposition.fromJson(doc),
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
+    addTearDown(session.dispose);
+    for (final (frame, alpha) in [(0.0, 128), (59.0, 0), (0.0, 128)]) {
+      final pixels = session.renderFrame(frame);
+      expect(pixels[85 * 256 + 85] >>> 24, alpha);
+      expect(pixels[85 * 256 + 20], 0);
+    }
+  });
+
+  test('mask expansion animates across positive and negative distances', () {
     final doc = solidSceneWithMask(
       masks: [
         maskObject(
-          pt: constant(maskPathRect(30, 30, 60, 60)),
-          mode: 'a',
+          pt: constant(maskPathRect(50, 50, 100, 100)),
+          x: animated([12], [-60]),
         ),
-        maskObject(
-          pt: constant(maskPathRect(120, 120, 80, 80)),
-          mode: 'a',
-        ),
+      ],
+    );
+    // Blended layers use mask bounds to size their software render region.
+    doc['layers'][0]['bm'] = 1;
+    final session = FastLottieSoftwareSession(
+      FastLottieComposition.fromJson(doc),
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
+    addTearDown(session.dispose);
+    for (final (frame, outside, inside, center) in [
+      (0.0, 255, 255, 255),
+      (20.0, 0, 0, 255),
+      (59.0, 0, 0, 0),
+      (0.0, 255, 255, 255),
+    ]) {
+      final pixels = session.renderFrame(frame);
+      int alpha(int x) => pixels[100 * 256 + x] >>> 24;
+      expect(
+        [alpha(32), alpha(44), alpha(56), alpha(100)],
+        [0, outside, inside, center],
+      );
+    }
+  });
+
+  test('retained mask coverage matches uncached output across seeks', () {
+    final doc = solidSceneWithMask(
+      masks: [
+        maskObject(pt: constant(maskPathRect(10.5, 25.5, 100, 80))),
+        maskObject(pt: constant(maskPathRect(30.5, 40.5, 45, 40)), mode: 'f'),
+      ],
+    );
+    final layer = doc['layers'][0] as Map<String, dynamic>;
+    layer['ks']['o'] = animated([50], [100]);
+    final comp = FastLottieComposition.fromJson(doc);
+    final cached = FastLottieSoftwareSession(
+      comp,
+      pixelWidth: 191,
+      pixelHeight: 163,
+    );
+    final uncached = FastLottieSoftwareSession(
+      comp,
+      pixelWidth: 191,
+      pixelHeight: 163,
+      retainCoverage: false,
+    );
+    try {
+      int? retainedBytes;
+      for (final frame in [0.0, 30.0, 59.0, 0.0]) {
+        expect(
+          cached.renderFrame(frame),
+          orderedEquals(uncached.renderFrame(frame)),
+        );
+        retainedBytes ??= cached.retainedCoverageBytes;
+        expect(cached.retainedCoverageBytes, retainedBytes);
+      }
+      expect(retainedBytes, greaterThan(0));
+      expect(retainedBytes, lessThanOrEqualTo(1024 * 1024));
+      expect(uncached.retainedCoverageBytes, 0);
+    } finally {
+      cached.dispose();
+      uncached.dispose();
+    }
+  });
+
+  test('multiple Add masks on solid layer combine correctly', () async {
+    final doc = solidSceneWithMask(
+      masks: [
+        maskObject(pt: constant(maskPathRect(30, 30, 60, 60)), mode: 'a'),
+        maskObject(pt: constant(maskPathRect(120, 120, 80, 80)), mode: 'a'),
       ],
       sc: '#AA00FF',
     );
@@ -304,7 +423,12 @@ void main() {
   });
 
   test('real TGS masked stickers match reference', () async {
-    for (final name in ['emoji_u1f308', 'emoji_u1f31b', 'emoji_u1f37e', 'emoji_u1f483']) {
+    for (final name in [
+      'emoji_u1f308',
+      'emoji_u1f31b',
+      'emoji_u1f37e',
+      'emoji_u1f483',
+    ]) {
       final file = File('example/assets/tgs/NotoEmoji/$name.tgs');
       if (file.existsSync()) {
         final raw = decodeLottieBytes(file.readAsBytesSync());

@@ -5,7 +5,7 @@ import 'package:fastlottie/fastlottie.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show render;
-import 'path_ops_test.dart' show constant, fill;
+import 'path_ops_test.dart' show animated, constant, fill;
 
 Map<String, dynamic> solidLayer({
   required int index,
@@ -23,7 +23,8 @@ Map<String, dynamic> solidLayer({
   'bm': bm,
   'sw': width,
   'sh': height,
-  'sc': '#${((color[0] * 255).round().toRadixString(16).padLeft(2, '0'))}${((color[1] * 255).round().toRadixString(16).padLeft(2, '0'))}${((color[2] * 255).round().toRadixString(16).padLeft(2, '0'))}',
+  'sc':
+      '#${((color[0] * 255).round().toRadixString(16).padLeft(2, '0'))}${((color[1] * 255).round().toRadixString(16).padLeft(2, '0'))}${((color[2] * 255).round().toRadixString(16).padLeft(2, '0'))}',
   'ks': {
     'o': constant(opacity),
     'r': constant(0),
@@ -255,32 +256,165 @@ void main() {
     expect(a, 255);
   });
 
-  test('All newly supported TGS stickers with blend modes compile and render', () async {
-    final bmStickers = [
-      'example/assets/tgs/NotoEmoji/emoji_u1f389.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u1f393.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u1f3c1.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u1f3f3_fe0f.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u1f3f4.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u1f426_200d_1f525.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u26ce.tgs',
-    ];
-    for (final path in bmStickers) {
-      final file = File(path);
-      if (!file.existsSync()) continue;
-      final bytes = file.readAsBytesSync();
-      final comp = FastLottieComposition.fromBytes(bytes);
-      final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
-      final pixels = await render(
-        (canvas) =>
-            player.draw(canvas, const ui.Rect.fromLTWH(0, 0, 256, 256), 0.5),
-      );
-      expect(pixels.length, 256 * 256 * 4);
-      player.dispose();
+  test(
+    'software blend channels and alpha match Canvas for translucent layers',
+    () async {
+      for (var mode = 1; mode <= 16; mode++) {
+        final comp = FastLottieComposition.fromJson(
+          blendScene(
+            layers: [
+              solidLayer(
+                index: 1,
+                color: [0.9, 0.3, 0.1],
+                bm: mode,
+                width: 128,
+                height: 128,
+                opacity: 61,
+              ),
+              solidLayer(
+                index: 2,
+                color: [0.1, 0.4, 0.8],
+                bm: 0,
+                width: 256,
+                height: 128,
+                opacity: 73,
+              ),
+            ],
+          ),
+        );
+        final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
+        addTearDown(player.dispose);
+        final vector = await render(
+          (canvas) =>
+              player.draw(canvas, const ui.Rect.fromLTWH(0, 0, 256, 256), 0),
+        );
+        final session = FastLottieSoftwareSession(
+          comp,
+          pixelWidth: 256,
+          pixelHeight: 256,
+        );
+        addTearDown(session.dispose);
+        final pixels = session.renderFrame(0);
+        final i = 64 * 256 + 64;
+        final pixel = pixels[i];
+        for (final (channel, shift) in [(0, 16), (1, 8), (2, 0), (3, 24)]) {
+          expect(
+            (pixel >>> shift) & 255,
+            closeTo(vector[4 * i + channel], 2),
+            reason: 'blend mode $mode, channel $channel',
+          );
+        }
+      }
+    },
+  );
 
-      // Also render in software rasterizer:
-      final swPixels = debugRenderSoftwareFrame(comp, 0, pixelWidth: 256, pixelHeight: 256);
-      expect(swPixels.length, 256 * 256 * 4);
+  test('native blending matches Dart for sparse spans and gradient layers', () {
+    for (final gradientType in [0, 1, 2]) {
+      final gradient = gradientType != 0;
+      for (var mode = 0; mode <= 16; mode++) {
+        final top = shapeLayer(
+          index: 1,
+          bm: mode,
+          color: [0.1, 0.8, 0.4],
+          x: 53.5,
+          y: 64.3,
+          w: 45,
+          h: 55,
+        );
+        final items = top['shapes'][0]['it'] as List<Map<String, dynamic>>;
+        items.insert(0, {
+          'ty': 'el',
+          'p': constant([167, 181]),
+          's': constant([33, 37]),
+        });
+        items[2] = gradient
+            ? {
+                'ty': 'gf',
+                'o': constant(61),
+                'g': {
+                  'p': 2,
+                  'k': constant([0, 1, 0, 0, 1, 0, 0.6, 1, 0, .28, 1, .82]),
+                },
+                's': constant([31, 24]),
+                'e': animated([168, 181], [92, 212]),
+                't': gradientType,
+              }
+            : (fill([0.1, 0.8, 0.4])..['o'] = constant(61));
+        final comp = FastLottieComposition.fromJson(
+          blendScene(
+            layers: [
+              top,
+              solidLayer(index: 2, color: [0.9, 0.2, 0.4], bm: 0, opacity: 73),
+            ],
+          ),
+        );
+        final native = FastLottieSoftwareSession(
+          comp,
+          pixelWidth: 253,
+          pixelHeight: 211,
+        );
+        final dart = FastLottieSoftwareSession(
+          comp,
+          pixelWidth: 253,
+          pixelHeight: 211,
+          preferNative: false,
+        );
+        try {
+          for (final frame in [0.0, 29.5, 59.0, 0.0]) {
+            final expected = dart.renderFrame(frame);
+            expect(
+              native.renderFrame(frame),
+              orderedEquals(expected),
+              reason: 'mode=$mode, gradient=$gradientType, frame=$frame',
+            );
+          }
+          final advanced = [6, 7, 9, 12, 13, 14, 15].contains(mode);
+          if (!gradient || !advanced) expect(native.scratchPixelBytes, 0);
+          if (gradient && mode != 0) {
+            expect(dart.scratchPixelBytes, greaterThan(0));
+          }
+        } finally {
+          native.dispose();
+          dart.dispose();
+        }
+      }
     }
-  });
+  }, skip: !isSimdSupported);
+
+  test(
+    'All newly supported TGS stickers with blend modes compile and render',
+    () async {
+      final bmStickers = [
+        'example/assets/tgs/NotoEmoji/emoji_u1f389.tgs',
+        'example/assets/tgs/NotoEmoji/emoji_u1f393.tgs',
+        'example/assets/tgs/NotoEmoji/emoji_u1f3c1.tgs',
+        'example/assets/tgs/NotoEmoji/emoji_u1f3f3_fe0f.tgs',
+        'example/assets/tgs/NotoEmoji/emoji_u1f3f4.tgs',
+        'example/assets/tgs/NotoEmoji/emoji_u1f426_200d_1f525.tgs',
+        'example/assets/tgs/NotoEmoji/emoji_u26ce.tgs',
+      ];
+      for (final path in bmStickers) {
+        final file = File(path);
+        if (!file.existsSync()) continue;
+        final bytes = file.readAsBytesSync();
+        final comp = FastLottieComposition.fromBytes(bytes);
+        final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
+        final pixels = await render(
+          (canvas) =>
+              player.draw(canvas, const ui.Rect.fromLTWH(0, 0, 256, 256), 0.5),
+        );
+        expect(pixels.length, 256 * 256 * 4);
+        player.dispose();
+
+        // Also render in software rasterizer:
+        final swPixels = debugRenderSoftwareFrame(
+          comp,
+          0,
+          pixelWidth: 256,
+          pixelHeight: 256,
+        );
+        expect(swPixels.length, 256 * 256 * 4);
+      }
+    },
+  );
 }

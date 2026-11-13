@@ -81,7 +81,12 @@ void main() {
 
   test('static 5-point star matches baseline', () async {
     final json = starScene(
-      star: polyStarShape(sy: 1, pt: constant(5), or: constant(80), ir: constant(40)),
+      star: polyStarShape(
+        sy: 1,
+        pt: constant(5),
+        or: constant(80),
+        ir: constant(40),
+      ),
       paint: fill([0.2, 0.6, 1.0]),
     );
     await compare(json, [0]);
@@ -137,19 +142,22 @@ void main() {
     await compare(json, [0]);
   });
 
-  test('animated star (points, rotation, outerRadius) matches baseline', () async {
-    final json = starScene(
-      star: polyStarShape(
-        sy: 1,
-        pt: animated(5, 8),
-        or: animated(50, 90),
-        ir: animated(25, 45),
-        r: animated(0, 180),
-      ),
-      paint: fill([0.9, 0.1, 0.5]),
-    );
-    await compare(json, [0, 15, 30, 45, 59]);
-  });
+  test(
+    'animated star (points, rotation, outerRadius) matches baseline',
+    () async {
+      final json = starScene(
+        star: polyStarShape(
+          sy: 1,
+          pt: animated(5, 8),
+          or: animated(50, 90),
+          ir: animated(25, 45),
+          r: animated(0, 180),
+        ),
+        paint: fill([0.9, 0.1, 0.5]),
+      );
+      await compare(json, [0, 15, 30, 45, 59]);
+    },
+  );
 
   test('polystar_anim fixture from rlottie matches baseline', () async {
     final file = File('rlottie-master/example/resource/polystar_anim.json');
@@ -160,33 +168,49 @@ void main() {
     }
   });
 
-  test('polystar_line_clockwise_trim fixture from rlottie compiles and runs', () async {
-    final file = File('rlottie-master/example/resource/polystar_line_clockwise_trim.json');
-    if (file.existsSync()) {
-      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-      final comp = FastLottieComposition.fromJson(json);
-      final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
-      addTearDown(player.dispose);
-      final rendered = await render(
-        (canvas) => player.draw(
-          canvas,
-          const ui.Rect.fromLTWH(0, 0, 300, 300),
-          0.5,
-          useFrameRate: false,
-        ),
-        size: 300,
+  test(
+    'polystar_line_clockwise_trim fixture from rlottie compiles and runs',
+    () async {
+      final file = File(
+        'rlottie-master/example/resource/polystar_line_clockwise_trim.json',
       );
-      expect(rendered, isNotEmpty);
-    }
-  });
+      if (file.existsSync()) {
+        final json =
+            jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+        final comp = FastLottieComposition.fromJson(json);
+        final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
+        addTearDown(player.dispose);
+        final rendered = await render(
+          (canvas) => player.draw(
+            canvas,
+            const ui.Rect.fromLTWH(0, 0, 300, 300),
+            0.5,
+            useFrameRate: false,
+          ),
+          size: 300,
+        );
+        expect(rendered, isNotEmpty);
+      }
+    },
+  );
 
   test('software RLE rasterizer renders star and polygon correctly', () {
     final starJson = starScene(
-      star: polyStarShape(sy: 1, pt: constant(5), or: constant(80), ir: constant(40)),
+      star: polyStarShape(
+        sy: 1,
+        pt: constant(5),
+        or: constant(80),
+        ir: constant(40),
+      ),
       paint: fill([1.0, 0.0, 0.0]),
     );
     final comp = FastLottieComposition.fromJson(starJson);
-    final bgra = debugRenderSoftwareFrame(comp, 0, pixelWidth: 256, pixelHeight: 256);
+    final bgra = debugRenderSoftwareFrame(
+      comp,
+      0,
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
     expect(bgra.length, 256 * 256 * 4);
     // Ensure red pixels were rasterized in the center
     final centerPixel = (128 * 256 + 128) * 4;
@@ -198,7 +222,12 @@ void main() {
       paint: fill([0.0, 1.0, 0.0]),
     );
     final polyComp = FastLottieComposition.fromJson(polyJson);
-    final polyBgra = debugRenderSoftwareFrame(polyComp, 0, pixelWidth: 256, pixelHeight: 256);
+    final polyBgra = debugRenderSoftwareFrame(
+      polyComp,
+      0,
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
     expect(polyBgra[centerPixel + 1], greaterThan(200)); // G in BGRA
     expect(polyBgra[centerPixel + 3], 255); // Alpha
   });

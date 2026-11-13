@@ -183,6 +183,131 @@ Future<void> _compareAgainstVectorCanvas(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test(
+    'animated radial focal point matches Canvas and moves the highlight',
+    () async {
+      final doc = scene([
+        rectangle(128, 128, 256, 256),
+        {
+          'ty': 'gf',
+          't': 2,
+          's': constant([128.5, 128.5]),
+          'e': constant([208.5, 128.5]),
+          'h': animated([50], [-50]),
+          'a': constant(90),
+          'g': {
+            'p': 2,
+            'k': constant([0, 1, 1, 1, 1, 0, 0, 0]),
+          },
+        },
+      ]);
+      final composition = FastLottieComposition.fromJson(doc);
+      final player = FastLottiePlayer(composition, cache: FastLottieCache.none);
+      final session = FastLottieSoftwareSession(
+        composition,
+        pixelWidth: 256,
+        pixelHeight: 256,
+      );
+      addTearDown(player.dispose);
+      addTearDown(session.dispose);
+      for (final (frame, focusY) in [(0.0, 168), (59.0, 88), (0.0, 168)]) {
+        final pixels = session.renderFrame(frame);
+        expect(pixels[focusY * 256 + 128] & 255, 255);
+        expect(pixels[128 * 256 + 128] & 255, closeTo(170, 1));
+        expect(pixels[128 * 256 + 230] & 255, 0);
+        final canvas = await render(
+          (c) => player.draw(
+            c,
+            const Rect.fromLTWH(0, 0, 256, 256),
+            frame / 60,
+            useFrameRate: false,
+          ),
+        );
+        for (final (x, y) in [
+          (128, focusY),
+          (128, 128),
+          (150, 145),
+          (160, 90),
+        ]) {
+          final i = y * 256 + x;
+          expect(pixels[i] & 255, closeTo(canvas[i * 4], 2));
+        }
+      }
+    },
+  );
+  for (final id in ['305', '525', '52e', '96d', '976']) {
+    test('software focal gradients match Canvas on emoji u1f$id', () async {
+      final file = File('example/assets/tgs/NotoEmoji/emoji_u1f$id.tgs');
+      final doc = jsonDecode(
+        utf8.decode(decodeLottieBytes(file.readAsBytesSync())),
+      ) as Map<String, dynamic>;
+      final span = (doc['op'] as num) - (doc['ip'] as num);
+      await _compareAgainstVectorCanvas(
+        'emoji u1f$id',
+        doc,
+        [0, (span - 1) * .45, (span - 1) * .9],
+        maxMae: 1.0,
+        maxBad: .02,
+        maxInteriorMae: .75,
+      );
+    });
+  }
+
+  test('identity groups preserve paint order and animated parent opacity', () {
+    Map<String, dynamic> wrap(List<Map<String, dynamic>> items) => {
+      'ty': 'gr',
+      'it': items,
+    };
+    Map<String, dynamic> transform() => {
+      'ty': 'tr',
+      'p': animated([0, 0], [28, 16]),
+      'o': animated([37], [84]),
+    };
+    List<Map<String, dynamic>> front() => [
+      rectangle(80, 92, 100, 96),
+      fill([1, 0, 0]),
+    ];
+    List<Map<String, dynamic>> back() => [
+      rectangle(115, 104, 108, 94),
+      fill([0, 0, 1]),
+    ];
+    final nested = FastLottieComposition.fromJson(
+      scene([
+        wrap([
+          wrap([
+            wrap(front()),
+            wrap([wrap(back())]),
+          ]),
+          transform(),
+        ]),
+      ]),
+    );
+    final flat = FastLottieComposition.fromJson(
+      scene([
+        wrap([wrap(front()), wrap(back()), transform()]),
+      ]),
+    );
+    final nestedSession = FastLottieSoftwareSession(
+      nested,
+      pixelWidth: 173,
+      pixelHeight: 169,
+    );
+    final flatSession = FastLottieSoftwareSession(
+      flat,
+      pixelWidth: 173,
+      pixelHeight: 169,
+    );
+    addTearDown(nestedSession.dispose);
+    addTearDown(flatSession.dispose);
+    for (final frame in [0.0, 29.5, 59.0, 0.0]) {
+      expect(
+        nestedSession.renderFrame(frame),
+        orderedEquals(flatSession.renderFrame(frame)),
+        reason: 'frame $frame',
+      );
+    }
+  });
+
   for (final name in ['static', 'icon', 'features', 'many_shapes', 'morph']) {
     test('software RLE matches canvas vector: $name', () async {
       await _compareAgainstVectorCanvas(

@@ -43,11 +43,7 @@ Map<String, dynamic> createMergeScene(int mode) => {
               'p': constant([100, 100]),
               's': constant([60, 60]),
             },
-            {
-              'ty': 'mm',
-              'mm': mode,
-              'hd': false,
-            },
+            {'ty': 'mm', 'mm': mode, 'hd': false},
             {
               'ty': 'fl',
               'c': constant([0.2, 0.6, 1.0]),
@@ -223,11 +219,21 @@ BenchmarkResult benchScene(String name, Map<String, dynamic> json) {
 
   // 3. Software RLE Rasterizer benchmark
   for (var i = 0; i < warmup; i++) {
-    debugRenderSoftwareFrame(comp, (i % 60).toDouble(), pixelWidth: 256, pixelHeight: 256);
+    debugRenderSoftwareFrame(
+      comp,
+      (i % 60).toDouble(),
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
   }
   final swRle = Stopwatch()..start();
   for (var i = 0; i < iterations; i++) {
-    debugRenderSoftwareFrame(comp, (i % 60).toDouble(), pixelWidth: 256, pixelHeight: 256);
+    debugRenderSoftwareFrame(
+      comp,
+      (i % 60).toDouble(),
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
   }
   swRle.stop();
   final softwareUs = swRle.elapsedMicroseconds / iterations;
@@ -275,11 +281,21 @@ BenchmarkResult benchTgs(String name, String path) {
   player.dispose();
 
   for (var i = 0; i < warmup; i++) {
-    debugRenderSoftwareFrame(comp, (i % 60).toDouble(), pixelWidth: 256, pixelHeight: 256);
+    debugRenderSoftwareFrame(
+      comp,
+      (i % 60).toDouble(),
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
   }
   final swRle = Stopwatch()..start();
   for (var i = 0; i < iterations; i++) {
-    debugRenderSoftwareFrame(comp, (i % 60).toDouble(), pixelWidth: 256, pixelHeight: 256);
+    debugRenderSoftwareFrame(
+      comp,
+      (i % 60).toDouble(),
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
   }
   swRle.stop();
   final softwareUs = swRle.elapsedMicroseconds / iterations;
@@ -330,12 +346,30 @@ void main() {
 
     print('\n=== 3. REAL TELEGRAM TGS STICKERS ===');
     final tgsFiles = [
-      ('TGS emoji_u1f30b (Volcano - mm:2)', 'example/assets/tgs/NotoEmoji/emoji_u1f30b.tgs'),
-      ('TGS emoji_u1f345 (Tomato - mm:4)', 'example/assets/tgs/NotoEmoji/emoji_u1f345.tgs'),
-      ('TGS emoji_u1f60a (Smile - mm:4)', 'example/assets/tgs/NotoEmoji/emoji_u1f60a.tgs'),
-      ('TGS emoji_u1f389 (Party Popper - bm:10)', 'example/assets/tgs/NotoEmoji/emoji_u1f389.tgs'),
-      ('TGS emoji_u1f393 (Graduation - bm:1)', 'example/assets/tgs/NotoEmoji/emoji_u1f393.tgs'),
-      ('TGS emoji_u1f426_200d_1f525 (Phoenix - bm:1)', 'example/assets/tgs/NotoEmoji/emoji_u1f426_200d_1f525.tgs'),
+      (
+        'TGS emoji_u1f30b (Volcano - mm:2)',
+        'example/assets/tgs/NotoEmoji/emoji_u1f30b.tgs',
+      ),
+      (
+        'TGS emoji_u1f345 (Tomato - mm:4)',
+        'example/assets/tgs/NotoEmoji/emoji_u1f345.tgs',
+      ),
+      (
+        'TGS emoji_u1f60a (Smile - mm:4)',
+        'example/assets/tgs/NotoEmoji/emoji_u1f60a.tgs',
+      ),
+      (
+        'TGS emoji_u1f389 (Party Popper - bm:10)',
+        'example/assets/tgs/NotoEmoji/emoji_u1f389.tgs',
+      ),
+      (
+        'TGS emoji_u1f393 (Graduation - bm:1)',
+        'example/assets/tgs/NotoEmoji/emoji_u1f393.tgs',
+      ),
+      (
+        'TGS emoji_u1f426_200d_1f525 (Phoenix - bm:1)',
+        'example/assets/tgs/NotoEmoji/emoji_u1f426_200d_1f525.tgs',
+      ),
     ];
 
     for (final (label, path) in tgsFiles) {
@@ -350,9 +384,8 @@ void main() {
 
     // Save results to json
     final jsonOut = results.map((r) => r.toJson()).toList();
-    File('docs/ops-benchmark.json').writeAsStringSync(
-      const JsonEncoder.withIndent('  ').convert(jsonOut),
-    );
+    File('docs/ops-benchmark.json')
+        .writeAsStringSync(const JsonEncoder.withIndent('  ').convert(jsonOut));
     print('\nWrote benchmark data to docs/ops-benchmark.json');
   });
 }

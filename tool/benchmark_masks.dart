@@ -71,9 +71,18 @@ Map<String, dynamic> createSolidSceneWithMask({
       'ks': {
         'o': {'a': 0, 'k': 100},
         'r': {'a': 0, 'k': 0},
-        'p': {'a': 0, 'k': [0, 0, 0]},
-        'a': {'a': 0, 'k': [0, 0, 0]},
-        's': {'a': 0, 'k': [100, 100, 100]},
+        'p': {
+          'a': 0,
+          'k': [0, 0, 0],
+        },
+        'a': {
+          'a': 0,
+          'k': [0, 0, 0],
+        },
+        's': {
+          'a': 0,
+          'k': [100, 100, 100],
+        },
       },
       'hasMask': masks.isNotEmpty,
       'masksProperties': masks,
@@ -99,9 +108,18 @@ Map<String, dynamic> createShapeSceneWithMask({
       'ks': {
         'o': {'a': 0, 'k': 100},
         'r': {'a': 0, 'k': 0},
-        'p': {'a': 0, 'k': [0, 0, 0]},
-        'a': {'a': 0, 'k': [0, 0, 0]},
-        's': {'a': 0, 'k': [100, 100, 100]},
+        'p': {
+          'a': 0,
+          'k': [0, 0, 0],
+        },
+        'a': {
+          'a': 0,
+          'k': [0, 0, 0],
+        },
+        's': {
+          'a': 0,
+          'k': [100, 100, 100],
+        },
       },
       'hasMask': masks.isNotEmpty,
       'masksProperties': masks,
@@ -111,21 +129,39 @@ Map<String, dynamic> createShapeSceneWithMask({
           'it': [
             {
               'ty': 'rc',
-              'p': {'a': 0, 'k': [128, 128]},
-              's': {'a': 0, 'k': [200, 200]},
+              'p': {
+                'a': 0,
+                'k': [128, 128],
+              },
+              's': {
+                'a': 0,
+                'k': [200, 200],
+              },
               'r': {'a': 0, 'k': 0},
             },
             {
               'ty': 'fl',
-              'c': {'a': 0, 'k': [1.0, 0.4, 0.1]},
+              'c': {
+                'a': 0,
+                'k': [1.0, 0.4, 0.1],
+              },
               'o': {'a': 0, 'k': 100},
               'r': 1,
             },
             {
               'ty': 'tr',
-              'p': {'a': 0, 'k': [0, 0]},
-              'a': {'a': 0, 'k': [0, 0]},
-              's': {'a': 0, 'k': [100, 100]},
+              'p': {
+                'a': 0,
+                'k': [0, 0],
+              },
+              'a': {
+                'a': 0,
+                'k': [0, 0],
+              },
+              's': {
+                'a': 0,
+                'k': [100, 100],
+              },
               'r': {'a': 0, 'k': 0},
               'o': {'a': 0, 'k': 100},
             },
@@ -138,7 +174,8 @@ Map<String, dynamic> createShapeSceneWithMask({
 
 Map<String, num> stats(List<double> values) {
   values.sort();
-  double p(double f) => values[math.min(values.length - 1, (values.length * f).floor())];
+  double p(double f) =>
+      values[math.min(values.length - 1, (values.length * f).floor())];
   final sum = values.reduce((a, b) => a + b);
   final mean = sum / values.length;
   return {
@@ -180,8 +217,14 @@ void main() {
                 {
                   't': 0,
                   's': [maskPathRect(30, 30, 80, 80)],
-                  'i': {'x': [0.4], 'y': [1.0]},
-                  'o': {'x': [0.6], 'y': [0.0]},
+                  'i': {
+                    'x': [0.4],
+                    'y': [1.0],
+                  },
+                  'o': {
+                    'x': [0.6],
+                    'y': [0.0],
+                  },
                 },
                 {
                   't': 59,
@@ -254,12 +297,22 @@ void main() {
       final rasterTimes = <double>[];
       // Warm up
       for (var i = 0; i < 10; i++) {
-        debugRenderSoftwareFrame(comp, (i % 60).toDouble(), pixelWidth: 256, pixelHeight: 256);
+        debugRenderSoftwareFrame(
+          comp,
+          (i % 60).toDouble(),
+          pixelWidth: 256,
+          pixelHeight: 256,
+        );
       }
       for (var i = 0; i < 100; i++) {
         final frame = (i % 60).toDouble();
         final sw = Stopwatch()..start();
-        debugRenderSoftwareFrame(comp, frame, pixelWidth: 256, pixelHeight: 256);
+        debugRenderSoftwareFrame(
+          comp,
+          frame,
+          pixelWidth: 256,
+          pixelHeight: 256,
+        );
         sw.stop();
         rasterTimes.add(sw.elapsedMicroseconds.toDouble());
       }
@@ -272,13 +325,21 @@ void main() {
       benchmarkResults[name] = res;
 
       print('=== $name ===');
-      print('Compile:      mean=${res['compile']!['mean_us']!.toStringAsFixed(1)} µs, median=${res['compile']!['median_us']!.toStringAsFixed(1)} µs');
-      print('Canvas Rec:   mean=${res['vector_canvas_record']!['mean_us']!.toStringAsFixed(1)} µs, FPS=${res['vector_canvas_record']!['fps']!.toStringAsFixed(0)}');
-      print('SW Rasterize: mean=${res['software_rle_rasterizer']!['mean_us']!.toStringAsFixed(1)} µs, FPS=${res['software_rle_rasterizer']!['fps']!.toStringAsFixed(0)}');
+      print(
+        'Compile:      mean=${res['compile']!['mean_us']!.toStringAsFixed(1)} µs, median=${res['compile']!['median_us']!.toStringAsFixed(1)} µs',
+      );
+      print(
+        'Canvas Rec:   mean=${res['vector_canvas_record']!['mean_us']!.toStringAsFixed(1)} µs, FPS=${res['vector_canvas_record']!['fps']!.toStringAsFixed(0)}',
+      );
+      print(
+        'SW Rasterize: mean=${res['software_rle_rasterizer']!['mean_us']!.toStringAsFixed(1)} µs, FPS=${res['software_rle_rasterizer']!['fps']!.toStringAsFixed(0)}',
+      );
     }
 
     final outPath = 'docs/masks-benchmark.json';
-    File(outPath).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(benchmarkResults));
+    File(outPath).writeAsStringSync(
+      const JsonEncoder.withIndent('  ').convert(benchmarkResults),
+    );
     print('Benchmark results saved to $outPath');
   });
 }
