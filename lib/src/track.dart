@@ -49,6 +49,8 @@ class _Keyframes {
   int easeCount(int key) => metadata[key] >> 4;
 
   double ease(int index, double x) {
+    if (x <= 0.0) return 0.0;
+    if (x >= 1.0) return 1.0;
     final controls = easing;
     final x1 = controls[index], y1 = controls[index + 1];
     final x2 = controls[index + 2], y2 = controls[index + 3];
@@ -183,7 +185,10 @@ class _Track {
       return output;
     }
     final b = data.endOffset(key);
-    final fraction = (frame - times[key]) / (times[key + 1] - times[key]);
+    final dt = times[key + 1] - times[key];
+    final fraction = dt <= 0
+        ? 0.0
+        : ((frame - times[key]) / dt).clamp(0.0, 1.0);
     final easeOffset = data.easeOffset(key);
     final easeCount = flags >> 4;
     final linear = flags & _Keyframes.linearFlag != 0;
@@ -192,15 +197,21 @@ class _Track {
     if (spatial != null) {
       spatial.sample(t.clamp(0.0, 1.0), output);
     } else if (simd && len >= 32 && easeCount <= 1) {
-      final tv = Float32x4.splat(t);
-      final vectors = data.simdValues!;
-      final av = a ~/ 4, bv = b ~/ 4;
-      final ov = _outputSimd ??= output.buffer.asFloat32x4List(0, len ~/ 4);
-      for (var i = 0; i < ov.length; i++) {
-        ov[i] = vectors[av + i] + (vectors[bv + i] - vectors[av + i]) * tv;
-      }
-      for (var i = ov.length * 4; i < len; i++) {
-        output[i] = values[a + i] + (values[b + i] - values[a + i]) * tv.x;
+      if (t <= 0.0) {
+        output.setRange(0, len, values, a);
+      } else if (t >= 1.0) {
+        output.setRange(0, len, values, b);
+      } else {
+        final tv = Float32x4.splat(t);
+        final vectors = data.simdValues!;
+        final av = a ~/ 4, bv = b ~/ 4;
+        final ov = _outputSimd ??= output.buffer.asFloat32x4List(0, len ~/ 4);
+        for (var i = 0; i < ov.length; i++) {
+          ov[i] = vectors[av + i] + (vectors[bv + i] - vectors[av + i]) * tv;
+        }
+        for (var i = ov.length * 4; i < len; i++) {
+          output[i] = values[a + i] + (values[b + i] - values[a + i]) * tv.x;
+        }
       }
     } else if (gamma) {
       for (var i = 0; i < len; i++) {
@@ -212,14 +223,25 @@ class _Track {
         output[i] = linearToSrgb(aLin + (bLin - aLin) * p.clamp(0.0, 1.0));
       }
     } else if (easeCount <= 1 || linear) {
-      for (var i = 0, ai = a, bi = b; i < len; i++, ai++, bi++) {
-        final start = values[ai];
-        output[i] = start + (values[bi] - start) * t;
+      if (t <= 0.0) {
+        output.setRange(0, len, values, a);
+      } else if (t >= 1.0) {
+        output.setRange(0, len, values, b);
+      } else {
+        for (var i = 0, ai = a, bi = b; i < len; i++, ai++, bi++) {
+          final start = values[ai], end = values[bi];
+          output[i] = start == end ? start : start + (end - start) * t;
+        }
       }
     } else {
       for (var i = 0; i < len; i++) {
         final p = data.ease(easeOffset + 4 * (i % easeCount), fraction);
-        output[i] = values[a + i] + (values[b + i] - values[a + i]) * p;
+        final start = values[a + i], end = values[b + i];
+        output[i] = p <= 0.0
+            ? start
+            : (p >= 1.0
+                  ? end
+                  : (start == end ? start : start + (end - start) * p));
       }
     }
     return output;
@@ -262,6 +284,16 @@ class _SpatialCurve {
   }
 
   void sample(double fraction, Float32List output) {
+    if (fraction <= 0.0) {
+      output[0] = points[0];
+      output[1] = points[1];
+      return;
+    }
+    if (fraction >= 1.0) {
+      output[0] = points[6];
+      output[1] = points[7];
+      return;
+    }
     final distance = lengths.last * fraction;
     var lo = 0, hi = lengths.length - 1;
     while (lo + 1 < hi) {

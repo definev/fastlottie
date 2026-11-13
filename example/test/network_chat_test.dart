@@ -771,7 +771,9 @@ void main() {
             relativePath: 'tgs/NotoEmoji/emoji_u1f600.tgs',
             label: 'Grinning Face',
             bytes: 100,
-            uri: Uri.parse('http://127.0.0.1:8080/tgs/NotoEmoji/emoji_u1f600.tgs'),
+            uri: Uri.parse(
+              'http://127.0.0.1:8080/tgs/NotoEmoji/emoji_u1f600.tgs',
+            ),
             shortcode: ':smile:',
           ),
           TgsRemoteItem(
@@ -780,8 +782,7 @@ void main() {
             packTitle: 'Noto Emoji',
             fileName: 'emoji_u1f426_200d_1f525.tgs',
             kind: TgsItemKind.emoji,
-            relativePath:
-                'tgs/NotoEmoji/emoji_u1f426_200d_1f525.tgs',
+            relativePath: 'tgs/NotoEmoji/emoji_u1f426_200d_1f525.tgs',
             label: 'Phoenix',
             bytes: 100,
             uri: Uri.parse(
@@ -859,7 +860,9 @@ void main() {
         ),
         const TextEditingValue(
           text: 'Hello 😀',
-          selection: TextSelection.collapsed(offset: 8), // 6 + 2 UTF-16 code units
+          selection: TextSelection.collapsed(
+            offset: 8,
+          ), // 6 + 2 UTF-16 code units
         ),
       );
       expect(vEmoji.text, 'Hello \uE002');

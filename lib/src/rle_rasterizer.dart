@@ -3981,7 +3981,10 @@ void _flattenLeaf(
       final ox = pts[p + 4], oy = pts[p + 5];
       final ix = pts[c + 2], iy = pts[c + 3];
       final nx = pts[c], ny = pts[c + 1];
-      if (ox == 0 && oy == 0 && ix == 0 && iy == 0) {
+      if (ox.abs() <= 1e-4 &&
+          oy.abs() <= 1e-4 &&
+          ix.abs() <= 1e-4 &&
+          iy.abs() <= 1e-4) {
         out.addVertex(nx, ny);
       } else {
         out.addCubic(
@@ -4122,7 +4125,7 @@ void _flattenLeaf(
       return;
     }
     final r = src.radius.scalar(frame).clamp(0.0, math.min(w.abs(), h.abs()));
-    if (r == 0) {
+    if (r <= 1e-4) {
       out.beginContour(true);
       out.addVertex(x + w, y - h);
       if (!src.reverse) {

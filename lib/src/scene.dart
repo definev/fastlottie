@@ -100,8 +100,8 @@ class _Transform {
     final m = _matrix;
     final a = anchor.at(frame), p = position.at(frame), s = scale.at(frame);
     final rotDeg = rotation.scalar(frame);
-    final cos = rotDeg == 0 ? 1.0 : math.cos(rotDeg * math.pi / 180);
-    final sin = rotDeg == 0 ? 0.0 : math.sin(rotDeg * math.pi / 180);
+    final cos = rotDeg.abs() < 1e-5 ? 1.0 : math.cos(rotDeg * math.pi / 180);
+    final sin = rotDeg.abs() < 1e-5 ? 0.0 : math.sin(rotDeg * math.pi / 180);
     final sx = s[0] / 100, sy = s[1] / 100;
     m[0] = cos * sx;
     m[1] = sin * sx;
@@ -131,7 +131,9 @@ class _Transform {
     if (isSpatialIdentity) return r;
     if (isTranslationOnly) {
       _evalTranslation(frame);
-      return (_dx == 0 && _dy == 0) ? r : r.shift(Offset(_dx, _dy));
+      return (_dx.abs() < 1e-5 && _dy.abs() < 1e-5)
+          ? r
+          : r.shift(Offset(_dx, _dy));
     }
     final m = matrix(frame);
     final a = m[0], b = m[1], c = m[4], d = m[5], tx = m[12], ty = m[13];
@@ -827,18 +829,20 @@ Path _contour(
     final current = reverse ? (count - step) % count : step % count;
     final p = previous * 6, c = current * 6;
     final out = reverse ? 2 : 4, inc = reverse ? 4 : 2;
-    if (points[p + out] == 0 &&
-        points[p + out + 1] == 0 &&
-        points[c + inc] == 0 &&
-        points[c + inc + 1] == 0) {
+    final ox = points[p + out], oy = points[p + out + 1];
+    final ix = points[c + inc], iy = points[c + inc + 1];
+    if (ox.abs() <= 1e-4 &&
+        oy.abs() <= 1e-4 &&
+        ix.abs() <= 1e-4 &&
+        iy.abs() <= 1e-4) {
       path.lineTo(points[c], points[c + 1]);
       continue;
     }
     path.cubicTo(
-      points[p] + points[p + out],
-      points[p + 1] + points[p + out + 1],
-      points[c] + points[c + inc],
-      points[c + 1] + points[c + inc + 1],
+      points[p] + ox,
+      points[p + 1] + oy,
+      points[c] + ix,
+      points[c + 1] + iy,
       points[c],
       points[c + 1],
     );
@@ -942,7 +946,7 @@ class _Primitive extends _Geometry {
       return path;
     }
     final r = radius.scalar(frame).clamp(0.0, math.min(w.abs(), h.abs()));
-    if (r == 0) {
+    if (r <= 1e-4) {
       path.moveTo(x + w, y - h);
       if (!reverse) {
         path.lineTo(x + w, y + h);
@@ -1086,7 +1090,10 @@ class _PolyStarGeometry extends _Geometry {
       var anglePerPoint = 2.0 * math.pi / pts;
       if (reverse) anglePerPoint *= -1.0;
       final halfAnglePerPoint = anglePerPoint / 2.0;
-      final partialPointAmount = pts - pts.floorToDouble();
+      final rawPartial = pts - pts.floorToDouble();
+      final partialPointAmount = (rawPartial < 1e-4 || rawPartial > 1.0 - 1e-4)
+          ? 0.0
+          : rawPartial;
       if (partialPointAmount != 0.0) {
         currentAngle += halfAnglePerPoint * (1.0 - partialPointAmount);
       }
@@ -1130,7 +1137,7 @@ class _PolyStarGeometry extends _Geometry {
         x = px + radius * cos;
         y = py + radius * sin;
 
-        if (innerRoundedness == 0.0 && outerRoundedness == 0.0) {
+        if (innerRoundedness.abs() <= 1e-4 && outerRoundedness.abs() <= 1e-4) {
           lineTo(x, y);
         } else {
           final (cp1Dx, cp1Dy) = _polyStarTangent(
@@ -1201,7 +1208,7 @@ class _PolyStarGeometry extends _Geometry {
         x = px + or * cos;
         y = py + or * sin;
 
-        if (roundedness != 0.0) {
+        if (roundedness.abs() > 1e-4) {
           final (cp1Dx, cp1Dy) = _polyStarTangent(prevSin, prevCos, or);
           final (cp2Dx, cp2Dy) = _polyStarTangent(sin, cos, or);
           final cp1x = or * roundedness * 0.25 * cp1Dx;
@@ -1389,7 +1396,7 @@ class _Style implements _Draw {
             .scalar(frame)
             .clamp(0.0, math.min(hw, hh))
             .toDouble();
-        if (r == 0) {
+        if (r <= 1e-4) {
           canvas.drawRect(rect, paint);
         } else {
           canvas.drawRRect(

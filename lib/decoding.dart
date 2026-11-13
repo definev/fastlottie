@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:archive/archive.dart';
+import 'package:flutter/foundation.dart';
 
 /// Detects TGS/gzip by its signature, returning UTF-8 JSON bytes.
 /// Uses archive's native zlib backend on dart:io, with a Dart fallback on web.
@@ -14,7 +13,7 @@ Uint8List decodeLottieBytes(
   if (bytes.length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b) {
     return const GZipDecoder().decodeBytes(
       bytes,
-      verify: true,
+      verify: !kIsWeb,
       throwOnError: true,
       maxOutputSize: maximumBytes,
     );

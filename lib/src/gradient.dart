@@ -93,8 +93,8 @@ class _GradientSpec {
     }
     var unique = 0;
     for (var i = 0; i < rawLen; i++) {
-      final v = _scratchOffsets[i];
-      if (unique == 0 || v != _scratchOffsets[unique - 1]) {
+      final v = _scratchOffsets[i].clamp(0.0, 1.0);
+      if (unique == 0 || (v - _scratchOffsets[unique - 1]).abs() > 1e-6) {
         _scratchOffsets[unique++] = v;
       }
     }

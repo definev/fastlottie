@@ -130,7 +130,9 @@ class _Trim {
       final b = math.min(mLen, to - position);
       if (b > a) {
         final part = metric.extractPath(a, b);
-        if (metric.isClosed && a == 0 && b == mLen) part.close();
+        if (metric.isClosed && a <= 1e-4 && (b - mLen).abs() <= 1e-4) {
+          part.close();
+        }
         target.addPath(part, Offset.zero);
       }
       position += mLen;
