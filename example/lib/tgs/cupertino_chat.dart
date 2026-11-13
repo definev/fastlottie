@@ -110,30 +110,18 @@ class EmojiComposerController extends TextEditingController {
   String toShortcodeText([String? sourceText]) {
     final raw = sourceText ?? text;
     final cat = catalog;
-    if (cat == null || cat.emojis.isEmpty) return raw;
-    final emojis = cat.emojis;
-    final buf = StringBuffer();
-    for (var i = 0; i < raw.length; i++) {
-      final code = raw.codeUnitAt(i);
-      final idx = code - puaBase;
-      if (idx >= 0 && idx < emojis.length) {
-        final emoji = emojis[idx];
-        buf.write(emoji.shortcode ?? String.fromCharCode(code));
-      } else {
-        buf.writeCharCode(code);
-      }
-    }
-    final expanded = buf.toString();
-    if (cat.unicodeMap.isEmpty ||
-        !TgsRemoteCatalog.couldContainEmojiOrShortcode(expanded)) {
-      return expanded;
-    }
-    return expanded.replaceAllMapped(cat.emojiAndShortcodeRegex, (match) {
-      final token = match.group(0)!;
-      if (token.startsWith(':')) return token;
-      final item = cat.findItem(token);
-      return item?.shortcode ?? token;
-    });
+    if (cat == null) return raw;
+    return cat.toShortcodeText(raw);
+  }
+
+  /// Converts PUA tokens (`\uE000`) and shortcodes (`:smile:`) in [sourceText] (or [text])
+  /// into their real Unicode emojis (e.g. `😀`), falling back to shortcodes if no
+  /// Unicode representation exists (e.g. `:studio_microphone:`).
+  String toEmojiText([String? sourceText]) {
+    final raw = sourceText ?? text;
+    final cat = catalog;
+    if (cat == null) return raw;
+    return cat.toEmojiText(raw);
   }
 
   /// Converts human-readable shortcodes (e.g. `:studio_microphone:`) and raw
@@ -527,7 +515,10 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       EmojiComposerController();
   late final EmojiShortcodeTextInputFormatter _shortcodeFormatter =
       EmojiShortcodeTextInputFormatter(() => _catalog);
-  final FocusNode _composerFocus = FocusNode();
+  late final FocusNode _composerFocus = FocusNode(
+    debugLabel: 'composer_field',
+    onKeyEvent: _handleComposerFocusKeyEvent,
+  );
   final ValueNotifier<bool> _showScrollBottom = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _hasDraft = ValueNotifier<bool>(false);
 
@@ -558,6 +549,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
     WidgetsBinding.instance.addObserver(this);
     final life = WidgetsBinding.instance.lifecycleState;
     _foreground =
@@ -840,6 +832,63 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     if (_composerFocus.hasFocus && _drawerOpen) {
       setState(() => _drawerOpen = false);
     }
+  }
+
+  bool _tryCopyOrCutComposerSelection({required bool isCut}) {
+    final val = _composerController.value;
+    if (!val.selection.isValid || val.selection.isCollapsed) {
+      return false;
+    }
+    final selected = val.selection.textInside(val.text);
+    final emojiText = _composerController.toEmojiText(selected);
+    Clipboard.setData(ClipboardData(text: emojiText));
+    // Asynchronous double-write safeguard against native AppKit overwriting
+    Future.delayed(const Duration(milliseconds: 30), () {
+      Clipboard.setData(ClipboardData(text: emojiText));
+    });
+    if (isCut) {
+      final nextText = val.selection.textBefore(val.text) +
+          val.selection.textAfter(val.text);
+      _composerController.value = TextEditingValue(
+        text: nextText,
+        selection: TextSelection.collapsed(offset: val.selection.start),
+      );
+    }
+    return true;
+  }
+
+  KeyEventResult _handleComposerFocusKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final isMetaOrControl = HardwareKeyboard.instance.isMetaPressed ||
+        HardwareKeyboard.instance.isControlPressed;
+    if (!isMetaOrControl) return KeyEventResult.ignored;
+
+    if (event.logicalKey == LogicalKeyboardKey.keyC) {
+      if (_tryCopyOrCutComposerSelection(isCut: false)) {
+        return KeyEventResult.handled;
+      }
+    } else if (event.logicalKey == LogicalKeyboardKey.keyX) {
+      if (_tryCopyOrCutComposerSelection(isCut: true)) {
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  bool _handleGlobalKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+    final isMetaOrControl = HardwareKeyboard.instance.isMetaPressed ||
+        HardwareKeyboard.instance.isControlPressed;
+    if (!isMetaOrControl) return false;
+
+    if (!_composerFocus.hasFocus) return false;
+
+    if (event.logicalKey == LogicalKeyboardKey.keyC) {
+      return _tryCopyOrCutComposerSelection(isCut: false);
+    } else if (event.logicalKey == LogicalKeyboardKey.keyX) {
+      return _tryCopyOrCutComposerSelection(isCut: true);
+    }
+    return false;
   }
 
   void _syncPlayback({bool forceComposerNotify = false}) {
@@ -1303,6 +1352,45 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     );
   }
 
+  void _showMessageOptions(ChatMessage message) {
+    final raw = message.text;
+    if (raw == null || raw.isEmpty) return;
+    final cat = _catalog;
+    final emojiText = cat != null ? cat.toEmojiText(raw) : raw;
+    final shortcodeText = cat != null ? cat.toShortcodeText(raw) : raw;
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: Text(
+          emojiText,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: emojiText));
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Copy (Emoji)'),
+          ),
+          if (shortcodeText != emojiText)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: shortcodeText));
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('Copy (Shortcode)'),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('Cancel'),
+        ),
+      ),
+    );
+  }
+
   List<(_DrawerTab kind, String id, String label, List<TgsRemoteItem> items)>
   _buildTabs(TgsRemoteCatalog catalog) => [
     (_DrawerTab.all, '__all__', 'All', catalog.stickers),
@@ -1315,6 +1403,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     WidgetsBinding.instance.removeObserver(this);
     _messageScroll.dispose();
     _pickerScroll.dispose();
@@ -1492,6 +1581,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                     animateHero: !_reduced,
                                     palette: palette,
                                     onStickerLongPress: _showStickerPreview,
+                                    onMessageLongPress: _showMessageOptions,
                                   );
                                 },
                               ),
@@ -1746,8 +1836,11 @@ class _ComposerBar extends StatelessWidget {
                     return null;
                   }
                   final selected = val.selection.textInside(val.text);
-                  final decoded = controller.toShortcodeText(selected);
+                  final decoded = controller.toEmojiText(selected);
                   Clipboard.setData(ClipboardData(text: decoded));
+                  Future.delayed(const Duration(milliseconds: 30), () {
+                    Clipboard.setData(ClipboardData(text: decoded));
+                  });
                   if (intent.collapseSelection) {
                     final nextText =
                         val.selection.textBefore(val.text) +
@@ -1778,29 +1871,41 @@ class _ComposerBar extends StatelessWidget {
               contextMenuBuilder: (context, editableTextState) {
                 final buttonItems = editableTextState.contextMenuButtonItems;
                 final modifiedItems = buttonItems.map((item) {
-                  if (item.type == ContextMenuButtonType.copy) {
+                  final isCopy = item.type == ContextMenuButtonType.copy ||
+                      item.kind == ContextMenuButtonKind.copy ||
+                      item.label?.toLowerCase() == 'copy';
+                  if (isCopy) {
                     return item.copyWith(
                       onPressed: () {
                         final val = controller.value;
                         if (val.selection.isValid &&
                             !val.selection.isCollapsed) {
                           final selected = val.selection.textInside(val.text);
-                          final decoded = controller.toShortcodeText(selected);
+                          final decoded = controller.toEmojiText(selected);
                           Clipboard.setData(ClipboardData(text: decoded));
+                          Future.delayed(const Duration(milliseconds: 30), () {
+                            Clipboard.setData(ClipboardData(text: decoded));
+                          });
                         }
                         editableTextState.hideToolbar();
                       },
                     );
                   }
-                  if (item.type == ContextMenuButtonType.cut) {
+                  final isCut = item.type == ContextMenuButtonType.cut ||
+                      item.kind == ContextMenuButtonKind.cut ||
+                      item.label?.toLowerCase() == 'cut';
+                  if (isCut) {
                     return item.copyWith(
                       onPressed: () {
                         final val = controller.value;
                         if (val.selection.isValid &&
                             !val.selection.isCollapsed) {
                           final selected = val.selection.textInside(val.text);
-                          final decoded = controller.toShortcodeText(selected);
+                          final decoded = controller.toEmojiText(selected);
                           Clipboard.setData(ClipboardData(text: decoded));
+                          Future.delayed(const Duration(milliseconds: 30), () {
+                            Clipboard.setData(ClipboardData(text: decoded));
+                          });
                           final nextText =
                               val.selection.textBefore(val.text) +
                               val.selection.textAfter(val.text);
@@ -2048,6 +2153,7 @@ class _ChatMessageRow extends StatelessWidget {
     required this.animateHero,
     required this.palette,
     required this.onStickerLongPress,
+    this.onMessageLongPress,
   });
 
   final ChatMessage message;
@@ -2060,6 +2166,7 @@ class _ChatMessageRow extends StatelessWidget {
   final bool animateHero;
   final _Palette palette;
   final ValueChanged<TgsRemoteItem> onStickerLongPress;
+  final ValueChanged<ChatMessage>? onMessageLongPress;
 
   String _formatTime(DateTime t) {
     final h = t.hour.toString().padLeft(2, '0');
@@ -2178,75 +2285,81 @@ class _ChatMessageRow extends StatelessWidget {
       alignment: align,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.fromLTRB(13, 9, 13, 8),
-          decoration: BoxDecoration(
-            color: message.isOutgoing ? null : palette.incomingBubble,
-            gradient: message.isOutgoing
-                ? LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      palette.outgoingBubbleTop,
-                      palette.outgoingBubbleBottom,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onLongPress: onMessageLongPress != null
+              ? () => onMessageLongPress!(message)
+              : null,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.fromLTRB(13, 9, 13, 8),
+            decoration: BoxDecoration(
+              color: message.isOutgoing ? null : palette.incomingBubble,
+              gradient: message.isOutgoing
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        palette.outgoingBubbleTop,
+                        palette.outgoingBubbleBottom,
+                      ],
+                    )
+                  : null,
+              borderRadius: bubbleRadius,
+              border: message.isOutgoing
+                  ? null
+                  : Border.all(color: palette.incomingBorder, width: 0.7),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!message.isOutgoing && message.senderName != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Text(
+                      message.senderName!,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: palette.accent,
+                      ),
+                    ),
+                  ),
+                Text.rich(
+                  TextSpan(children: spans),
+                  style: TextStyle(
+                    fontSize: 16,
+                    height: 1.35,
+                    color: message.isOutgoing
+                        ? palette.outgoingText
+                        : palette.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _formatTime(message.timestamp),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: message.isOutgoing
+                            ? CupertinoColors.white.withValues(alpha: 0.72)
+                            : palette.textSecondary,
+                      ),
+                    ),
+                    if (message.isOutgoing) ...[
+                      const SizedBox(width: 3),
+                      Icon(
+                        CupertinoIcons.checkmark_alt,
+                        size: 13,
+                        color: CupertinoColors.white.withValues(alpha: 0.85),
+                      ),
                     ],
-                  )
-                : null,
-            borderRadius: bubbleRadius,
-            border: message.isOutgoing
-                ? null
-                : Border.all(color: palette.incomingBorder, width: 0.7),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!message.isOutgoing && message.senderName != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(
-                    message.senderName!,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: palette.accent,
-                    ),
-                  ),
-                ),
-              Text.rich(
-                TextSpan(children: spans),
-                style: TextStyle(
-                  fontSize: 16,
-                  height: 1.35,
-                  color: message.isOutgoing
-                      ? palette.outgoingText
-                      : palette.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _formatTime(message.timestamp),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: message.isOutgoing
-                          ? CupertinoColors.white.withValues(alpha: 0.72)
-                          : palette.textSecondary,
-                    ),
-                  ),
-                  if (message.isOutgoing) ...[
-                    const SizedBox(width: 3),
-                    Icon(
-                      CupertinoIcons.checkmark_alt,
-                      size: 13,
-                      color: CupertinoColors.white.withValues(alpha: 0.85),
-                    ),
                   ],
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie_example/main.dart';
@@ -14,6 +13,7 @@ import 'package:fastlottie_example/tgs/store.dart';
 // Keep compatible with Flutter versions before the cupertino_ui split.
 // ignore: deprecated_member_use
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _PassthroughHttpOverrides extends HttpOverrides {}
@@ -704,6 +704,20 @@ void main() {
       // Raw Unicode emoji passed to toShortcodeText directly converts to shortcode
       final rawConverted = controller.toShortcodeText('Gặp nhau 😀 và ❤️‍🔥');
       expect(rawConverted, 'Gặp nhau :smile: và :heart_on_fire:');
+
+      // Verify toEmojiText converts PUA tokens to real Unicode emoji (never tofu boxes!)
+      final puaWithNoto = controller.decodeShortcodes('Hello 😀');
+      expect(puaWithNoto.codeUnits.any((c) => c >= 0xE000 && c <= 0xF8FF), isTrue);
+      final copiedEmoji = controller.toEmojiText(puaWithNoto);
+      expect(copiedEmoji, 'Hello 😀');
+      expect(copiedEmoji.codeUnits.any((c) => c >= 0xE000 && c <= 0xF8FF), isFalse);
+
+      // Verify toEmojiText with Topics emoji (which has no Unicode) falls back to shortcode (never tofu box!)
+      final puaWithTopic = controller.decodeShortcodes('Music :studio_microphone:');
+      expect(puaWithTopic.codeUnits.any((c) => c >= 0xE000 && c <= 0xF8FF), isTrue);
+      final copiedTopic = controller.toEmojiText(puaWithTopic);
+      expect(copiedTopic, 'Music :studio_microphone:');
+      expect(copiedTopic.codeUnits.any((c) => c >= 0xE000 && c <= 0xF8FF), isFalse);
 
       // Verify single-tap backspace behavior:
       // When text is 'Hi \uE000', cursor at index 4 (right after emoji).

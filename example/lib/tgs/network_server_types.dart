@@ -3106,6 +3106,65 @@ class TgsRemoteCatalog {
     return null;
   }
 
+  /// Converts PUA tokens (`\uE000`) and shortcodes (`:smile:`) in [text]
+  /// into their real Unicode emojis (e.g. `😀`), falling back to shortcodes if no
+  /// Unicode representation exists (e.g. `:studio_microphone:`).
+  String toEmojiText(String text) {
+    if (text.isEmpty || emojis.isEmpty) return text;
+    final buf = StringBuffer();
+    // 1. Expand PUA tokens
+    for (var i = 0; i < text.length; i++) {
+      final code = text.codeUnitAt(i);
+      final idx = code - 0xE000;
+      if (idx >= 0 && idx < emojis.length) {
+        final emoji = emojis[idx];
+        buf.write(emoji.unicode ?? emoji.shortcode ?? '');
+      } else if (code >= 0xE000 && code <= 0xF8FF) {
+        // Strip unmapped PUA code unit to avoid rendering tofu boxes
+      } else {
+        buf.writeCharCode(code);
+      }
+    }
+    final expanded = buf.toString();
+    if (!expanded.contains(':')) return expanded;
+    // 2. Expand shortcodes to Unicode if available
+    return expanded.replaceAllMapped(RegExp(r':[a-z0-9_]+:'), (match) {
+      final token = match.group(0)!;
+      final item = shortcodeMap[token];
+      return item?.unicode ?? token;
+    });
+  }
+
+  /// Converts PUA tokens (`\uE000`) and raw Unicode emojis in [text]
+  /// into their human-readable shortcodes (e.g. `:smile:`).
+  String toShortcodeText(String text) {
+    if (text.isEmpty || emojis.isEmpty) return text;
+    final buf = StringBuffer();
+    // 1. Expand PUA tokens
+    for (var i = 0; i < text.length; i++) {
+      final code = text.codeUnitAt(i);
+      final idx = code - 0xE000;
+      if (idx >= 0 && idx < emojis.length) {
+        final emoji = emojis[idx];
+        buf.write(emoji.shortcode ?? emoji.unicode ?? '');
+      } else if (code >= 0xE000 && code <= 0xF8FF) {
+        // Strip unmapped PUA code unit to avoid rendering tofu boxes
+      } else {
+        buf.writeCharCode(code);
+      }
+    }
+    final expanded = buf.toString();
+    if (unicodeMap.isEmpty || !couldContainEmojiOrShortcode(expanded)) {
+      return expanded;
+    }
+    return expanded.replaceAllMapped(emojiAndShortcodeRegex, (match) {
+      final token = match.group(0)!;
+      if (token.startsWith(':')) return token;
+      final item = findItem(token);
+      return item?.shortcode ?? token;
+    });
+  }
+
   /// Fast check if [text] could potentially contain a shortcode or Unicode emoji.
   static bool couldContainEmojiOrShortcode(String text) {
     if (text.contains(':')) return true;
