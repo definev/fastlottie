@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 bool get isSimdSupported => false;
+Future<void> ensureSimdReady() async {}
 
 class NativeSpansBuffer {
   NativeSpansBuffer(int count) : typedList = Int32List(count);
@@ -33,7 +34,7 @@ void simdClearPixels(NativePixelBuffer dst, int count) {
   dst.typedList.fillRange(0, count, 0);
 }
 
-void simdFillSolidSpans(
+bool simdFillSolidSpans(
   NativePixelBuffer dst,
   int dstOriginX,
   int dstOriginY,
@@ -41,7 +42,7 @@ void simdFillSolidSpans(
   NativeSpansBuffer spans,
   int spanCount,
   int srcPremul,
-) {}
+) => false;
 
 bool nativeBlendRect(
   NativePixelBuffer dst,
@@ -85,7 +86,7 @@ bool nativeInnerShadow(
   int opacity,
 ) => false;
 
-void nativeGradientSpans(
+bool nativeGradientSpans(
   NativePixelBuffer dst,
   int ox,
   int oy,
@@ -106,7 +107,7 @@ void nativeGradientSpans(
   double sy,
   double ex,
   double ey,
-) {}
+) => false;
 
 abstract class NativeCoverageWorkspace {
   static NativeCoverageWorkspace? tryCreate() => null;

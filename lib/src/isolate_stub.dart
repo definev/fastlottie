@@ -42,13 +42,11 @@ final class _StubWorkerEndpoint implements WorkerEndpoint {
 
 final class _StubWorkerHandle implements WorkerHandle {
   _StubWorkerHandle(void Function(WorkerEndpoint) entry) {
-    _endpoint = _StubWorkerEndpoint(_toWorker, _toHost);
-    entry(_endpoint);
+    entry(_StubWorkerEndpoint(_toWorker, _toHost));
   }
 
   final _toWorker = StreamController<Object?>();
   final _toHost = StreamController<Object?>();
-  late final _StubWorkerEndpoint _endpoint;
   bool _disposed = false;
 
   @override
@@ -64,7 +62,8 @@ final class _StubWorkerHandle implements WorkerHandle {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    _endpoint.close();
+    // The worker owns the raster buffers, including Wasm allocations on web.
+    if (!_toWorker.isClosed) _toWorker.add(null);
   }
 }
 

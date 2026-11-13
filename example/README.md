@@ -18,6 +18,31 @@ Chrome loads TGS files directly from the bundled Flutter assets. Native targets
 start an embedded HTTP server. Use `flutter run --profile -d <device-id>` on a
 connected phone to check frame timings.
 
+## Test the Wasm raster backend
+
+Web builds use the bundled FastLottie Wasm module when the hook does not
+produce one. To rebuild the module from the C sources, use a Flutter SDK
+that supports data asset hooks and put Zig on `PATH`. From `example/`, run:
+
+```sh
+FLUTTER_DART_DATA_ASSETS=true flutter build web --wasm
+```
+
+To run the browser smoke test against the hook output:
+
+```sh
+FLUTTER_DART_DATA_ASSETS=true flutter build web --wasm \
+  -t tool/wasm_smoke.dart --dart-define=FASTLOTTIE_REQUIRE_WASM_HOOK=true \
+  --output=build/wasm-smoke
+python3 -m http.server 8080 --directory build/wasm-smoke
+```
+
+Open `http://localhost:8080` in Chrome. The page reports success after
+checking the generated asset, pixel parity with Dart, and mini-strip playback.
+To test the bundled module, disable `enable-dart-data-assets` in the Flutter
+configuration and omit the `FASTLOTTIE_REQUIRE_WASM_HOOK` define. To regenerate
+the bundled module, run `dart run tool/build_wasm.dart` from the repository root.
+
 ## Use a separate TGS server
 
 From the repository root, run:

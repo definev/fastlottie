@@ -51,7 +51,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
   final pixels = NativePixelBuffer(defaultPixelCap);
   var smallPixelStreak = 0;
 
-  Uint32List ensurePixels(int count) {
+  void ensurePixels(int count) {
     if (pixels.typedList.length < count) {
       var cap = math.max(defaultPixelCap, pixels.typedList.length);
       while (cap < count) {
@@ -61,8 +61,10 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
       playback.invalidate();
       pixels.reallocate(cap, 0);
     }
-    return pixels.typedList;
   }
+
+  Uint8List pixelBytes(int count) =>
+      Uint8List.sublistView(pixels.typedList, 0, count);
 
   void recordPixelUse(int pxCount) {
     if (pixels.typedList.length <= softPixelCap) {
@@ -125,9 +127,8 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
       ):
         try {
           final pxCount = width * height;
-          final byteLen = pxCount * 4;
-          final px = ensurePixels(pxCount);
-          final dstBytes = px.buffer.asUint8List(0, byteLen);
+          ensurePixels(pxCount);
+          final dstBytes = pixelBytes(pxCount);
 
           final cacheHit = store.tryReadFrame(
             entryKey: entryKey,
@@ -172,7 +173,9 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
           }
           scenes[contentKey] = scene;
 
-          _renderSceneSoftware(scene, frame, px, width, height, ws, pixels);
+          playback.invalidate();
+          _renderSceneSoftware(scene, frame, pixels, width, height, ws);
+          final renderedBytes = pixelBytes(pxCount);
           final stored = store.storeFrame(
             entryKey: entryKey,
             width: width,
@@ -180,10 +183,10 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
             totalFrames: totalFrames,
             poster: poster,
             frameIndex: frameIndex,
-            srcBgra: dstBytes,
+            srcBgra: renderedBytes,
             scratch: lz4,
           );
-          final packed = packBytesForIsolate(dstBytes);
+          final packed = packBytesForIsolate(renderedBytes);
           endpoint.send((
             _repFrameReady,
             reqId,
@@ -218,15 +221,12 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
           final padY = stripCount > 1 ? 1 : 0;
           final stripHeight = stripCount * height + (stripCount - 1) * padY;
           final pxCount = width * stripHeight;
-          final byteLen = pxCount * 4;
-          final px = ensurePixels(pxCount);
+          ensurePixels(pxCount);
           if (padY > 0) {
-            px.fillRange(0, pxCount, 0);
+            pixels.typedList.fillRange(0, pxCount, 0);
           }
-          final dstBytes = px.buffer.asUint8List(0, byteLen);
 
           final singleFramePx = width * height;
-          final singleFrameByteLen = singleFramePx * 4;
           var vectorRenderedCount = 0;
           var compressedHitCount = 0;
           var latestDiskBytes = -1;
@@ -243,13 +243,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
             final scnFrame = startFrame + srcIdx;
             final slotY = j * (height + padY);
             final slotPxOffset = slotY * width;
-            final slotByteOffset = slotPxOffset * 4;
-
-            final slotBytes = Uint8List.sublistView(
-              dstBytes,
-              slotByteOffset,
-              slotByteOffset + singleFrameByteLen,
-            );
+            final slot = pixels.slice(slotPxOffset, singleFramePx);
 
             final cacheHit = store.tryReadFrame(
               entryKey: entryKey,
@@ -258,7 +252,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
               totalFrames: totalFrames,
               poster: poster,
               frameIndex: srcIdx,
-              dstBgra: slotBytes,
+              dstBgra: Uint8List.sublistView(slot.typedList),
             );
 
             if (cacheHit) {
@@ -274,16 +268,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
             }
             scenes[contentKey] = scene;
 
-            final slot = pixels.slice(slotPxOffset, singleFramePx);
-            _renderSceneSoftware(
-              scene,
-              scnFrame,
-              slot.typedList,
-              width,
-              height,
-              ws,
-              slot,
-            );
+            _renderSceneSoftware(scene, scnFrame, slot, width, height, ws);
             vectorRenderedCount++;
 
             final stored = store.storeFrame(
@@ -293,7 +278,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
               totalFrames: totalFrames,
               poster: poster,
               frameIndex: srcIdx,
-              srcBgra: slotBytes,
+              srcBgra: Uint8List.sublistView(slot.typedList),
               scratch: lz4,
             );
             if (stored.entryDiskBytes > 0) {
@@ -301,7 +286,7 @@ void _softwareWorkerEntry(WorkerEndpoint endpoint) {
             }
           }
 
-          final packed = packBytesForIsolate(dstBytes);
+          final packed = packBytesForIsolate(pixelBytes(pxCount));
           endpoint.send((
             _repStripReady,
             reqId,

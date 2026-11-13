@@ -9,11 +9,18 @@ environment:
 dependencies:
   archive: 4.6.0
   code_assets: ^2.2.0
+  data_assets: ^0.20.0
   ffi: ^2.2.0
   flutter:
     sdk: flutter
   hooks: ^2.2.0
   native_toolchain_c: ^0.19.6
+  wasm_ffi: ^2.4.0
+
+flutter:
+  assets:
+    - path: lib/src/wasm/fastlottie_simd.wasm
+      platforms: [web]
 
 dev_dependencies:
   flutter_test:

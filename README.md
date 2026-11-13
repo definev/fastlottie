@@ -47,6 +47,12 @@ canvas drawing, own a `FastLottiePlayer`, call `draw(canvas, rect, progress)`,
 and dispose it when finished. See [cache options](docs/lod-cache.md) and
 [full-loop raster preparation](docs/dpr-raster.md).
 
+On web, call `await ensureSimdReady()` after
+`WidgetsFlutterBinding.ensureInitialized()` and before creating raster caches
+to enable the Wasm software renderer. `isSimdSupported` reports whether it
+loaded; the renderer falls back to Dart if the module cannot load. This works
+with both JavaScript and `--wasm` Flutter web builds.
+
 To run the Cupertino sticker chat:
 
 ```sh

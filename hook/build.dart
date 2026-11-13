@@ -1,6 +1,9 @@
 import 'package:code_assets/code_assets.dart';
+import 'package:data_assets/data_assets.dart';
 import 'package:fastlottie/src/c_library.dart';
 import 'package:hooks/hooks.dart';
+
+import 'wasm.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
@@ -13,6 +16,8 @@ void main(List<String> args) async {
             'FL_EXPORT': '__declspec(dllexport)',
         },
       );
+    } else if (input.config.buildDataAssets) {
+      await buildWasmAsset(input, output);
     }
   });
 }

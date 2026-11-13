@@ -191,7 +191,7 @@ final bool isNativeGradientSupported = () {
   }
 }();
 
-void nativeGradientSpans(
+bool nativeGradientSpans(
   NativePixelBuffer dst,
   int ox,
   int oy,
@@ -213,6 +213,7 @@ void nativeGradientSpans(
   double ex,
   double ey,
 ) {
+  if (dst.ptr == null || spans.ptr == null || lut.ptr == null) return false;
   _gradientSpans(
     dst.ptr!,
     ox,
@@ -235,6 +236,7 @@ void nativeGradientSpans(
     ex,
     ey,
   );
+  return true;
 }
 
 // Older native libraries can still provide coverage and solid fill.
@@ -449,6 +451,7 @@ bool _initLib() {
 }
 
 final bool isSimdSupported = _initLib();
+Future<void> ensureSimdReady() async {}
 
 class NativeSpansBuffer {
   NativeSpansBuffer(int count) {
@@ -540,7 +543,7 @@ void simdClearPixels(NativePixelBuffer dst, int count) {
   }
 }
 
-void simdFillSolidSpans(
+bool simdFillSolidSpans(
   NativePixelBuffer dst,
   int dstOriginX,
   int dstOriginY,
@@ -559,7 +562,9 @@ void simdFillSolidSpans(
       spanCount,
       srcPremul,
     );
+    return true;
   }
+  return false;
 }
 
 @ffi.Native<ffi.Pointer<ffi.Void> Function()>(

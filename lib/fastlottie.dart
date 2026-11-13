@@ -20,14 +20,17 @@ import 'src/lz4.dart';
 import 'src/network_stub.dart' if (dart.library.io) 'src/network_io.dart';
 import 'src/network_types.dart';
 import 'src/platform_stub.dart' if (dart.library.io) 'src/platform_io.dart';
-import 'src/simd_stub.dart' if (dart.library.ffi) 'src/simd_io.dart';
+import 'src/simd_stub.dart'
+    if (dart.library.ffi) 'src/simd_io.dart'
+    if (dart.library.js_interop) 'src/simd_wasm.dart';
 import 'src/tile_playback.dart';
 
 export 'decoding.dart';
 export 'src/network_types.dart';
 export 'src/simd_stub.dart'
     if (dart.library.ffi) 'src/simd_io.dart'
-    show isSimdSupported;
+    if (dart.library.js_interop) 'src/simd_wasm.dart'
+    show isSimdSupported, ensureSimdReady;
 
 part 'src/compiler.dart';
 part 'src/track.dart';

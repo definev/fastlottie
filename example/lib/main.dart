@@ -1,10 +1,15 @@
+import 'package:fastlottie/fastlottie.dart';
 // Keep compatible with Flutter versions before the cupertino_ui split.
 // ignore: deprecated_member_use
 import 'package:flutter/cupertino.dart';
 
 import 'tgs/cupertino_chat.dart';
 
-void main() => runApp(const FastLottieCupertinoApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ensureSimdReady();
+  runApp(const FastLottieCupertinoApp());
+}
 
 class FastLottieCupertinoApp extends StatefulWidget {
   const FastLottieCupertinoApp({super.key});

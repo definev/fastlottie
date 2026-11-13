@@ -9,9 +9,9 @@ part of '../fastlottie.dart';
 class _RasterWorkspace {
   _RasterWorkspace({
     this.initialHeight = 256,
-    this.preferNative = true,
+    bool preferNative = true,
     this.retainCoverage = true,
-  });
+  }) : preferNative = preferNative && isSimdSupported;
 
   final int initialHeight;
   final bool preferNative;
@@ -779,8 +779,9 @@ class _RleSpans {
     maxY = source.maxY;
   }
 
-  void addSpan(int y, int x, int len, int cov) {
-    if (len <= 0 || cov <= 0) return;
+  // True when growing the output may have invalidated other Wasm views.
+  bool addSpan(int y, int x, int len, int cov) {
+    if (len <= 0 || cov <= 0) return false;
     if (cov > 256) cov = 256;
     final packedCov = cov - 1;
     final d = _buf.typedList;
@@ -798,15 +799,14 @@ class _RleSpans {
             d[lastIdx + 1] = ((llen + len) << 8) | packedCov;
             final x2 = x + len;
             if (x2 > maxX) maxX = x2;
-            return;
+            return false;
           }
         }
       }
     }
     final idx = spanCount * 2;
-    if (idx + 2 > d.length) {
-      _grow();
-    }
+    final grow = idx + 2 > d.length;
+    if (grow) _grow();
     final target = _buf.typedList;
     target[idx] = (y << 16) | (x & 0xFFFF);
     target[idx + 1] = (len << 8) | packedCov;
@@ -815,6 +815,7 @@ class _RleSpans {
     if (x + len > maxX) maxX = x + len;
     if (y < minY) minY = y;
     if (y + 1 > maxY) maxY = y + 1;
+    return grow;
   }
 
   void scaleCoverage(int opacity) {
@@ -848,7 +849,7 @@ class _RleSpans {
       return;
     }
     out.clear();
-    final da = a.data, db = b.data;
+    var da = a.data, db = b.data;
     final na = a.spanCount * 2, nb = b.spanCount * 2;
     var ia = 0, ib = 0;
     while (ia < na || ib < nb) {
@@ -883,7 +884,10 @@ class _RleSpans {
           3 => ac - overlap,
           _ => ac + bc - 2 * overlap,
         };
-        out.addSpan(y, x, end - x, coverage);
+        if (out.addSpan(y, x, end - x, coverage)) {
+          da = a.data;
+          db = b.data;
+        }
         if (ac != 0 && ax + (da[ia + 1] >>> 8) == end) {
           ia += 2;
           final w = ia < na ? da[ia] : 0;
@@ -909,8 +913,8 @@ class _RleSpans {
     var ic = 0;
     final na = a.spanCount * 2;
     final nc = clip.spanCount * 2;
-    final da = a.data;
-    final dc = clip.data;
+    var da = a.data;
+    var dc = clip.data;
     while (ia < na && ic < nc) {
       final a0 = da[ia], c0 = dc[ic];
       final ay = a0 >>> 16, cy = c0 >>> 16;
@@ -931,7 +935,10 @@ class _RleSpans {
         final acov = (a1 & 0xFF) + 1;
         final ccov = (c1 & 0xFF) + 1;
         final cov = (acov * ccov + 128) >> 8;
-        if (cov > 0) out.addSpan(ay, x0, x1 - x0, cov);
+        if (cov > 0 && out.addSpan(ay, x0, x1 - x0, cov)) {
+          da = a.data;
+          dc = clip.data;
+        }
       }
       if (axEnd <= cxEnd) ia += 2;
       if (cxEnd <= axEnd) ic += 2;
@@ -1579,16 +1586,16 @@ abstract final class _SwarBlender {
     NativePixelBuffer? nativeDst,
   ]) {
     if (srcPremul == 0 || spans.spanCount == 0) return;
-    if (isSimdSupported && nativeDst != null) {
-      simdFillSolidSpans(
-        nativeDst,
-        dstOriginX,
-        dstOriginY,
-        stride,
-        spans._buf,
-        spans.spanCount,
-        srcPremul,
-      );
+    if (nativeDst != null &&
+        simdFillSolidSpans(
+          nativeDst,
+          dstOriginX,
+          dstOriginY,
+          stride,
+          spans._buf,
+          spans.spanCount,
+          srcPremul,
+        )) {
       return;
     }
     final count = spans.spanCount * 2;
@@ -2083,17 +2090,16 @@ abstract final class _SwarBlender {
 void _renderSceneSoftware(
   _Compiler scene,
   double frame,
-  Uint32List outBgra8888,
+  NativePixelBuffer outBgra8888,
   int pixelWidth,
   int pixelHeight,
-  _RasterWorkspace ws, [
-  NativePixelBuffer? nativeDst,
-]) {
+  _RasterWorkspace ws,
+) {
   final total = pixelWidth * pixelHeight;
-  if (isSimdSupported && nativeDst != null) {
-    simdClearPixels(nativeDst, total);
+  if (ws.preferNative) {
+    simdClearPixels(outBgra8888, total);
   } else {
-    outBgra8888.fillRange(0, total, 0);
+    outBgra8888.typedList.fillRange(0, total, 0);
   }
   if (pixelWidth <= 0 ||
       pixelHeight <= 0 ||
@@ -2125,7 +2131,7 @@ void _renderSceneSoftware(
     ws,
     0,
     true,
-    nativeDst,
+    ws.preferNative,
   );
   ws.maybeTrimAfterFrame(total);
 }
@@ -2134,7 +2140,7 @@ void _renderCompilerInto(
   _Compiler comp,
   double frame,
   int alpha,
-  Uint32List dst,
+  NativePixelBuffer dst,
   int dstOriginX,
   int dstOriginY,
   int dstStride,
@@ -2152,10 +2158,11 @@ void _renderCompilerInto(
   _RasterWorkspace ws,
   int depth,
   bool stableTransform, [
-  NativePixelBuffer? nativeDst,
+  bool useNative = true,
 ]) {
   if (clipX0 >= clipX1 || clipY0 >= clipY1 || alpha <= 0) return;
 
+  final nativeDst = useNative ? dst : null;
   final layers = comp.layers;
   for (var i = layers.length - 1; i >= 0; i--) {
     final layer = layers[i];
@@ -2196,7 +2203,7 @@ void _renderCompilerInto(
           ws,
           depth,
           stableTransform,
-          nativeDst,
+          useNative,
         );
       } else {
         final bounds = layer.worldBounds(frame);
@@ -2241,24 +2248,23 @@ void _renderCompilerInto(
                 ws,
                 depth,
                 stableTransform,
-                nativeDst,
+                useNative,
                 bm,
               );
               continue;
             }
             final layerBufPlane = ws._acquireScratch(depth * 3 + 2, bw * bh);
-            final layerBuf = layerBufPlane.typedList;
             if (ws.preferNative) {
               simdClearPixels(layerBufPlane, bw * bh);
             } else {
-              layerBuf.fillRange(0, bw * bh, 0);
+              layerBufPlane.typedList.fillRange(0, bw * bh, 0);
             }
 
             _renderLayerInto(
               layer,
               frame,
               alpha,
-              layerBuf,
+              layerBufPlane,
               bx0,
               by0,
               bw,
@@ -2276,7 +2282,7 @@ void _renderCompilerInto(
               ws,
               depth + 1,
               stableTransform,
-              ws.preferNative ? layerBufPlane : null,
+              ws.preferNative,
               0,
               true,
               true,
@@ -2296,11 +2302,11 @@ void _renderCompilerInto(
                 );
             if (!nativeComposited) {
               _SwarBlender.compositeBlended(
-                dst,
+                dst.typedList,
                 bx0 - dstOriginX,
                 by0 - dstOriginY,
                 dstStride,
-                layerBuf,
+                layerBufPlane.typedList,
                 0,
                 0,
                 bw,
@@ -2375,7 +2381,7 @@ void _renderCompilerInto(
         ws,
         depth,
         stableTransform,
-        nativeDst,
+        useNative,
       );
       continue;
     }
@@ -2390,13 +2396,12 @@ void _renderCompilerInto(
     final boxPixels = bw * bh;
 
     final layerBufPlane = ws._acquireScratch(depth * 3, boxPixels);
-    final layerBuf = layerBufPlane.typedList;
-    layerBuf.fillRange(0, boxPixels, 0);
+    layerBufPlane.typedList.fillRange(0, boxPixels, 0);
     _renderLayerInto(
       layer,
       frame,
       alpha,
-      layerBuf,
+      layerBufPlane,
       bx0,
       by0,
       bw,
@@ -2414,21 +2419,20 @@ void _renderCompilerInto(
       ws,
       depth + 1,
       stableTransform,
-      layer.innerShadow != null && ws.preferNative ? layerBufPlane : null,
+      layer.innerShadow != null && ws.preferNative,
       0,
       true,
       true,
     );
 
     final matteBufPlane = ws._acquireScratch(depth * 3 + 1, boxPixels);
-    final matteBuf = matteBufPlane.typedList;
-    matteBuf.fillRange(0, boxPixels, 0);
+    matteBufPlane.typedList.fillRange(0, boxPixels, 0);
     if (overlap) {
       _renderLayerInto(
         matte,
         frame,
         matteParentAlpha,
-        matteBuf,
+        matteBufPlane,
         bx0,
         by0,
         bw,
@@ -2446,7 +2450,7 @@ void _renderCompilerInto(
         ws,
         depth + 1,
         stableTransform,
-        matte.innerShadow != null && ws.preferNative ? matteBufPlane : null,
+        matte.innerShadow != null && ws.preferNative,
         0,
         true,
         true,
@@ -2455,6 +2459,9 @@ void _renderCompilerInto(
     }
 
     // Composite matte into layerBuf, and blend layerBuf onto dst.
+    final layerBuf = layerBufPlane.typedList;
+    final matteBuf = matteBufPlane.typedList;
+    final target = dst.typedList;
     for (var row = 0; row < bh; row++) {
       final srcRow = row * bw;
       final dstRow = (by0 + row - dstOriginY) * dstStride + (bx0 - dstOriginX);
@@ -2492,9 +2499,9 @@ void _renderCompilerInto(
             ? tPx
             : _SwarBlender.scalePremul255(tPx, factor);
         final i = dstRow + col;
-        dst[i] = bm == 0
-            ? _SwarBlender.blendSrcOver(masked, dst[i])
-            : _SwarBlender.blendPixel(masked, dst[i], bm);
+        target[i] = bm == 0
+            ? _SwarBlender.blendSrcOver(masked, target[i])
+            : _SwarBlender.blendPixel(masked, target[i], bm);
       }
     }
   }
@@ -2562,7 +2569,7 @@ void _renderLayerInto(
   _Layer layer,
   double frame,
   int parentAlpha,
-  Uint32List dst,
+  NativePixelBuffer dst,
   int dstOriginX,
   int dstOriginY,
   int dstStride,
@@ -2580,7 +2587,7 @@ void _renderLayerInto(
   _RasterWorkspace ws,
   int depth,
   bool stableTransform, [
-  NativePixelBuffer? nativeDst,
+  bool useNative = true,
   int blendMode = 0,
   bool applyMaskAlpha = true,
   bool isolated = false,
@@ -2589,6 +2596,7 @@ void _renderLayerInto(
   bool applyFill = true,
 ]) {
   if (!layer.visible(frame)) return;
+  final nativeDst = useNative ? dst : null;
   final alpha = rawShadowContent ? 255 : layer.layerAlpha(frame, parentAlpha);
   final maskAlpha = applyMaskAlpha ? layer.singleMaskAlpha(frame) : 255;
   if (alpha == 0 || maskAlpha == 0) return;
@@ -2628,22 +2636,21 @@ void _renderLayerInto(
     );
     final reuse = isolated && sx0 == x0 && sy0 == y0 && sx1 == x1 && sy1 == y1;
     final w = sx1 - sx0, h = sy1 - sy0;
-    final plane = reuse ? nativeDst : ws._acquireScratch(depth * 3 + 2, w * h);
-    final pixels = reuse ? dst : plane!.typedList;
+    final plane = reuse ? dst : ws._acquireScratch(depth * 3 + 2, w * h);
     final ox = reuse ? dstOriginX : sx0, oy = reuse ? dstOriginY : sy0;
     final stride = reuse ? dstStride : w;
     if (!reuse) {
       if (ws.preferNative) {
-        simdClearPixels(plane!, w * h);
+        simdClearPixels(plane, w * h);
       } else {
-        pixels.fillRange(0, w * h, 0);
+        plane.typedList.fillRange(0, w * h, 0);
       }
     }
     _renderLayerInto(
       layer,
       frame,
       255,
-      pixels,
+      plane,
       ox,
       oy,
       stride,
@@ -2661,7 +2668,7 @@ void _renderLayerInto(
       ws,
       reuse ? depth : depth + 1,
       stableTransform,
-      ws.preferNative ? plane : null,
+      reuse ? useNative : ws.preferNative,
       0,
       false,
       false,
@@ -2673,7 +2680,6 @@ void _renderLayerInto(
     if (!skipTint &&
         blendMode == 0 &&
         nativeDst != null &&
-        plane != null &&
         stride == w &&
         ox == sx0 &&
         oy == sy0 &&
@@ -2704,12 +2710,12 @@ void _renderLayerInto(
       shadow,
       opacity,
       blendMode,
-      pixels,
+      plane.typedList,
       ox,
       oy,
       stride,
       (sx0, sy0, sx1, sy1),
-      dst,
+      dst.typedList,
       dstOriginX,
       dstOriginY,
       dstStride,
@@ -2752,12 +2758,12 @@ void _renderLayerInto(
     final w = x1 - x0, h = y1 - y0;
     if (w <= 0 || h <= 0) return;
     final plane = ws._acquireScratch(depth * 3 + 2, w * h);
-    final pixels = plane.typedList..fillRange(0, w * h, 0);
+    plane.typedList.fillRange(0, w * h, 0);
     _renderLayerInto(
       layer,
       frame,
       parentAlpha,
-      pixels,
+      plane,
       x0,
       y0,
       w,
@@ -2775,7 +2781,7 @@ void _renderLayerInto(
       ws,
       depth + 1,
       stableTransform,
-      ws.preferNative ? plane : null,
+      ws.preferNative,
       0,
       false,
       false,
@@ -2783,6 +2789,8 @@ void _renderLayerInto(
       false,
       false,
     );
+    final pixels = plane.typedList;
+    final target = dst.typedList;
     var row = (y0 - dstOriginY) * dstStride + x0 - dstOriginX;
     for (var y = 0; y < h; y++, row += dstStride) {
       for (var x = 0; x < w; x++) {
@@ -2795,9 +2803,9 @@ void _renderLayerInto(
                 _SwarBlender._div255((p >>> 24) * opacity),
               );
         final i = row + x;
-        dst[i] = blendMode == 0
-            ? _SwarBlender.blendSrcOver(src, dst[i])
-            : _SwarBlender.blendPixel(src, dst[i], blendMode);
+        target[i] = blendMode == 0
+            ? _SwarBlender.blendSrcOver(src, target[i])
+            : _SwarBlender.blendPixel(src, target[i], blendMode);
       }
     }
     return;
@@ -2925,7 +2933,7 @@ void _renderLayerInto(
       ws,
       depth + 1,
       stable,
-      nativeDst,
+      useNative,
       blendMode,
     );
   }
@@ -2969,7 +2977,7 @@ void _renderLayerInto(
           ws,
           depth + 1,
           stable,
-          nativeDst,
+          useNative,
         );
       }
     } else {
@@ -2993,13 +3001,12 @@ void _renderLayerInto(
       if (rx0 < rx1 && ry0 < ry1) {
         final bw = rx1 - rx0, bh = ry1 - ry0;
         final preBufPlane = ws._acquireScratch(depth * 3 + 2, bw * bh);
-        final preBuf = preBufPlane.typedList;
-        preBuf.fillRange(0, bw * bh, 0);
+        preBufPlane.typedList.fillRange(0, bw * bh, 0);
         _renderCompilerInto(
           child,
           childFrame,
           alpha,
-          preBuf,
+          preBufPlane,
           rx0,
           ry0,
           bw,
@@ -3017,6 +3024,7 @@ void _renderLayerInto(
           ws,
           depth + 1,
           stable,
+          false,
         );
         // Rasterize transformed precomp clip rect into ws._clipSpans.
         ws._polyPath
@@ -3039,6 +3047,8 @@ void _renderLayerInto(
         }
         final count = spansToBlend.spanCount * 2;
         final sdata = spansToBlend.data;
+        final preBuf = preBufPlane.typedList;
+        final target = dst.typedList;
         for (var k = 0; k < count; k += 2) {
           final w0 = sdata[k], w1 = sdata[k + 1];
           final y = w0 >>> 16,
@@ -3051,7 +3061,10 @@ void _renderLayerInto(
             final p = preBuf[sRow + c];
             if (p != 0) {
               final scaled = cov == 256 ? p : _SwarBlender.scalePremul(p, cov);
-              dst[dRow + c] = _SwarBlender.blendSrcOver(scaled, dst[dRow + c]);
+              target[dRow + c] = _SwarBlender.blendSrcOver(
+                scaled,
+                target[dRow + c],
+              );
             }
           }
         }
@@ -3251,7 +3264,7 @@ void _renderGroupInto(
   _Group group,
   double frame,
   int alpha,
-  Uint32List dst,
+  NativePixelBuffer dst,
   int dstOriginX,
   int dstOriginY,
   int dstStride,
@@ -3269,7 +3282,7 @@ void _renderGroupInto(
   _RasterWorkspace ws,
   int depth,
   bool stableTransform, [
-  NativePixelBuffer? nativeDst,
+  bool useNative = true,
   int blendMode = 0,
 ]) {
   final transform = group.transform;
@@ -3320,7 +3333,7 @@ void _renderGroupInto(
         ws,
         depth + 1,
         stable,
-        nativeDst,
+        useNative,
         blendMode,
       );
     } else if (d is _Style) {
@@ -3345,7 +3358,7 @@ void _renderGroupInto(
         clipMask,
         ws,
         stable,
-        nativeDst,
+        useNative,
         blendMode,
       );
     }
@@ -3356,7 +3369,7 @@ void _renderStyleInto(
   _Style style,
   double frame,
   int alpha,
-  Uint32List dst,
+  NativePixelBuffer dst,
   int dstOriginX,
   int dstOriginY,
   int dstStride,
@@ -3373,7 +3386,7 @@ void _renderStyleInto(
   _RleSpans? clipMask,
   _RasterWorkspace ws,
   bool stableTransform, [
-  NativePixelBuffer? nativeDst,
+  bool useNative = true,
   int blendMode = 0,
 ]) {
   final a = (alpha * style.opacity.scalar(frame).round() / 100).round().clamp(
@@ -3439,12 +3452,15 @@ void _renderStyleInto(
   }
   if (spans.spanCount == 0) return;
 
+  // Rasterizing or allocating a gradient may grow the Wasm heap. Acquire a
+  // fresh view only after that work and use it in allocation-free pixel loops.
+  final nativeDst = useNative ? dst : null;
   final grad = style.gradient;
   if (grad == null) {
     final color = _stylePremul(style, frame, a);
     if (blendMode == 0) {
       _SwarBlender.fillSolidSpans(
-        dst,
+        dst.typedList,
         dstOriginX,
         dstOriginY,
         dstStride,
@@ -3454,7 +3470,7 @@ void _renderStyleInto(
       );
     } else {
       _SwarBlender.blendSolidSpans(
-        dst,
+        dst.typedList,
         dstOriginX,
         dstOriginY,
         dstStride,
@@ -3482,7 +3498,7 @@ void _renderStyleInto(
       final focus = grad.focalOffset(frame, fx, fy);
       if (focus != null) {
         _fillFocalGradientSpans(
-          dst,
+          dst.typedList,
           dstOriginX,
           dstOriginY,
           dstStride,
@@ -3498,34 +3514,35 @@ void _renderStyleInto(
         return;
       }
     }
-    if (nativeDst != null && isNativeGradientSupported) {
-      nativeGradientSpans(
-        nativeDst,
-        dstOriginX,
-        dstOriginY,
-        dstStride,
-        spans._buf,
-        spans.spanCount,
-        lut,
-        a,
-        blendMode,
-        grad.radial,
-        ia,
-        ib,
-        ic,
-        id,
-        itx,
-        ity,
-        s[0],
-        s[1],
-        e[0],
-        e[1],
-      );
+    if (nativeDst != null &&
+        isNativeGradientSupported &&
+        nativeGradientSpans(
+          nativeDst,
+          dstOriginX,
+          dstOriginY,
+          dstStride,
+          spans._buf,
+          spans.spanCount,
+          lut,
+          a,
+          blendMode,
+          grad.radial,
+          ia,
+          ib,
+          ic,
+          id,
+          itx,
+          ity,
+          s[0],
+          s[1],
+          e[0],
+          e[1],
+        )) {
       return;
     }
     if (grad.radial) {
       _SwarBlender.fillRadialGradientSpans(
-        dst,
+        dst.typedList,
         dstOriginX,
         dstOriginY,
         dstStride,
@@ -3545,7 +3562,7 @@ void _renderStyleInto(
       );
     } else {
       _SwarBlender.fillLinearGradientSpans(
-        dst,
+        dst.typedList,
         dstOriginX,
         dstOriginY,
         dstStride,
@@ -5295,18 +5312,17 @@ class FastLottieSoftwareSession {
     _renderSceneSoftware(
       _scene,
       frame,
-      _pixelBuffer.typedList,
+      _pixelBuffer,
       pixelWidth,
       pixelHeight,
       _ws,
-      _ws.preferNative ? _pixelBuffer : null,
     );
     return _pixelBuffer.typedList;
   }
 }
 
-/// Renders a single [composition] [frame] using the pure-Dart FreeType scanline RLE
-/// software rasterizer into a premultiplied BGRA8888 pixel buffer `[w * h * 4]`
+/// Renders a single [composition] [frame] using the software rasterizer
+/// into a premultiplied BGRA8888 pixel buffer `[w * h * 4]`
 /// compatible with [ui.PixelFormat.bgra8888].
 @visibleForTesting
 Uint8List debugRenderSoftwareFrame(
@@ -5322,7 +5338,7 @@ Uint8List debugRenderSoftwareFrame(
   );
   try {
     session.renderFrame(frame);
-    return Uint8List.fromList(session.pixels.buffer.asUint8List());
+    return Uint8List.fromList(Uint8List.sublistView(session.pixels));
   } finally {
     session.dispose();
   }
