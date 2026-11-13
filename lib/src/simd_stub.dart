@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 bool get isSimdSupported => false;
-Future<void> ensureSimdReady() async {}
+Future<void> ensureSimdReady({bool enableOnDartWasm = false}) async {}
 
 class NativeSpansBuffer {
   NativeSpansBuffer(int count) : typedList = Int32List(count);

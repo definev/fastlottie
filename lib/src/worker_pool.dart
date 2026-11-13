@@ -1,23 +1,5 @@
 part of '../fastlottie.dart';
 
-const int _opConfigure = 0;
-const int _opRegisterScene = 1;
-const int _opRenderFrame = 2;
-const int _opDeleteDisk = 3;
-const int _opClearMem = 4;
-const int _opRenderStrip = 5;
-
-const int _repFrameReady = 0;
-const int _repFrameError = 1;
-const int _repDeleted = 2;
-const int _repSceneMissing = 3;
-const int _repStripReady = 4;
-
-// A scene is only needed while a vector miss is in flight. Eight covers the
-// jobs one worker can overlap; a finished entry is dropped once every frame
-// is in the compressed cache.
-const int _maxWorkerScenes = 8;
-
 int _shardForKey(String entryKey, int shardCount) {
   if (shardCount <= 1) return 0;
   var h = 0x811c9dc5;
@@ -26,315 +8,6 @@ int _shardForKey(String entryKey, int shardCount) {
     h = (h * 0x01000193) & 0x7FFFFFFF;
   }
   return h % shardCount;
-}
-
-int _resolveWorkerSourceIndex(
-  int sampleIdx,
-  int totalFrames,
-  double frameStep,
-) {
-  if (frameStep <= 0.0 || totalFrames <= 1) return 0;
-  return math
-      .min(sampleIdx * frameStep, totalFrames - 1.0)
-      .floor()
-      .clamp(0, totalFrames - 1);
-}
-
-void _softwareWorkerEntry(WorkerEndpoint endpoint) {
-  final ws = _RasterWorkspace();
-  final store = BitstreamStore();
-  final lz4 = Lz4Scratch();
-  final playback = TilePlaybackCursor();
-  final scenes = <String, _Compiler>{};
-  const defaultPixelCap = 256 * 256;
-  const softPixelCap = 512 * 512;
-  final pixels = NativePixelBuffer(defaultPixelCap);
-  var smallPixelStreak = 0;
-
-  void ensurePixels(int count) {
-    if (pixels.typedList.length < count) {
-      var cap = math.max(defaultPixelCap, pixels.typedList.length);
-      while (cap < count) {
-        cap *= 2;
-      }
-      smallPixelStreak = 0;
-      playback.invalidate();
-      pixels.reallocate(cap, 0);
-    }
-  }
-
-  Uint8List pixelBytes(int count) =>
-      Uint8List.sublistView(pixels.typedList, 0, count);
-
-  void recordPixelUse(int pxCount) {
-    if (pixels.typedList.length <= softPixelCap) {
-      smallPixelStreak = 0;
-      return;
-    }
-    if (pxCount <= defaultPixelCap) {
-      if (++smallPixelStreak >= 16) {
-        smallPixelStreak = 0;
-        playback.invalidate();
-        pixels.reallocate(defaultPixelCap, 0);
-      }
-    } else {
-      smallPixelStreak = 0;
-    }
-  }
-
-  void releaseSceneIfCached(
-    String contentKey,
-    String entryKey,
-    int totalFrames,
-  ) {
-    if (!store.hasAllFrames(entryKey, totalFrames)) return;
-    if (scenes.remove(contentKey) == null) return;
-    // Coverage entries keep compiled draws and masked layers alive after
-    // the scene map drops them.
-    ws.resetCaches();
-  }
-
-  endpoint.messages.listen((Object? raw) {
-    switch (raw) {
-      case null:
-        store.dispose();
-        scenes.clear();
-        ws.dispose();
-        pixels.dispose();
-        endpoint.close();
-        return;
-      case (_opConfigure, final String? diskDir, final int ramLimit):
-        store.maximumRamBytes = ramLimit;
-        store.setDiskDirectory(diskDir);
-      case (_opRegisterScene, final String contentKey, final _Compiler scene):
-        scenes.remove(contentKey);
-        while (scenes.length >= _maxWorkerScenes) {
-          scenes.remove(scenes.keys.first);
-          ws.resetCaches();
-        }
-        scenes[contentKey] = scene;
-      case (
-        _opRenderFrame,
-        final int reqId,
-        final String entryKey,
-        final String contentKey,
-        final double frame,
-        final int frameIndex,
-        final int width,
-        final int height,
-        final int totalFrames,
-        final bool poster,
-      ):
-        try {
-          final pxCount = width * height;
-          ensurePixels(pxCount);
-          final dstBytes = pixelBytes(pxCount);
-
-          final cacheHit = store.tryReadFrame(
-            entryKey: entryKey,
-            width: width,
-            height: height,
-            totalFrames: totalFrames,
-            poster: poster,
-            frameIndex: frameIndex,
-            dstBgra: dstBytes,
-            cursor: playback,
-          );
-
-          if (cacheHit) {
-            releaseSceneIfCached(contentKey, entryKey, totalFrames);
-            final packed = packBytesForIsolate(dstBytes);
-            endpoint.send((
-              _repFrameReady,
-              reqId,
-              entryKey,
-              packed,
-              false, // vectorRendered
-              -1, // unchanged diskBytes
-              store.ramBytes,
-            ));
-            recordPixelUse(pxCount);
-            if (!poster) {
-              store.preparePlaybackPage(
-                entryKey: entryKey,
-                width: width,
-                height: height,
-                totalFrames: totalFrames,
-                frameIndex: frameIndex,
-              );
-            }
-            return;
-          }
-
-          final scene = scenes.remove(contentKey);
-          if (scene == null) {
-            endpoint.send((_repSceneMissing, reqId, contentKey));
-            return;
-          }
-          scenes[contentKey] = scene;
-
-          playback.invalidate();
-          _renderSceneSoftware(scene, frame, pixels, width, height, ws);
-          final renderedBytes = pixelBytes(pxCount);
-          final stored = store.storeFrame(
-            entryKey: entryKey,
-            width: width,
-            height: height,
-            totalFrames: totalFrames,
-            poster: poster,
-            frameIndex: frameIndex,
-            srcBgra: renderedBytes,
-            scratch: lz4,
-          );
-          final packed = packBytesForIsolate(renderedBytes);
-          endpoint.send((
-            _repFrameReady,
-            reqId,
-            entryKey,
-            packed,
-            true, // vectorRendered
-            stored.entryDiskBytes,
-            store.ramBytes,
-          ));
-          recordPixelUse(pxCount);
-          releaseSceneIfCached(contentKey, entryKey, totalFrames);
-        } catch (error) {
-          endpoint.send((_repFrameError, reqId, error.toString()));
-        }
-      case (
-        _opRenderStrip,
-        final int reqId,
-        final String entryKey,
-        final String contentKey,
-        final int stripStart,
-        final int stripCount,
-        final double startFrame,
-        final double frameStep,
-        final int width,
-        final int height,
-        final int totalFrames,
-        final bool poster,
-      ):
-        try {
-          playback
-              .invalidate(); // This request overwrites the single-frame buffer.
-          final padY = stripCount > 1 ? 1 : 0;
-          final stripHeight = stripCount * height + (stripCount - 1) * padY;
-          final pxCount = width * stripHeight;
-          ensurePixels(pxCount);
-          if (padY > 0) {
-            pixels.typedList.fillRange(0, pxCount, 0);
-          }
-
-          final singleFramePx = width * height;
-          var vectorRenderedCount = 0;
-          var compressedHitCount = 0;
-          var latestDiskBytes = -1;
-          int? warmPage;
-
-          _Compiler? scene;
-
-          for (var j = 0; j < stripCount; j++) {
-            final srcIdx = _resolveWorkerSourceIndex(
-              stripStart + j,
-              totalFrames,
-              frameStep,
-            );
-            final scnFrame = startFrame + srcIdx;
-            final slotY = j * (height + padY);
-            final slotPxOffset = slotY * width;
-            final slot = pixels.slice(slotPxOffset, singleFramePx);
-
-            final cacheHit = store.tryReadFrame(
-              entryKey: entryKey,
-              width: width,
-              height: height,
-              totalFrames: totalFrames,
-              poster: poster,
-              frameIndex: srcIdx,
-              dstBgra: Uint8List.sublistView(slot.typedList),
-            );
-
-            if (cacheHit) {
-              compressedHitCount++;
-              warmPage ??= srcIdx;
-              continue;
-            }
-
-            scene ??= scenes.remove(contentKey);
-            if (scene == null) {
-              endpoint.send((_repSceneMissing, reqId, contentKey));
-              return;
-            }
-            scenes[contentKey] = scene;
-
-            _renderSceneSoftware(scene, scnFrame, slot, width, height, ws);
-            vectorRenderedCount++;
-
-            final stored = store.storeFrame(
-              entryKey: entryKey,
-              width: width,
-              height: height,
-              totalFrames: totalFrames,
-              poster: poster,
-              frameIndex: srcIdx,
-              srcBgra: Uint8List.sublistView(slot.typedList),
-              scratch: lz4,
-            );
-            if (stored.entryDiskBytes > 0) {
-              latestDiskBytes = stored.entryDiskBytes;
-            }
-          }
-
-          final packed = packBytesForIsolate(pixelBytes(pxCount));
-          endpoint.send((
-            _repStripReady,
-            reqId,
-            entryKey,
-            stripStart,
-            stripCount,
-            packed,
-            vectorRenderedCount,
-            compressedHitCount,
-            latestDiskBytes,
-            store.ramBytes,
-            width,
-            stripHeight,
-          ));
-          recordPixelUse(pxCount);
-          releaseSceneIfCached(contentKey, entryKey, totalFrames);
-          if (!poster && warmPage != null) {
-            store.preparePlaybackPage(
-              entryKey: entryKey,
-              width: width,
-              height: height,
-              totalFrames: totalFrames,
-              frameIndex: warmPage,
-            );
-          }
-        } catch (error) {
-          endpoint.send((_repFrameError, reqId, error.toString()));
-        }
-      case (_opDeleteDisk, final String entryKey):
-        store.deleteDiskEntry(entryKey);
-        store.evictEntryRam(entryKey);
-        endpoint.send((_repDeleted, entryKey, store.ramBytes));
-      case (_opClearMem,):
-        playback.invalidate();
-        store.clearRam();
-        store.closeOpenFiles();
-        store.shrinkScratch();
-        scenes.clear();
-        ws.resetCaches();
-        ws.trimScratch(aggressive: true);
-        lz4.shrinkScratch();
-        smallPixelStreak = 0;
-        if (pixels.typedList.length > defaultPixelCap) {
-          pixels.reallocate(defaultPixelCap, 0);
-        }
-        endpoint.send((_repDeleted, '', store.ramBytes));
-    }
-  });
 }
 
 abstract interface class _RasterWorkerListener {
@@ -443,7 +116,7 @@ final class _RasterWorkerPool {
   bool _rememberScene(int shard, String contentKey) {
     final scenes = _registeredScenes[shard];
     final known = scenes.remove(contentKey);
-    if (scenes.length >= _maxWorkerScenes) scenes.remove(scenes.first);
+    if (scenes.length >= maxWorkerScenes) scenes.remove(scenes.first);
     scenes.add(contentKey);
     return known;
   }
@@ -459,18 +132,118 @@ final class _RasterWorkerPool {
       final shard = i;
       _registeredScenes.add(<String>{});
       _workerRamBytes.add(0);
-      final handle = startWorkerHandle(
-        _softwareWorkerEntry,
-        debugName: 'fastlottie.raster.$i',
-      );
+      final handle =
+          startBrowserRasterWorker('fastlottie.raster.$i') ??
+          _inlineOrNativeHandle(shard);
       _handles.add(handle);
-      _subs.add(
-        handle.messages.listen(
-          (msg) => _handleWorkerMessage(shard, msg),
-          onError: (_) {},
-        ),
+      _subs.add(_listen(shard, handle));
+      handle.send((opConfigure, effectiveDiskDir, perWorkerRam));
+    }
+  }
+
+  int get browserWorkers => _handles.where(isBrowserRasterWorker).length;
+  int get browserWasmWorkers =>
+      _handles.where(browserRasterWorkerUsesWasm).length;
+
+  WorkerHandle _inlineOrNativeHandle(int shard) => startWorkerHandle(
+    softwareWorkerEntry,
+    debugName: 'fastlottie.raster.$shard',
+  );
+
+  StreamSubscription<Object?> _listen(int shard, WorkerHandle handle) =>
+      handle.messages.listen(
+        (message) => _handleWorkerMessage(shard, message),
+        onError: (Object error) {
+          if (isBrowserRasterWorker(handle)) {
+            _fallbackFromBrowser(shard, handle);
+          }
+        },
       );
-      handle.send((_opConfigure, effectiveDiskDir, perWorkerRam));
+
+  void _fallbackFromBrowser(int shard, WorkerHandle failed) {
+    if (_disposed || !identical(_handles[shard], failed)) return;
+    unawaited(_subs[shard].cancel());
+    failed.dispose();
+    final handle = _inlineOrNativeHandle(shard);
+    _handles[shard] = handle;
+    _subs[shard] = _listen(shard, handle);
+    _registeredScenes[shard].clear();
+    _updateWorkerRam(shard, 0);
+    handle.send((
+      opConfigure,
+      null,
+      maximumCompressedMemoryBytes ~/ workerCount,
+    ));
+    for (final request in _pendingRequests.values) {
+      if (request.shard != shard) continue;
+      request.retried = false;
+      _sendRequest(request);
+    }
+  }
+
+  void _registerScene(
+    int shard,
+    String key,
+    FastLottieComposition composition,
+  ) {
+    final handle = _handles[shard];
+    if (isBrowserRasterWorker(handle)) {
+      handle.send((
+        opRegisterScene,
+        key,
+        composition._workerSource!,
+        composition.options.useSimd,
+      ));
+    } else {
+      handle.send((
+        opRegisterScene,
+        key,
+        isIsolatePoolSupported
+            ? composition._template
+            : composition._template.fork(),
+      ));
+    }
+  }
+
+  void _sendRequest(_PendingWorkerRequest request, {bool register = false}) {
+    final shard = request.shard;
+    if (!_rememberScene(shard, request.contentKey) || register) {
+      _registerScene(shard, request.contentKey, request.composition);
+    }
+    final handle = _handles[shard];
+    if (request.stripCount > 1) {
+      handle.send((
+        opRenderStrip,
+        request.reqId,
+        request.entryKey,
+        request.contentKey,
+        request.stripStart,
+        request.stripCount,
+        request.startFrame,
+        request.frameStep,
+        request.width,
+        request.height,
+        request.totalFrames,
+        request.poster,
+      ));
+    } else {
+      final index = resolveWorkerSourceIndex(
+        request.stripStart,
+        request.totalFrames,
+        request.frameStep,
+      );
+      handle.send((
+        opRenderFrame,
+        request.reqId,
+        request.entryKey,
+        request.contentKey,
+        request.startFrame + index,
+        index,
+        request.width,
+        request.height,
+        request.totalFrames,
+        request.poster,
+      ));
     }
   }
 
@@ -492,7 +265,7 @@ final class _RasterWorkerPool {
           ? maximumCompressedMemoryBytes
           : maximumCompressedMemoryBytes ~/ workerCount;
       for (final h in _handles) {
-        h.send((_opConfigure, effective, perWorkerRam));
+        h.send((opConfigure, effective, perWorkerRam));
       }
     }
   }
@@ -543,7 +316,7 @@ final class _RasterWorkerPool {
     if (_disposed) return;
     switch (raw) {
       case (
-        _repFrameReady,
+        repFrameReady,
         final int reqId,
         final String entryKey,
         final Object packed,
@@ -576,7 +349,7 @@ final class _RasterWorkerPool {
           entryDiskBytes: entryDiskBytes > 0 ? entryDiskBytes : 0,
         );
       case (
-        _repStripReady,
+        repStripReady,
         final int reqId,
         final String entryKey,
         final int stripStart,
@@ -613,11 +386,11 @@ final class _RasterWorkerPool {
           compressedCount: compressedCount,
           entryDiskBytes: entryDiskBytes > 0 ? entryDiskBytes : 0,
         );
-      case (_repFrameError, final int reqId, final String message):
+      case (repFrameError, final int reqId, final String message):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
         listener.onStripError(pending.entry, StateError(message));
-      case (_repSceneMissing, final int reqId, final String contentKey):
+      case (repSceneMissing, final int reqId, final String contentKey):
         final pending = _pendingRequests[reqId];
         if (pending == null) return;
         if (pending.retried) {
@@ -629,49 +402,8 @@ final class _RasterWorkerPool {
           return;
         }
         pending.retried = true;
-        _rememberScene(shard, contentKey);
-        _handles[shard].send((
-          _opRegisterScene,
-          contentKey,
-          isIsolatePoolSupported
-              ? pending.composition._template
-              : _Fork().scene(pending.composition._template),
-        ));
-        if (pending.stripCount > 1) {
-          _handles[shard].send((
-            _opRenderStrip,
-            pending.reqId,
-            pending.entryKey,
-            pending.contentKey,
-            pending.stripStart,
-            pending.stripCount,
-            pending.startFrame,
-            pending.frameStep,
-            pending.width,
-            pending.height,
-            pending.totalFrames,
-            pending.poster,
-          ));
-        } else {
-          final srcIdx = _resolveWorkerSourceIndex(
-            pending.stripStart,
-            pending.totalFrames,
-            pending.frameStep,
-          );
-          _handles[shard].send((
-            _opRenderFrame,
-            pending.reqId,
-            pending.entryKey,
-            pending.contentKey,
-            pending.startFrame + srcIdx,
-            srcIdx,
-            pending.width,
-            pending.height,
-            pending.totalFrames,
-            pending.poster,
-          ));
-        }
-      case (_repDeleted, final String entryKey, final int workerRam):
+        _sendRequest(pending, register: true);
+      case (repDeleted, final String entryKey, final int workerRam):
         _updateWorkerRam(shard, workerRam);
         if (entryKey.isNotEmpty) {
           _pendingDiskDeletes.remove(entryKey);
@@ -724,7 +456,7 @@ final class _RasterWorkerPool {
     _pendingDiskDeletes.add(entryKey);
     if (_started) {
       final shard = _shardForKey(entryKey, workerCount);
-      _handles[shard].send((_opDeleteDisk, entryKey));
+      _handles[shard].send((opDeleteDisk, entryKey));
     } else if (_diskDir != null && isDiskCacheSupported) {
       PlatformDiskFs.deleteFile(joinPath(_diskDir!, '$entryKey.flcache'));
       _pendingDiskDeletes.remove(entryKey);
@@ -749,18 +481,9 @@ final class _RasterWorkerPool {
     _ensureStarted();
     final shard = _shardForKey(entryKey, workerCount);
     final contentKey = composition.contentKey;
-    if (!_rememberScene(shard, contentKey)) {
-      _handles[shard].send((
-        _opRegisterScene,
-        contentKey,
-        isIsolatePoolSupported
-            ? composition._template
-            : _Fork().scene(composition._template),
-      ));
-    }
     final reqId = _nextReqId++;
     debugDispatchCount++;
-    _pendingRequests[reqId] = _PendingWorkerRequest(
+    final request = _pendingRequests[reqId] = _PendingWorkerRequest(
       reqId: reqId,
       shard: shard,
       entry: entry,
@@ -777,46 +500,13 @@ final class _RasterWorkerPool {
       totalFrames: totalFrames,
       poster: poster,
     );
-    if (stripCount > 1) {
-      _handles[shard].send((
-        _opRenderStrip,
-        reqId,
-        entryKey,
-        contentKey,
-        stripStart,
-        stripCount,
-        startFrame,
-        frameStep,
-        width,
-        height,
-        totalFrames,
-        poster,
-      ));
-    } else {
-      final srcIdx = _resolveWorkerSourceIndex(
-        stripStart,
-        totalFrames,
-        frameStep,
-      );
-      _handles[shard].send((
-        _opRenderFrame,
-        reqId,
-        entryKey,
-        contentKey,
-        startFrame + srcIdx,
-        srcIdx,
-        width,
-        height,
-        totalFrames,
-        poster,
-      ));
-    }
+    _sendRequest(request);
   }
 
   void clearMemoryCaches() {
     if (!_started || _disposed) return;
     for (var i = 0; i < _handles.length; i++) {
-      _handles[i].send(const (_opClearMem,));
+      _handles[i].send(const (opClearMem,));
       _registeredScenes[i].clear();
       _workerRamBytes[i] = 0;
     }

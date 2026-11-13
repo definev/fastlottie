@@ -1,4 +1,4 @@
-part of '../fastlottie.dart';
+part of 'raster_core.dart';
 
 /// New per-player state, sharing immutable compiled keyframes instead of parsing
 /// JSON again. The template never receives native Path/Paint/cache objects.

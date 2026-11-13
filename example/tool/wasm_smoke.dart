@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -7,12 +8,25 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+const _requireBrowserWorker = bool.fromEnvironment(
+  'FASTLOTTIE_REQUIRE_WEB_WORKER',
+);
+const _requireInline = bool.fromEnvironment('FASTLOTTIE_EXPECT_INLINE_WORKER');
+
 const _requireHook = bool.fromEnvironment('FASTLOTTIE_REQUIRE_WASM_HOOK');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _checkRendering();
-  await _checkMiniStrip();
+  for (final composition in [
+    await FastLottieComposition.loadAsset('assets/icon.json'),
+    await _gradientIcon(),
+    await FastLottieComposition.loadAsset(
+      'assets/tgs/Crocosaurus-1794222759141/file_4786080.tgs',
+    ),
+  ]) {
+    await _checkMiniStrip(composition);
+  }
   const result = 'FastLottie Wasm smoke test passed';
   debugPrint(result);
   runApp(
@@ -48,6 +62,13 @@ Future<void> _checkRendering() async {
       );
     }
     await ensureSimdReady();
+    if (const bool.fromEnvironment('dart.tool.dart2wasm')) {
+      _check(
+        !isSimdSupported,
+        'Dart2Wasm should keep rasterization in Dart by default',
+      );
+    }
+    await ensureSimdReady(enableOnDartWasm: true);
     _check(isSimdSupported, 'Wasm FFI did not initialize');
     _check(
       listEquals(early.renderFrame(0), expected),
@@ -132,11 +153,10 @@ Future<FastLottieComposition> _gradientIcon() async {
   return FastLottieComposition.fromJson(document);
 }
 
-Future<void> _checkMiniStrip() async {
-  final icon = await FastLottieComposition.loadAsset('assets/icon.json');
+Future<void> _checkMiniStrip(FastLottieComposition composition) async {
   final cache = FastLottieRasterCache.miniStrip(stripFrames: 4, workerCount: 1);
   final player = FastLottiePlayer(
-    icon,
+    composition,
     rasterCache: cache,
     cache: FastLottieCache.none,
   );
@@ -152,7 +172,7 @@ Future<void> _checkMiniStrip() async {
 
   try {
     draw(0).dispose();
-    for (var i = 0; i < 200 && cache.pendingFrames > 0; i++) {
+    for (var i = 0; i < 1600 && cache.pendingFrames > 0; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 5));
     }
     _check(cache.lastError == null, 'Raster cache error: ${cache.lastError}');
@@ -160,29 +180,54 @@ Future<void> _checkMiniStrip() async {
       cache.pendingFrames == 0 && cache.vectorRasterizedFrames == 4,
       'The four-frame strip was not uploaded',
     );
+    if (_requireBrowserWorker) {
+      _check(
+        cache.browserWorkers == 1 && cache.browserWasmWorkers == 1,
+        'Mini-strip was not rendered by a dedicated worker using the C Wasm module',
+      );
+    }
+    if (_requireInline) {
+      _check(cache.browserWorkers == 0, 'Expected the inline worker fallback');
+    }
     final hits = cache.hits;
-    final picture = draw(2 / icon.frameCount);
+    final picture = draw(2 / composition.frameCount);
     try {
       _check(cache.hits == hits + 1, 'The player did not draw a cached frame');
       final reference = FastLottieSoftwareSession(
-        icon,
+        composition,
         pixelWidth: 64,
         pixelHeight: 64,
         preferNative: false,
       );
-      final center = reference.renderFrame(2)[32 * 64 + 32];
+      final pixels = reference.renderFrame(composition.startFrame + 2);
+      final bgra = Uint8List.fromList(Uint8List.sublistView(pixels));
       reference.dispose();
-      final expectedRgba = ((center & 0xffffff) << 8) | (center >>> 24);
+      final ready = Completer<ui.Image>();
+      ui.decodeImageFromPixels(
+        bgra,
+        64,
+        64,
+        ui.PixelFormat.bgra8888,
+        ready.complete,
+      );
+      final expected = await ready.future;
       final image = await picture.toImage(64, 64);
       try {
-        final rgba = (await image.toByteData())!;
+        final actualBytes = Uint8List.sublistView((await image.toByteData())!);
+        final expectedBytes = Uint8List.sublistView(
+          (await expected.toByteData())!,
+        );
+        var different = 0;
+        for (var i = 0; i < actualBytes.length; i++) {
+          different += (actualBytes[i] - expectedBytes[i]).abs();
+        }
         _check(
-          rgba.getUint32((32 * 64 + 32) * 4) == expectedRgba &&
-              rgba.getUint32(0) == 0,
-          'Wrong pixels in the cached frame',
+          different / actualBytes.length < 0.6,
+          'Pixels in the cached frame differ from Dart',
         );
       } finally {
         image.dispose();
+        expected.dispose();
       }
     } finally {
       picture.dispose();

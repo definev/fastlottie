@@ -1,4 +1,4 @@
-part of '../fastlottie.dart';
+part of 'raster_core.dart';
 
 // A diagnostic path only becomes a string when compilation fails.
 final class _JsonPath {

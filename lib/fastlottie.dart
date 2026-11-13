@@ -16,53 +16,37 @@ import 'package:flutter/widgets.dart';
 import 'decoding.dart';
 import 'src/bitstream_cache.dart';
 import 'src/isolate_stub.dart' if (dart.library.isolate) 'src/isolate_io.dart';
-import 'src/lz4.dart';
 import 'src/network_stub.dart' if (dart.library.io) 'src/network_io.dart';
 import 'src/network_types.dart';
 import 'src/platform_stub.dart' if (dart.library.io) 'src/platform_io.dart';
+import 'src/options.dart';
+import 'src/raster_core.dart';
+import 'src/raster_browser_stub.dart'
+    if (dart.library.js_interop) 'src/raster_browser.dart';
 import 'src/simd_stub.dart'
     if (dart.library.ffi) 'src/simd_io.dart'
-    if (dart.library.js_interop) 'src/simd_wasm.dart';
-import 'src/tile_playback.dart';
+    if (dart.library.js_interop) 'src/simd_wasm.dart'
+    show NativePixelBuffer;
 
 export 'decoding.dart';
 export 'src/network_types.dart';
+export 'src/options.dart';
 export 'src/simd_stub.dart'
     if (dart.library.ffi) 'src/simd_io.dart'
-    if (dart.library.js_interop) 'src/simd_wasm.dart'
+    if (dart.library.js_interop) 'src/simd_web.dart'
     show isSimdSupported, ensureSimdReady;
 
-part 'src/compiler.dart';
-part 'src/track.dart';
-part 'src/scene.dart';
 part 'src/widget.dart';
-part 'src/fork.dart';
-part 'src/gradient.dart';
-part 'src/path_ops.dart';
 part 'src/raster_cache.dart';
-part 'src/rle_rasterizer.dart';
 part 'src/worker_pool.dart';
 part 'src/ping_pong.dart';
+part 'src/software_session.dart';
 
 final _jsonBytesCodec = json.fuse(utf8);
 
 FastLottieComposition _compileLottie((List<int>, FastLottieOptions) request) =>
     FastLottieComposition.fromBytes(request.$1, options: request.$2)
       ..prepareForPlayback();
-
-/// A feature outside fastlottie's supported subset, with its JSON location.
-class UnsupportedLottieException extends FormatException {
-  UnsupportedLottieException(this.jsonPath, String feature)
-    : super('$feature at $jsonPath');
-  final String jsonPath;
-}
-
-/// Compile-time controls. SIMD is opt-out.
-@immutable
-class FastLottieOptions {
-  const FastLottieOptions({this.useSimd = true});
-  final bool useSimd;
-}
 
 /// Compiled, reusable composition. Each player owns its mutable render state.
 class FastLottieComposition {
@@ -75,6 +59,7 @@ class FastLottieComposition {
     this._template,
     this.options,
     this.isStatic,
+    this._workerSource,
   );
 
   factory FastLottieComposition.fromJson(
@@ -92,15 +77,18 @@ class FastLottieComposition {
     return FastLottieComposition._fromOwned(
       copy(json) as Map<String, dynamic>,
       options,
+      sourceBytes: kIsWeb
+          ? Uint8List.fromList(_jsonBytesCodec.encode(json))
+          : null,
     );
   }
 
   static FastLottieComposition _fromOwned(
     Map<String, dynamic> owned,
-    FastLottieOptions options,
-  ) {
-    final compiler = _Compiler(options);
-    compiler.compile(owned); // Validate the complete tree before returning it.
+    FastLottieOptions options, {
+    Uint8List? sourceBytes,
+  }) {
+    final compiler = RasterScene.compile(owned, options);
     return FastLottieComposition._(
       compiler.width,
       compiler.height,
@@ -110,16 +98,22 @@ class FastLottieComposition {
       compiler,
       options,
       compiler.isStatic,
+      sourceBytes,
     );
   }
 
   factory FastLottieComposition.fromBytes(
     List<int> bytes, {
     FastLottieOptions options = const FastLottieOptions(),
-  }) => FastLottieComposition._fromOwned(
-    _jsonBytesCodec.decode(decodeLottieBytes(bytes)) as Map<String, dynamic>,
-    options,
-  );
+  }) {
+    final source = kIsWeb ? Uint8List.fromList(bytes) : null;
+    return FastLottieComposition._fromOwned(
+      _jsonBytesCodec.decode(decodeLottieBytes(source ?? bytes))
+          as Map<String, dynamic>,
+      options,
+      sourceBytes: source,
+    );
+  }
 
   /// Decode gzip/TGS, parse UTF-8 JSON and compile the model off the UI isolate.
   /// Native compute returns the compiled Dart graph via Isolate.exit (no JSON
@@ -197,21 +191,23 @@ class FastLottieComposition {
 
   /// Whether every visible value and layer visibility is constant over playback.
   final bool isStatic;
-  final _Compiler _template;
-  _Compiler? _preparedScene;
+  final RasterScene _template;
+  RasterScene? _preparedScene;
+  // The compiler can normalize the JSON it consumes. Keep the original input
+  // for independent compilation in a Web Worker, compressed for TGS files.
+  final Uint8List? _workerSource;
 
   String? _contentKey;
 
   /// Deterministic hash identifying identical compiled animation content
   /// across instances, Isolates, and disk `.cache` sessions.
-  String get contentKey =>
-      _contentKey ??= _computeCompositionContentKey(_template);
+  String get contentKey => _contentKey ??= _template.contentKey;
 
   /// Prepares the first player's pure Dart state. Call on the decoding worker;
   /// this allocates no Path/Paint/Shader. Later players initialize lazily.
   void prepareForPlayback() {
     contentKey;
-    _preparedScene ??= _Fork(warm: true).scene(_template);
+    _preparedScene ??= _template.fork(warm: true);
   }
 
   @visibleForTesting
@@ -222,10 +218,10 @@ class FastLottieComposition {
   );
   int get frameCount => (endFrame - startFrame).ceil();
 
-  _Compiler _takeScene() {
+  RasterScene _takeScene() {
     final prepared = _preparedScene;
     _preparedScene = null;
-    return prepared ?? _Fork().scene(_template);
+    return prepared ?? _template.fork();
   }
 }
 
@@ -301,8 +297,8 @@ class FastLottiePlayer extends ChangeNotifier {
     }
   }
 
-  _Compiler? _sceneState;
-  _Compiler get _scene => _sceneState ??= composition._takeScene();
+  RasterScene? _sceneState;
+  RasterScene get _scene => _sceneState ??= composition._takeScene();
   @visibleForTesting
   bool get debugHasScene => _sceneState != null;
   final _pictures = <double, ui.Picture>{};

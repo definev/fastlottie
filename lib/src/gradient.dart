@@ -1,4 +1,4 @@
-part of '../fastlottie.dart';
+part of 'raster_core.dart';
 
 class _GradientSpec {
   _GradientSpec(
@@ -34,7 +34,7 @@ class _GradientSpec {
       (!radial ||
           ((highlightLength?.isStatic ?? true) &&
               (highlightAngle?.isStatic ?? true)));
-  ui.Shader? _cached;
+  Shader? _cached;
   double _last = double.nan;
 
   // Focal point relative to the center, in units of the radius.
@@ -62,7 +62,7 @@ class _GradientSpec {
     return values.last;
   }
 
-  ui.Shader shader(double frame) {
+  Shader shader(double frame) {
     if (_cached != null && (isStatic || frame == _last)) return _cached!;
     _last = frame;
     final values = stops.at(frame), s = start.at(frame), e = end.at(frame);
@@ -143,10 +143,10 @@ class _GradientSpec {
       offsets[1] = 1;
     }
     final a = Offset(s[0], s[1]), b = Offset(e[0], e[1]);
-    if (!radial) return _cached = ui.Gradient.linear(a, b, colors, offsets);
+    if (!radial) return _cached = Gradient.linear(a, b, colors, offsets);
     final radius = math.max(.001, (b - a).distance);
     final focus = focalOffset(frame, b.dx - a.dx, b.dy - a.dy);
-    return _cached = ui.Gradient.radial(
+    return _cached = Gradient.radial(
       a,
       radius,
       colors,

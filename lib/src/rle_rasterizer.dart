@@ -1,4 +1,4 @@
-part of '../fastlottie.dart';
+part of 'raster_core.dart';
 
 /// Fixed-point coverage, retained spans, and a premultiplied BGRA compositor.
 /// Dart prepares draws; native platforms use a bounded coverage workspace.
@@ -6,12 +6,18 @@ part of '../fastlottie.dart';
 ///
 /// Zero `dart:ui` native engine objects (`Canvas`/`Path`/`Paint`/`Shader`/`Image`)
 /// are created or invoked here, allowing execution on background worker Isolates.
-class _RasterWorkspace {
-  _RasterWorkspace({
+class RasterWorkspace {
+  RasterWorkspace({
     this.initialHeight = 256,
     bool preferNative = true,
     this.retainCoverage = true,
   }) : preferNative = preferNative && isSimdSupported;
+
+  int get retainedCoverageBytes => _coverageBytes;
+  int get scratchPixelBytes => _scratchLayers.fold(
+    0,
+    (bytes, plane) => bytes + (plane?.typedList.lengthInBytes ?? 0),
+  );
 
   final int initialHeight;
   final bool preferNative;
@@ -102,12 +108,12 @@ class _RasterWorkspace {
   }
 
   _PolyPath _staticPolyline(_PathSource source, double frame) {
-    final cached = staticPaths[source];
+    final cached = _staticPaths[source];
     if (cached != null) return cached;
-    if (staticPaths.length >= maxStaticPaths) staticPaths.clear();
+    if (_staticPaths.length >= maxStaticPaths) _staticPaths.clear();
     final local = _flattenLeafPoly..clear();
     _flattenLeaf(source, frame, 0.01, local);
-    return staticPaths[source] = local.cloneImmutable();
+    return _staticPaths[source] = local.cloneImmutable();
   }
 
   static const int maxStaticPaths = 512;
@@ -237,17 +243,17 @@ class _RasterWorkspace {
 
   // Cached static geometry / gradient tables owned by this single-threaded
   // worker workspace so repeated frames never re-flatten static paths.
-  final Map<Object, _PolyPath> staticPaths = Map<Object, _PolyPath>.identity();
-  final Map<Object, double> staticTrimMetrics = Map<Object, double>.identity();
-  final Map<_GradientSpec, NativePixelBuffer> staticGradientLuts =
+  final Map<Object, _PolyPath> _staticPaths = Map<Object, _PolyPath>.identity();
+  final Map<Object, double> _staticTrimMetrics = Map<Object, double>.identity();
+  final Map<_GradientSpec, NativePixelBuffer> _staticGradientLuts =
       Map<_GradientSpec, NativePixelBuffer>.identity();
   NativePixelBuffer? _scratchGradientLut;
 
   void _releaseGradientLuts() {
-    for (final lut in staticGradientLuts.values) {
+    for (final lut in _staticGradientLuts.values) {
       lut.dispose();
     }
-    staticGradientLuts.clear();
+    _staticGradientLuts.clear();
   }
 
   final _matrixStack = <Float64List>[];
@@ -258,8 +264,8 @@ class _RasterWorkspace {
     }
     _coverage.clear();
     _coverageBytes = 0;
-    staticPaths.clear();
-    staticTrimMetrics.clear();
+    _staticPaths.clear();
+    _staticTrimMetrics.clear();
     _releaseGradientLuts();
   }
 
@@ -1006,7 +1012,7 @@ class _FtScanlineRasterizer {
     _minEy = clipY0;
     _maxEx = clipX1;
     _maxEy = clipY1;
-    if (kIsWeb) {
+    if (_isWeb) {
       _minBoundX = clipX0 * 256;
       _minBoundY = clipY0 * 256;
       _maxBoundX = clipX1 * 256;
@@ -1153,7 +1159,7 @@ class _FtScanlineRasterizer {
   }
 
   void _renderScanline(int ey, int x1, int y1, int x2, int y2) {
-    if (kIsWeb) {
+    if (_isWeb) {
       _renderScanlineWeb(ey, x1, y1, x2, y2);
       return;
     }
@@ -1280,7 +1286,7 @@ class _FtScanlineRasterizer {
   }
 
   void _renderLine(int toX, int toY) {
-    if (kIsWeb) {
+    if (_isWeb) {
       _renderLineWeb(toX, toY);
       return;
     }
@@ -1455,7 +1461,7 @@ class _FtScanlineRasterizer {
   }
 
   void sweep(bool evenOdd, _RleSpans out) {
-    if (kIsWeb) {
+    if (_isWeb) {
       _sweepWeb(evenOdd, out);
       return;
     }
@@ -2093,7 +2099,7 @@ void _renderSceneSoftware(
   NativePixelBuffer outBgra8888,
   int pixelWidth,
   int pixelHeight,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
 ) {
   final total = pixelWidth * pixelHeight;
   if (ws.preferNative) {
@@ -2155,7 +2161,7 @@ void _renderCompilerInto(
   double mtx,
   double mty,
   _RleSpans? clipMask,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
   int depth,
   bool stableTransform, [
   bool useNative = true,
@@ -2584,7 +2590,7 @@ void _renderLayerInto(
   double mtx,
   double mty,
   _RleSpans? clipMask,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
   int depth,
   bool stableTransform, [
   bool useNative = true,
@@ -3170,7 +3176,7 @@ void _rasterLayerMask(
   int x1,
   int y1,
   _RleSpans out,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
   int depth,
 ) {
   final maskPoly = ws._acquireMaskPoly(depth);
@@ -3279,7 +3285,7 @@ void _renderGroupInto(
   double mtx,
   double mty,
   _RleSpans? clipMask,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
   int depth,
   bool stableTransform, [
   bool useNative = true,
@@ -3384,7 +3390,7 @@ void _renderStyleInto(
   double mtx,
   double mty,
   _RleSpans? clipMask,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
   bool stableTransform, [
   bool useNative = true,
   int blendMode = 0,
@@ -3645,7 +3651,7 @@ void _rasterBooleanSources(
   _RasterClip clip,
   bool evenOdd,
   _RleSpans out,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
   int depth,
 ) {
   if (end - start == 1 && _hasBooleanPath(sources[start])) {
@@ -3717,7 +3723,7 @@ void _rasterBooleanSource(
   _RasterClip clip,
   bool evenOdd,
   _RleSpans out,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
   int depth,
 ) {
   switch (source) {
@@ -3825,7 +3831,7 @@ void _rasterBooleanSource(
   double md,
   double mtx,
   double mty,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
 ) {
   double strokeWidth = 0;
   if (style.stroke) {
@@ -3938,18 +3944,18 @@ int _stylePremul(_Style style, double frame, int alpha) {
 NativePixelBuffer _evalGradientLut(
   _GradientSpec grad,
   double frame,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
 ) {
   // The LUT is sampled in normalized gradient space. Moving either endpoint
   // changes which index a pixel reads, not the contents of the table.
   if (grad.stops.isStatic) {
-    final cached = ws.staticGradientLuts[grad];
+    final cached = ws._staticGradientLuts[grad];
     if (cached != null) return cached;
-    if (ws.staticGradientLuts.length >= _RasterWorkspace.maxStaticLuts) {
-      final oldest = ws.staticGradientLuts.keys.first;
-      ws.staticGradientLuts.remove(oldest)!.dispose();
+    if (ws._staticGradientLuts.length >= RasterWorkspace.maxStaticLuts) {
+      final oldest = ws._staticGradientLuts.keys.first;
+      ws._staticGradientLuts.remove(oldest)!.dispose();
     }
-    final lut = ws.staticGradientLuts[grad] = NativePixelBuffer(1024);
+    final lut = ws._staticGradientLuts[grad] = NativePixelBuffer(1024);
     _fillGradientLut(grad, frame, lut.typedList);
     return lut;
   }
@@ -4007,7 +4013,7 @@ void _appendSourceLocal(
   double mty,
   double flatnessSq,
   _PolyPath out,
-  _RasterWorkspace ws, [
+  RasterWorkspace ws, [
   int trimDepth = 0,
   int groupDepth = 0,
 ]) {
@@ -4467,7 +4473,7 @@ _PolyPath? _evalTrimPart(
   int index,
   double frame,
   double flatnessSq,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
   int trimDepth,
   int groupDepth,
 ) {
@@ -4547,13 +4553,13 @@ double _measureSourceLength(
   _PathSource src,
   double frame,
   double flatnessSq,
-  _RasterWorkspace ws,
+  RasterWorkspace ws,
   _PolyPath? alreadyFlattened,
   int trimDepth,
   int groupDepth,
 ) {
   if (src.isPathStatic) {
-    final cached = ws.staticTrimMetrics[src];
+    final cached = ws._staticTrimMetrics[src];
     if (cached != null) return cached;
   }
   late final _PolyPath poly;
@@ -4589,10 +4595,10 @@ double _measureSourceLength(
     }
   }
   if (src.isPathStatic) {
-    if (ws.staticTrimMetrics.length >= _RasterWorkspace.maxStaticMetrics) {
-      ws.staticTrimMetrics.clear();
+    if (ws._staticTrimMetrics.length >= RasterWorkspace.maxStaticMetrics) {
+      ws._staticTrimMetrics.clear();
     }
-    ws.staticTrimMetrics[src] = total;
+    ws._staticTrimMetrics[src] = total;
   }
   return total;
 }
@@ -5265,81 +5271,5 @@ final class _ContentKeyHasher {
         _mixInt(c4);
       }
     }
-  }
-}
-
-/// A reusable session for software rasterization of [FastLottieComposition]
-/// across frames without per-frame allocations.
-@visibleForTesting
-class FastLottieSoftwareSession {
-  FastLottieSoftwareSession(
-    FastLottieComposition composition, {
-    required this.pixelWidth,
-    required this.pixelHeight,
-    bool preferNative = true,
-    bool retainCoverage = true,
-  }) : _ws = _RasterWorkspace(
-         initialHeight: pixelHeight,
-         preferNative: preferNative,
-         retainCoverage: retainCoverage,
-       ),
-       _scene = _Fork().scene(composition._template),
-       _pixelBuffer = NativePixelBuffer(pixelWidth * pixelHeight);
-
-  final int pixelWidth;
-  final int pixelHeight;
-  final _RasterWorkspace _ws;
-  final _Compiler _scene;
-  final NativePixelBuffer _pixelBuffer;
-
-  /// Retained mask and draw coverage, including per-entry overhead estimates.
-  int get retainedCoverageBytes => _ws._coverageBytes;
-
-  /// Allocated temporary pixel planes, excluding the output and span buffers.
-  int get scratchPixelBytes => _ws._scratchLayers.fold(
-    0,
-    (bytes, plane) => bytes + (plane?.typedList.lengthInBytes ?? 0),
-  );
-
-  Uint32List get pixels => _pixelBuffer.typedList;
-
-  void dispose() {
-    _ws.dispose();
-    _pixelBuffer.dispose();
-  }
-
-  Uint32List renderFrame(double frame) {
-    _renderSceneSoftware(
-      _scene,
-      frame,
-      _pixelBuffer,
-      pixelWidth,
-      pixelHeight,
-      _ws,
-    );
-    return _pixelBuffer.typedList;
-  }
-}
-
-/// Renders a single [composition] [frame] using the software rasterizer
-/// into a premultiplied BGRA8888 pixel buffer `[w * h * 4]`
-/// compatible with [ui.PixelFormat.bgra8888].
-@visibleForTesting
-Uint8List debugRenderSoftwareFrame(
-  FastLottieComposition composition,
-  double frame, {
-  required int pixelWidth,
-  required int pixelHeight,
-}) {
-  final session = FastLottieSoftwareSession(
-    composition,
-    pixelWidth: pixelWidth,
-    pixelHeight: pixelHeight,
-  );
-  try {
-    session.renderFrame(frame);
-    return Uint8List.fromList(Uint8List.sublistView(session.pixels));
-  } finally {
-    session.dispose();
   }
 }

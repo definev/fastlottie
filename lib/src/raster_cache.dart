@@ -6,7 +6,7 @@ enum FastLottieRasterStrategy { pingPong, miniStrip }
 
 /// Shared ping-pong software raster cache for looping animations.
 ///
-/// Renders frames off the UI isolate on persistent worker Isolates using a
+/// Renders frames on persistent native isolates or browser workers using a
 /// FreeType-style analytic scanline RLE rasterizer, maintains double-buffered
 /// GPU textures (`ui.Image`) per deduplicated `(contentKey, size, poster, rate)`,
 /// and stores LZ4-compressed BGRA8888 bitstreams in bounded RAM and `.flcache`
@@ -216,6 +216,13 @@ class FastLottieRasterCache {
   int get gpuBytes => _bytes;
   int get compressedRamBytes => _pingPong.workerPool.compressedRamBytes;
   int get diskBytes => _pingPong.workerPool.diskBytes;
+
+  /// Number of browser workers handling raster jobs for this cache.
+  int get browserWorkers => _pingPong.workerPool.browserWorkers;
+
+  /// Browser workers that loaded the standalone C Wasm kernels.
+  int get browserWasmWorkers => _pingPong.workerPool.browserWasmWorkers;
+
   int get workerDispatches => _pingPong.workerPool.debugDispatchCount;
   int get vectorRasterizedFrames => _vectorRasterizedFrames;
   int get compressedCacheHits => _compressedCacheHits;

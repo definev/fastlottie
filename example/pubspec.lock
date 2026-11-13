@@ -479,14 +479,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "15.4.0"
-  wasm_ffi:
-    dependency: transitive
-    description:
-      name: wasm_ffi
-      sha256: "5a402d5817e3c77e8039f95487a5d8f77d05897c29ce12495b0c5cdd745d5623"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.4.0"
   web:
     dependency: transitive
     description:

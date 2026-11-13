@@ -27,6 +27,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   bool _disposed = false;
   bool _pumpScheduled = false;
 
+  int get _maximumInFlight => kIsWeb ? 1 : cache.maximumInFlight;
+
   int get activeJobCount => _activeJobs;
   int get pendingCount =>
       _activeJobs + _highPriorityQueue.length + _lowPriorityQueue.length;
@@ -326,7 +328,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       if (highPriority) entry.queuedHighPriority = true;
       return;
     }
-    if (_activeJobs >= cache.maximumInFlight) {
+    if (_activeJobs >= _maximumInFlight) {
       entry.pendingStripStart = stripStart;
       entry.pendingStripCount = stripCount;
       if (!entry.queuedForPingPong) {
@@ -706,7 +708,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         !cache._enabled ||
         cache.lastError != null ||
         (_highPriorityQueue.isEmpty && _lowPriorityQueue.isEmpty) ||
-        _activeJobs >= cache.maximumInFlight) {
+        _activeJobs >= _maximumInFlight) {
       return;
     }
     if (_pumpScheduled) return;
@@ -715,7 +717,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       _pumpScheduled = false;
       if (_disposed || !cache._enabled || cache.lastError != null) return;
       while ((_highPriorityQueue.isNotEmpty || _lowPriorityQueue.isNotEmpty) &&
-          _activeJobs < cache.maximumInFlight) {
+          _activeJobs < _maximumInFlight) {
         final queue = _highPriorityQueue.isNotEmpty
             ? _highPriorityQueue
             : _lowPriorityQueue;

@@ -15,11 +15,14 @@ dependencies:
     sdk: flutter
   hooks: ^2.2.0
   native_toolchain_c: ^0.19.6
-  wasm_ffi: ^2.4.0
+  meta: ^1.19.0
+  web: ^1.1.1
 
 flutter:
   assets:
     - path: lib/src/wasm/fastlottie_simd.wasm
+      platforms: [web]
+    - path: lib/src/wasm/fastlottie_worker.js
       platforms: [web]
 
 dev_dependencies:

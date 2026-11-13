@@ -28,20 +28,30 @@ that supports data asset hooks and put Zig on `PATH`. From `example/`, run:
 FLUTTER_DART_DATA_ASSETS=true flutter build web --wasm
 ```
 
-To run the browser smoke test against the hook output:
+To run the browser smoke test against the hook output in debug mode:
 
 ```sh
-FLUTTER_DART_DATA_ASSETS=true flutter build web --wasm \
-  -t tool/wasm_smoke.dart --dart-define=FASTLOTTIE_REQUIRE_WASM_HOOK=true \
+FLUTTER_DART_DATA_ASSETS=true flutter build web --debug --wasm \
+  -t tool/wasm_smoke.dart \
+  --dart-define=FASTLOTTIE_REQUIRE_WASM_HOOK=true \
+  --dart-define=FASTLOTTIE_REQUIRE_WEB_WORKER=true \
   --output=build/wasm-smoke
 python3 -m http.server 8080 --directory build/wasm-smoke
 ```
 
 Open `http://localhost:8080` in Chrome. The page reports success after
-checking the generated asset, pixel parity with Dart, and mini-strip playback.
+checking the generated asset, raster pixel parity, and mini-strip playback via
+a dedicated worker using the C Wasm kernels. Omit `--wasm` and `--debug` to
+check the release JavaScript build.
 To test the bundled module, disable `enable-dart-data-assets` in the Flutter
 configuration and omit the `FASTLOTTIE_REQUIRE_WASM_HOOK` define. To regenerate
 the bundled module, run `dart run tool/build_wasm.dart` from the repository root.
+
+The worker is a separate `dart2js` entry point and is bundled with the package.
+After changing the worker, scene compiler, or raster code, regenerate it from
+the repository root with `dart run tool/build_web_worker.dart`. Pass `--check`
+to verify the bundled script matches the current source and SDK. To measure the
+inline fallback, build with `--dart-define=FASTLOTTIE_DISABLE_WEB_WORKER=true`.
 
 ## Use a separate TGS server
 

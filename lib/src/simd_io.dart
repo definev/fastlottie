@@ -451,7 +451,7 @@ bool _initLib() {
 }
 
 final bool isSimdSupported = _initLib();
-Future<void> ensureSimdReady() async {}
+Future<void> ensureSimdReady({bool enableOnDartWasm = false}) async {}
 
 class NativeSpansBuffer {
   NativeSpansBuffer(int count) {

@@ -1,4 +1,4 @@
-part of '../fastlottie.dart';
+part of 'raster_core.dart';
 
 // A compile-time alias lets a modifier affect paths already captured by paints,
 // including paths in nested groups. Inputs are frozen before replacing aliases,
@@ -43,11 +43,11 @@ class _Trim {
   List<Path>? _paths;
   List<Path>? _rawScratch;
   List<Path>? _ownedScratch;
-  List<List<ui.PathMetric>>? _measuredScratch;
+  List<List<PathMetric>>? _measuredScratch;
   Float64List? _lengthsScratch;
   double _frame = double.nan;
   // A static shape with animated trim reuses its arc-length measurements.
-  final _metrics = <int, List<ui.PathMetric>>{};
+  final _metrics = <int, List<PathMetric>>{};
 
   List<Path> paths(double frame) {
     if (_paths != null && (isStatic || frame == _frame)) return _paths!;
@@ -77,7 +77,7 @@ class _Trim {
     }
     final from = (math.min(a, b) + offset.scalar(frame) / 360) % 1;
     final to = from + span;
-    final measured = _measuredScratch ??= List<List<ui.PathMetric>>.filled(
+    final measured = _measuredScratch ??= List<List<PathMetric>>.filled(
       count,
       const [],
     );
@@ -116,12 +116,7 @@ class _Trim {
     return _paths = owned;
   }
 
-  void _extract(
-    Path target,
-    List<ui.PathMetric> metrics,
-    double from,
-    double to,
-  ) {
+  void _extract(Path target, List<PathMetric> metrics, double from, double to) {
     var position = 0.0;
     for (var i = 0; i < metrics.length; i++) {
       final metric = metrics[i];
@@ -146,7 +141,7 @@ class _Dash {
   final List<_Track> intervals;
   final _Track offset;
   final Float64List _values;
-  List<ui.PathMetric>? _staticMetrics;
+  List<PathMetric>? _staticMetrics;
   late final bool isStatic =
       offset.isStatic && intervals.every((p) => p.isStatic);
 

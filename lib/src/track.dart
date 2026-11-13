@@ -1,4 +1,4 @@
-part of '../fastlottie.dart';
+part of 'raster_core.dart';
 
 /// Shared compiled keyframes. Search touches only [times]; interpolation reads
 /// one contiguous vector pair. Metadata is stored in three Int32 columns:

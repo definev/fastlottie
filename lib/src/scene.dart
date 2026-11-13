@@ -1,4 +1,4 @@
-part of '../fastlottie.dart';
+part of 'raster_core.dart';
 
 abstract class _Draw {
   bool get isStatic;
@@ -1283,7 +1283,7 @@ class _Style implements _Draw {
   double _dashFrame = double.nan;
   double _last = double.nan;
   int? _lastArgb;
-  ui.Shader? _lastShader;
+  Shader? _lastShader;
   double _lastStrokeWidth = double.nan;
   late final bool _staticPath = sources.every((s) => s.isPathStatic);
   late final bool hasBooleanFill = sources.any(_hasBooleanPath);

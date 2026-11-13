@@ -47,11 +47,16 @@ canvas drawing, own a `FastLottiePlayer`, call `draw(canvas, rect, progress)`,
 and dispose it when finished. See [cache options](docs/lod-cache.md) and
 [full-loop raster preparation](docs/dpr-raster.md).
 
-On web, call `await ensureSimdReady()` after
-`WidgetsFlutterBinding.ensureInitialized()` and before creating raster caches
-to enable the Wasm software renderer. `isSimdSupported` reports whether it
-loaded; the renderer falls back to Dart if the module cannot load. This works
-with both JavaScript and `--wasm` Flutter web builds.
+On web, raster caches start a dedicated worker automatically. The worker keeps
+its own compiled scenes and LZ4 cache, uses the standalone C Wasm kernels when
+available, and transfers completed pixel strips back to Flutter. Serve the
+worker script from the same origin as the app; when workers are unavailable,
+raster jobs run inline. Native builds continue to use Dart isolates.
+
+For direct software rendering on the main thread, `ensureSimdReady()` enables
+the C Wasm kernels in JavaScript builds. Flutter `--wasm` keeps inline
+rasterization in Dart by default. Use `enableOnDartWasm: true` only to opt into
+the inline C kernel path. Worker acceleration is independent of this setting.
 
 To run the Cupertino sticker chat:
 
