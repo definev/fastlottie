@@ -2921,6 +2921,22 @@ class TgsRemoteItem {
 
   String get urlString => uri.toString();
 
+  /// Returns the corresponding Unicode emoji character or sequence for this item
+  /// if it is a bundled Noto Emoji (`emoji_u<codepoints>.tgs`), or `null` otherwise.
+  String? get unicode {
+    if (!fileName.startsWith('emoji_u') || !fileName.endsWith('.tgs')) {
+      return null;
+    }
+    final hex = fileName.substring(7, fileName.length - 4);
+    final codes = <int>[];
+    for (final seg in hex.split('_')) {
+      final val = int.tryParse(seg, radix: 16);
+      if (val == null) return null;
+      codes.add(val);
+    }
+    return String.fromCharCodes(codes);
+  }
+
   Map<String, dynamic> toJson() => <String, dynamic>{
     'id': id,
     'packId': packId,
@@ -2978,7 +2994,28 @@ class TgsRemoteCatalog {
   }) : shortcodeMap = {
          for (final emoji in emojis)
            if (emoji.shortcode != null) emoji.shortcode!: emoji,
-       };
+       },
+       unicodeMap = _buildUnicodeMap(emojis);
+
+  static Map<String, TgsRemoteItem> _buildUnicodeMap(
+    List<TgsRemoteItem> emojis,
+  ) {
+    final map = <String, TgsRemoteItem>{};
+    for (final emoji in emojis) {
+      final u = emoji.unicode;
+      if (u == null || u.isEmpty) continue;
+      map[u] = emoji;
+      final noFe0f = u.replaceAll('\uFE0F', '');
+      if (noFe0f.isNotEmpty && !map.containsKey(noFe0f)) {
+        map[noFe0f] = emoji;
+      }
+      if (!u.contains('\uFE0F')) {
+        final withFe0f = '$u\uFE0F';
+        map.putIfAbsent(withFe0f, () => emoji);
+      }
+    }
+    return Map.unmodifiable(map);
+  }
 
   factory TgsRemoteCatalog.fromJson(Map<String, dynamic> json, Uri baseUri) {
     final packs = [
@@ -3024,6 +3061,59 @@ class TgsRemoteCatalog {
   final List<TgsRemoteItem> stickers;
   final List<TgsRemoteItem> emojis;
   final Map<String, TgsRemoteItem> shortcodeMap;
+  final Map<String, TgsRemoteItem> unicodeMap;
+
+  late final RegExp emojiAndShortcodeRegex = _buildEmojiAndShortcodeRegex();
+  late final RegExp richMessageRegex = _buildRichMessageRegex();
+
+  RegExp _buildEmojiAndShortcodeRegex() {
+    final emojiPatterns = unicodeMap.keys.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    final escapedEmojis = emojiPatterns.map(RegExp.escape).join('|');
+    if (escapedEmojis.isEmpty) {
+      return RegExp(r':[a-z0-9_]+:');
+    }
+    return RegExp(':[a-z0-9_]+:|$escapedEmojis');
+  }
+
+  RegExp _buildRichMessageRegex() {
+    final emojiPatterns = unicodeMap.keys.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    final escapedEmojis = emojiPatterns.map(RegExp.escape).join('|');
+    if (escapedEmojis.isEmpty) {
+      return RegExp(r':[a-z0-9_]+:|[\uE000-\uF8FF]');
+    }
+    return RegExp(':[a-z0-9_]+:|[\uE000-\uF8FF]|$escapedEmojis');
+  }
+
+  /// Finds a matching [TgsRemoteItem] by shortcode (`:smile:`), PUA token (`\uE000`),
+  /// or Unicode emoji string (`😀`, `❤️`, `❤️‍🔥`).
+  TgsRemoteItem? findItem(String token) {
+    if (token.isEmpty) return null;
+    if (token.startsWith(':')) {
+      return shortcodeMap[token];
+    }
+    final code = token.codeUnitAt(0);
+    final puaIdx = code - 0xE000;
+    if (token.length == 1 && puaIdx >= 0 && puaIdx < emojis.length) {
+      return emojis[puaIdx];
+    }
+    final item = unicodeMap[token];
+    if (item != null) return item;
+    if (token.contains('\uFE0F')) {
+      return unicodeMap[token.replaceAll('\uFE0F', '')];
+    }
+    return null;
+  }
+
+  /// Fast check if [text] could potentially contain a shortcode or Unicode emoji.
+  static bool couldContainEmojiOrShortcode(String text) {
+    if (text.contains(':')) return true;
+    for (var i = 0; i < text.length; i++) {
+      if (text.codeUnitAt(i) > 127) return true;
+    }
+    return false;
+  }
 
   List<TgsRemotePack> get stickerPacks =>
       packs.where((p) => p.kind == TgsItemKind.sticker).toList(growable: false);

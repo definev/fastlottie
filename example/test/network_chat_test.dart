@@ -60,6 +60,13 @@ void main() {
     expect(catalog.shortcodeMap.containsKey(':partying_face:'), isTrue);
     expect(catalog.shortcodeMap.containsKey(':thumbs_up:'), isTrue);
     expect(catalog.shortcodeMap.containsKey(':heart_on_fire:'), isTrue);
+    expect(catalog.unicodeMap.containsKey('😀'), isTrue);
+    expect(catalog.unicodeMap.containsKey('❤️'), isTrue);
+    expect(catalog.unicodeMap.containsKey('❤'), isTrue);
+    expect(catalog.unicodeMap.containsKey('🐦\u200D🔥'), isTrue);
+    expect(catalog.findItem('😀')?.shortcode, ':smile:');
+    expect(catalog.findItem('❤️')?.shortcode, ':red_heart:');
+    expect(catalog.findItem(':smile:')?.unicode, '😀');
     for (final emoji in catalog.emojis) {
       expect(emoji.shortcode, matches(RegExp(r'^:[a-z0-9_]+:$')));
     }
@@ -369,6 +376,28 @@ void main() {
 
       expect(find.textContaining('Cupertino Network!'), findsOneWidget);
 
+      // Typing or pasting native Unicode emojis (e.g. `😀` and `🔥`) automatically
+      // collapses into animated Noto Emoji stickers in the composer!
+      await tester.enterText(
+        find.byKey(const ValueKey('chat-composer-field')),
+        'Testing native emoji 😀 and 🔥!',
+      );
+      await tester.pump();
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('chat-composer-field')),
+          matching: find.byType(InlineNetworkSticker),
+        ),
+        findsNWidgets(2),
+      );
+      expect(composerCtrl.toShortcodeText(), contains(':smile:'));
+      expect(composerCtrl.toShortcodeText(), contains(':burn:'));
+
+      await tester.tap(find.byKey(const ValueKey('composer-send-button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 260));
+      expect(find.textContaining('Testing native emoji'), findsOneWidget);
+
       // `enterText` focuses the field, which dismisses the drawer just like a soft keyboard;
       // re-open the drawer, switch to All stickers, and send a hero TGS sticker.
       expect(find.byKey(const ValueKey('sticker-picker-panel')), findsNothing);
@@ -664,6 +693,18 @@ void main() {
       expect(decoded.length, 'Xin chào \uE000 và \uE001 nhé!'.length);
       expect(controller.toShortcodeText(decoded), original);
 
+      // Unicode emoji -> PUA -> shortcode roundtrip
+      final decodedUnicode = controller.decodeShortcodes('Chào 😀 và ❤️ nhé!');
+      expect(decodedUnicode.contains('😀'), isFalse);
+      expect(decodedUnicode.contains('❤️'), isFalse);
+      final asShortcode = controller.toShortcodeText(decodedUnicode);
+      expect(asShortcode, contains(':smile:'));
+      expect(asShortcode, contains(':red_heart:'));
+
+      // Raw Unicode emoji passed to toShortcodeText directly converts to shortcode
+      final rawConverted = controller.toShortcodeText('Gặp nhau 😀 và ❤️‍🔥');
+      expect(rawConverted, 'Gặp nhau :smile: và :heart_on_fire:');
+
       // Verify single-tap backspace behavior:
       // When text is 'Hi \uE000', cursor at index 4 (right after emoji).
       controller.value = TextEditingValue(
@@ -720,6 +761,33 @@ void main() {
             bytes: 100,
             uri: Uri.parse('http://127.0.0.1:8080/tgs/1.tgs'),
             shortcode: ':zap:',
+          ),
+          TgsRemoteItem(
+            id: 'e2',
+            packId: 'NotoEmoji',
+            packTitle: 'Noto Emoji',
+            fileName: 'emoji_u1f600.tgs',
+            kind: TgsItemKind.emoji,
+            relativePath: 'tgs/NotoEmoji/emoji_u1f600.tgs',
+            label: 'Grinning Face',
+            bytes: 100,
+            uri: Uri.parse('http://127.0.0.1:8080/tgs/NotoEmoji/emoji_u1f600.tgs'),
+            shortcode: ':smile:',
+          ),
+          TgsRemoteItem(
+            id: 'e3',
+            packId: 'NotoEmoji',
+            packTitle: 'Noto Emoji',
+            fileName: 'emoji_u1f426_200d_1f525.tgs',
+            kind: TgsItemKind.emoji,
+            relativePath:
+                'tgs/NotoEmoji/emoji_u1f426_200d_1f525.tgs',
+            label: 'Phoenix',
+            bytes: 100,
+            uri: Uri.parse(
+              'http://127.0.0.1:8080/tgs/NotoEmoji/emoji_u1f426_200d_1f525.tgs',
+            ),
+            shortcode: ':phoenix:',
           ),
         ],
       );
@@ -782,6 +850,49 @@ void main() {
         ),
       );
       expect(v4.text, 'đang gõ :zap:');
+
+      // Typing or pasting Unicode emoji collapses immediately to 1-char PUA token!
+      final vEmoji = formatter.formatEditUpdate(
+        const TextEditingValue(
+          text: 'Hello ',
+          selection: TextSelection.collapsed(offset: 6),
+        ),
+        const TextEditingValue(
+          text: 'Hello 😀',
+          selection: TextSelection.collapsed(offset: 8), // 6 + 2 UTF-16 code units
+        ),
+      );
+      expect(vEmoji.text, 'Hello \uE002');
+      expect(vEmoji.text.length, 7);
+      expect(vEmoji.selection.baseOffset, 7);
+
+      // Pasting ZWJ sequence emoji (5 UTF-16 code units) collapses cleanly to 1 PUA char
+      final vZwj = formatter.formatEditUpdate(
+        const TextEditingValue(
+          text: '',
+          selection: TextSelection.collapsed(offset: 0),
+        ),
+        const TextEditingValue(
+          text: '🐦\u200D🔥',
+          selection: TextSelection.collapsed(offset: 5),
+        ),
+      );
+      expect(vZwj.text, '\uE003');
+      expect(vZwj.text.length, 1);
+      expect(vZwj.selection.baseOffset, 1);
+
+      // Mixed text containing both typed shortcode and Unicode emoji
+      final vMixed = formatter.formatEditUpdate(
+        const TextEditingValue(
+          text: '',
+          selection: TextSelection.collapsed(offset: 0),
+        ),
+        const TextEditingValue(
+          text: 'Hi :zap: and 😀 now',
+          selection: TextSelection.collapsed(offset: 18),
+        ),
+      );
+      expect(vMixed.text, 'Hi \uE001 and \uE002 now');
     });
 
     testWidgets(
