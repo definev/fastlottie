@@ -999,10 +999,17 @@ class _FtScanlineRasterizer {
     _minEy = clipY0;
     _maxEx = clipX1;
     _maxEy = clipY1;
-    _minBoundX = clipX0 << 8;
-    _minBoundY = clipY0 << 8;
-    _maxBoundX = clipX1 << 8;
-    _maxBoundY = clipY1 << 8;
+    if (kIsWeb) {
+      _minBoundX = clipX0 * 256;
+      _minBoundY = clipY0 * 256;
+      _maxBoundX = clipX1 * 256;
+      _maxBoundY = clipY1 * 256;
+    } else {
+      _minBoundX = clipX0 << 8;
+      _minBoundY = clipY0 << 8;
+      _maxBoundX = clipX1 << 8;
+      _maxBoundY = clipY1 << 8;
+    }
     _dirtyMinY = clipY1;
     _dirtyMaxY = clipY0 - 1;
     _cellCount = 0;
@@ -1139,6 +1146,10 @@ class _FtScanlineRasterizer {
   }
 
   void _renderScanline(int ey, int x1, int y1, int x2, int y2) {
+    if (kIsWeb) {
+      _renderScanlineWeb(ey, x1, y1, x2, y2);
+      return;
+    }
     final delta = y2 - y1;
     if (delta == 0 || ey < _minEy || ey >= _maxEy) return;
     var ex1 = x1 >> 8;
@@ -1200,11 +1211,78 @@ class _FtScanlineRasterizer {
     }
   }
 
+  void _renderScanlineWeb(int ey, int x1, int y1, int x2, int y2) {
+    final delta = y2 - y1;
+    if (delta == 0 || ey < _minEy || ey >= _maxEy) return;
+    var ex1 = (x1 >> 8).toSigned(32);
+    var ex2 = (x2 >> 8).toSigned(32);
+    final ex1Base = ex1 * 256;
+    final ex2Base = ex2 * 256;
+    if (ex1 == ex2) {
+      _recordSegment(ey, ex1, x1 - ex1Base, x2 - ex1Base, delta);
+      return;
+    }
+    final dx = x2 - x1;
+    var curFx = x1 - ex1Base;
+    var curFy = y1;
+    if (x2 > x1) {
+      if (ex1 < _minEx) {
+        if (ex2 < _minEx) {
+          _recordSegment(ey, _minEx, 0, 0, delta);
+          return;
+        }
+        final crossFy = y1 + ((_minBoundX - x1) * delta) ~/ dx;
+        _recordSegment(ey, _minEx, 0, 0, crossFy - curFy);
+        curFy = crossFy;
+        ex1 = _minEx;
+        curFx = 0;
+      }
+      while (ex1 < ex2 && ex1 < _maxEx) {
+        final nextX = (ex1 + 1) * 256;
+        final nextFy = y1 + ((nextX - x1) * delta) ~/ dx;
+        _recordSegment(ey, ex1, curFx, 256, nextFy - curFy);
+        curFy = nextFy;
+        curFx = 0;
+        ex1++;
+      }
+      if (ex1 < _maxEx) {
+        _recordSegment(ey, ex1, curFx, x2 - ex2Base, y2 - curFy);
+      }
+    } else {
+      if (ex1 >= _maxEx) {
+        if (ex2 >= _maxEx) return;
+        final crossFy = y1 + ((_maxBoundX - x1) * delta) ~/ dx;
+        curFy = crossFy;
+        ex1 = _maxEx - 1;
+        curFx = 256;
+      }
+      while (ex1 > ex2 && ex1 >= _minEx) {
+        final nextX = ex1 * 256;
+        final nextFy = y1 + ((nextX - x1) * delta) ~/ dx;
+        _recordSegment(ey, ex1, curFx, 0, nextFy - curFy);
+        curFy = nextFy;
+        curFx = 256;
+        ex1--;
+      }
+      if (ex1 < _minEx) {
+        _recordSegment(ey, _minEx, 0, 0, y2 - curFy);
+      } else {
+        _recordSegment(ey, ex1, curFx, x2 - ex2Base, y2 - curFy);
+      }
+    }
+  }
+
   void _renderLine(int toX, int toY) {
-    final x1 = _curX;
-    final y1 = _curY;
+    if (kIsWeb) {
+      _renderLineWeb(toX, toY);
+      return;
+    }
+    var x1 = _curX;
+    var y1 = _curY;
     _curX = toX;
     _curY = toY;
+
+    final dx = toX - x1;
     final dy = toY - y1;
     if (dy == 0) return;
 
@@ -1218,16 +1296,16 @@ class _FtScanlineRasterizer {
       return;
     }
 
-    final dx = toX - x1;
-    var curX = x1;
-    var curY = y1;
     if (dy > 0) {
       // Downward edge.
       if (ey1 < _minEy) {
-        curX = x1 + ((_minBoundY - y1) * dx) ~/ dy;
-        curY = _minBoundY;
+        final crossY = _minBoundY;
+        x1 += ((crossY - y1) * dx) ~/ dy;
+        y1 = crossY;
         ey1 = _minEy;
       }
+      var curX = x1;
+      var curY = y1;
       while (ey1 < ey2 && ey1 < _maxEy) {
         final nextY = (ey1 + 1) << 8;
         final nextX = x1 + ((nextY - y1) * dx) ~/ dy;
@@ -1241,9 +1319,12 @@ class _FtScanlineRasterizer {
       }
     } else {
       // Upward edge.
+      var curX = x1;
+      var curY = y1;
       if (ey1 >= _maxEy) {
-        curX = x1 + ((_maxBoundY - y1) * dx) ~/ dy;
-        curY = _maxBoundY;
+        final crossY = _maxBoundY;
+        curX += ((crossY - y1) * dx) ~/ dy;
+        curY = crossY;
         ey1 = _maxEy - 1;
       }
       if (ey1 == ey2) {
@@ -1272,6 +1353,78 @@ class _FtScanlineRasterizer {
     }
   }
 
+  void _renderLineWeb(int toX, int toY) {
+    final x1 = _curX;
+    final y1 = _curY;
+    _curX = toX;
+    _curY = toY;
+    final dy = toY - y1;
+    if (dy == 0) return;
+
+    var ey1 = (y1 >> 8).toSigned(32);
+    var ey2 = (toY >> 8).toSigned(32);
+    if (ey1 < _minEy && ey2 < _minEy) return;
+    if (ey1 >= _maxEy && ey2 >= _maxEy) return;
+
+    if (ey1 == ey2) {
+      final base = ey1 * 256;
+      _renderScanlineWeb(ey1, x1, y1 - base, toX, toY - base);
+      return;
+    }
+
+    final dx = toX - x1;
+    var curX = x1;
+    var curY = y1;
+    if (dy > 0) {
+      if (ey1 < _minEy) {
+        curX = x1 + ((_minBoundY - y1) * dx) ~/ dy;
+        curY = _minBoundY;
+        ey1 = _minEy;
+      }
+      while (ey1 < ey2 && ey1 < _maxEy) {
+        final nextY = (ey1 + 1) * 256;
+        final nextX = x1 + ((nextY - y1) * dx) ~/ dy;
+        _renderScanlineWeb(ey1, curX, curY - ey1 * 256, nextX, 256);
+        curX = nextX;
+        curY = nextY;
+        ey1++;
+      }
+      if (ey1 < _maxEy) {
+        _renderScanlineWeb(ey1, curX, curY - ey1 * 256, toX, toY - ey1 * 256);
+      }
+    } else {
+      if (ey1 >= _maxEy) {
+        curX = x1 + ((_maxBoundY - y1) * dx) ~/ dy;
+        curY = _maxBoundY;
+        ey1 = _maxEy - 1;
+      }
+      if (ey1 == ey2) {
+        if (ey1 >= _minEy) {
+          final base = ey1 * 256;
+          _renderScanlineWeb(ey1, curX, curY - base, toX, toY - base);
+        }
+        return;
+      }
+      final firstRowY = ey1 * 256;
+      final firstNextX = x1 + ((firstRowY - y1) * dx) ~/ dy;
+      if (ey1 >= _minEy) {
+        _renderScanlineWeb(ey1, curX, curY - firstRowY, firstNextX, 0);
+      }
+      curX = firstNextX;
+      ey1--;
+      while (ey1 > ey2 && ey1 >= _minEy) {
+        final rowBottomY = ey1 * 256;
+        final nextX = x1 + ((rowBottomY - y1) * dx) ~/ dy;
+        _renderScanlineWeb(ey1, curX, 256, nextX, 0);
+        curX = nextX;
+        ey1--;
+      }
+      if (ey1 >= _minEy) {
+        _renderScanlineWeb(ey1, curX, 256, toX, toY - ey1 * 256);
+      }
+    }
+  }
+
   static int _calcCoverage(int area, bool evenOdd) {
     var cov = area >> 9;
     if (cov < 0) cov = -cov;
@@ -1283,7 +1436,22 @@ class _FtScanlineRasterizer {
     return cov;
   }
 
+  static int _calcCoverageWeb(int area, bool evenOdd) {
+    var cov = (area >> 9).toSigned(32);
+    if (cov < 0) cov = -cov;
+    if (!evenOdd) {
+      return cov >= 256 ? 256 : cov;
+    }
+    cov &= 511;
+    if (cov > 256) cov = 512 - cov;
+    return cov;
+  }
+
   void sweep(bool evenOdd, _RleSpans out) {
+    if (kIsWeb) {
+      _sweepWeb(evenOdd, out);
+      return;
+    }
     _flushCell();
     if (_dirtyMaxY < _dirtyMinY) return;
     final startY = math.max(_minEy, _dirtyMinY);
@@ -1308,6 +1476,38 @@ class _FtScanlineRasterizer {
       }
       if (cover != 0 && x < _maxEx) {
         final cov = _calcCoverage(cover << 9, evenOdd);
+        if (cov > 0) out.addSpan(y, x, _maxEx - x, cov);
+      }
+    }
+    _dirtyMaxY = _minEy - 1;
+    _dirtyMinY = _maxEy;
+  }
+
+  void _sweepWeb(bool evenOdd, _RleSpans out) {
+    _flushCell();
+    if (_dirtyMaxY < _dirtyMinY) return;
+    final startY = math.max(_minEy, _dirtyMinY);
+    final endY = math.min(_maxEy - 1, _dirtyMaxY);
+    for (var y = startY; y <= endY; y++) {
+      var cell = _rowHead[y];
+      _rowHead[y] = -1;
+      if (cell == -1) continue;
+      var cover = 0;
+      var x = _minEx;
+      while (cell != -1) {
+        final cx = _cellX[cell];
+        if (cx > x && cover != 0) {
+          final cov = _calcCoverageWeb(cover * 512, evenOdd);
+          if (cov > 0) out.addSpan(y, x, cx - x, cov);
+        }
+        cover += _cellCover[cell];
+        final cov = _calcCoverageWeb((cover * 512) - _cellArea[cell], evenOdd);
+        if (cov > 0) out.addSpan(y, cx, 1, cov);
+        x = cx + 1;
+        cell = _cellNext[cell];
+      }
+      if (cover != 0 && x < _maxEx) {
+        final cov = _calcCoverageWeb(cover * 512, evenOdd);
         if (cov > 0) out.addSpan(y, x, _maxEx - x, cov);
       }
     }
