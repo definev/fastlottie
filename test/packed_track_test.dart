@@ -138,6 +138,33 @@ void main() {
     }
   });
 
+  test('reports the exact JSON path of a malformed keyframe component', () {
+    final json = fixture('static');
+    json['layers'][0]['ks']['p'] = {
+      'a': 1,
+      'k': [
+        {
+          't': 0,
+          's': [0, 0],
+        },
+        {
+          't': 59,
+          's': [30, 'bad coordinate'],
+        },
+      ],
+    };
+    expect(
+      () => FastLottieComposition.fromJson(json),
+      throwsA(
+        isA<UnsupportedLottieException>().having(
+          (e) => e.jsonPath,
+          'path',
+          r'$.layers[0].ks.p.k[1].s[1]',
+        ),
+      ),
+    );
+  });
+
   test('empty animated paths retain zero-width packed tracks', () async {
     final empty = {'c': true, 'v': [], 'i': [], 'o': []};
     final json = scene([

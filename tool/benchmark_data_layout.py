@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-TRACK_DRIVER = r'''
+KEY_OBJECT_DRIVER = r'''
 Object makeTrack(int width, int count, bool simd) {
   final keys = <_Key>[];
   for (var k = 0; k < count; k++) {
@@ -30,7 +30,44 @@ Object makeTrack(int width, int count, bool simd) {
   }
   return _Track.animated(keys, simd);
 }
+'''
 
+PACKED_TRACK_DRIVER = r'''
+Object makeTrack(int width, int count, bool simd) {
+  final stride = simd && width >= 32 ? (width + 3) & ~3 : width;
+  final times = Float64List(count);
+  final metadata = Int32List(count * 3);
+  final values = Float32List((count + (count + 1) ~/ 2) * stride);
+  final easing = Float64List((count - (count + 2) ~/ 3) * 4);
+  var endIndex = count, easeIndex = 0;
+  for (var k = 0; k < count; k++) {
+    times[k] = k * 3.25;
+    final hasEnd = k.isEven, hasEase = k % 3 != 0;
+    metadata[k] = (k % 5 == 2 ? _Keyframes.holdFlag : 0) |
+        (hasEnd ? _Keyframes.endFlag : 0) |
+        (hasEase ? 1 << 4 : _Keyframes.linearFlag);
+    final endOffset = (hasEnd ? endIndex++ : math.min(k + 1, count - 1)) * stride;
+    metadata[count + k] = endOffset;
+    metadata[2 * count + k] = easeIndex;
+    if (hasEase) {
+      easing[easeIndex++] = .42;
+      easing[easeIndex++] = 0;
+      easing[easeIndex++] = .58;
+      easing[easeIndex++] = 1;
+    }
+    for (var c = 0; c < width; c++) {
+      values[k * stride + c] = (k * 13 + c * 7) % 101 / 100.0;
+      if (hasEnd) values[endOffset + c] = (k * 17 + c * 3) % 101 / 100.0;
+    }
+  }
+  return _Track.animated(_Keyframes(
+    times, width, stride, metadata, values,
+    easing, null, simd,
+  ), simd);
+}
+'''
+
+TRACK_DRIVER = r'''
 double trackBatch(List<Object> tracks, int rounds) {
   var checksum = 0.0;
   for (var r = 0; r < rounds; r++) {
@@ -120,7 +157,7 @@ void main() {
 def extract(root, kernel):
     if kernel == 'track':
         source = (root / 'lib/src/track.dart').read_text().split('\n', 1)[1]
-        driver = TRACK_DRIVER
+        driver = (KEY_OBJECT_DRIVER if 'class _Key {' in source else PACKED_TRACK_DRIVER) + TRACK_DRIVER
     else:
         source = (root / 'lib/src/rle_rasterizer.dart').read_text()
         poly = source[source.index('class _PolyPath {'):source.index('class _RleSpans {')]

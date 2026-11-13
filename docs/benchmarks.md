@@ -75,6 +75,16 @@ Static fixture vẫn bị ép draw trong CPU benchmark để đo chi phí lệnh
 fastlottie dừng repaint khi composition tĩnh; widget `lottie` cũng có cơ chế bỏ
 qua frame không đổi. Không dùng hàng static để suy ra mức tiết kiệm pin của widget.
 
+## Đo nhanh compiler
+
+`flutter test --no-pub tool/benchmark_compiler.dart` đo riêng
+`FastLottieComposition.fromBytes` trên ba fixture JSON và ba sticker TGS.
+Timer gồm giải nén (TGS), parse JSON và compile, không gồm đọc file, tính
+`contentKey` hay render. Mỗi giá trị là median của 9 batch sau 3 batch làm nóng,
+150 lần tải mỗi batch. Tool cũng in `contentKey` để đối chiếu trước và sau.
+Đây là phép đo trong Flutter test; dùng harness release ở trên khi cần số
+đại diện cho ứng dụng AOT.
+
 ## Cách diễn giải
 
 Các số CPU vài microsecond dễ bị nhiễu; cần nhìn cả p95 và FrameTiming. Chế độ

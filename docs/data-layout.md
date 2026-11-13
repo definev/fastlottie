@@ -21,8 +21,8 @@ việc tách từng tọa độ thành một mảng riêng.
 | RLE spans, pixel BGRA | AoS đóng gói có sẵn | Các field được đọc cùng nhau; phù hợp SWAR và truyền ảnh |
 | Scene graph, cache entries | Object có sẵn | Giữ thứ tự layer, matte, alias DAG, ownership và eviction |
 
-`_Key` và `_Ease` chỉ còn là builder tạm trong compiler. Sau compile, track không
-giữ reference đến chúng. Fork chia sẻ toàn bộ `_Keyframes`; cursor, last-frame
+Compiler đọc header để tính kích thước buffer, sau đó ghi trực tiếp keyframe
+và easing vào các cột `TypedData`. Fork chia sẻ toàn bộ `_Keyframes`; cursor, last-frame
 memo và output vẫn riêng cho player. Không thêm public interface hoặc dependency.
 Các mảng chỉ được ghi trong compile (bao gồm chuẩn hóa RGB), sau đó chỉ đọc.
 

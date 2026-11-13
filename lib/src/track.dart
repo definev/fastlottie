@@ -1,107 +1,11 @@
 part of '../fastlottie.dart';
 
-// Compiler-only builders. Animated tracks retain only the packed columns below.
-class _Ease {
-  _Ease(this.x1, this.y1, this.x2, this.y2);
-  final double x1, y1, x2, y2;
-}
-
-class _Key {
-  _Key(
-    this.time,
-    this.start,
-    this.end,
-    this.hold,
-    this.eases, {
-    this.to,
-    this.ti,
-  });
-  final double time;
-  final Float32List start;
-  final Float32List? end;
-  final bool hold;
-  final List<_Ease> eases;
-  final Float32List? to, ti;
-}
-
 /// Shared compiled keyframes. Search touches only [times]; interpolation reads
 /// one contiguous vector pair. Metadata is stored in three Int32 columns:
 /// flags/ease counts, resolved end offsets, and easing offsets.
 /// Values stay component-interleaved because consumers use the whole vector.
 class _Keyframes {
-  factory _Keyframes(List<_Key> keys, bool simd) {
-    final count = keys.length;
-    final times = Float64List(count);
-    final width = keys.first.start.length;
-    final stride = simd && width >= 32 ? (width + 3) & ~3 : width;
-    final metadata = Int32List(count * 3);
-    var explicitEnds = 0, easeCount = 0;
-    var hasTangents = false;
-    for (final k in keys) {
-      if (k.end != null) explicitEnds++;
-      easeCount += k.eases.length;
-      hasTangents |= k.to != null;
-    }
-    final values = Float32List((count + explicitEnds) * stride);
-    final easing = Float64List(easeCount * 4);
-    final tangents = hasTangents ? Float32List(count * 4) : null;
-    final spatial = hasTangents
-        ? List<_SpatialCurve?>.filled(count, null)
-        : null;
-    var endIndex = count, easeIndex = 0;
-    for (var i = 0; i < count; i++) {
-      final k = keys[i];
-      times[i] = k.time;
-      values.setRange(i * stride, i * stride + width, k.start);
-      var flags = (k.hold ? holdFlag : 0) | linearFlag | (k.eases.length << 4);
-      final end = k.end;
-      final endOffset = end == null
-          ? math.min(i + 1, count - 1) * stride
-          : endIndex++ * stride;
-      if (end != null) {
-        flags |= endFlag;
-        values.setRange(endOffset, endOffset + width, end);
-      }
-      metadata[count + i] = endOffset;
-      metadata[2 * count + i] = easeIndex;
-      for (final e in k.eases) {
-        // All four controls are consumed together. Keep each tuple contiguous
-        // and retain Float64 precision for easing and the stable content key.
-        easing[easeIndex++] = e.x1;
-        easing[easeIndex++] = e.y1;
-        easing[easeIndex++] = e.x2;
-        easing[easeIndex++] = e.y2;
-        if (e.x1 != e.y1 || e.x2 != e.y2) flags &= ~linearFlag;
-      }
-      if (k.to != null) {
-        flags |= tangentFlag;
-        tangents!.setRange(i * 4, i * 4 + 2, k.to!);
-        tangents.setRange(i * 4 + 2, i * 4 + 4, k.ti!);
-      }
-      metadata[i] = flags;
-      final target = k.end ?? keys[math.min(i + 1, count - 1)].start;
-      if (i < count - 1 &&
-          !k.hold &&
-          k.to != null &&
-          (k.start[0] != target[0] || (width > 1 && k.start[1] != target[1])) &&
-          (k.to!.any((v) => v != 0) || k.ti!.any((v) => v != 0))) {
-        spatial![i] = _SpatialCurve(k.start, target, k.to!, k.ti!);
-      }
-    }
-    return _Keyframes._(
-      times,
-      width,
-      stride,
-      metadata,
-      values,
-      easing,
-      tangents,
-      spatial,
-      simd && width >= 32 ? values.buffer.asFloat32x4List() : null,
-    );
-  }
-
-  _Keyframes._(
+  _Keyframes(
     this.times,
     this.width,
     this.stride,
@@ -109,9 +13,22 @@ class _Keyframes {
     this.values,
     this.easing,
     this.tangents,
-    this.spatial,
-    this.simdValues,
-  );
+    bool simd,
+  ) : simdValues = simd && width >= 32 ? values.buffer.asFloat32x4List() : null,
+      spatial = tangents == null
+          ? null
+          : List<_SpatialCurve?>.filled(times.length, null) {
+    final t = tangents;
+    if (t == null || width < 2) return;
+    for (var i = 0; i < count - 1; i++) {
+      if (isHold(i) || !hasTangents(i)) continue;
+      final a = i * stride, b = endOffset(i), j = i * 4;
+      if ((values[a] != values[b] || values[a + 1] != values[b + 1]) &&
+          (t[j] != 0 || t[j + 1] != 0 || t[j + 2] != 0 || t[j + 3] != 0)) {
+        spatial![i] = _SpatialCurve(values, a, b, t, j);
+      }
+    }
+  }
 
   static const holdFlag = 1, endFlag = 2, tangentFlag = 4, linearFlag = 8;
 
@@ -167,14 +84,15 @@ class _Track {
       output = Float32List(source.output.length),
       gamma = source.gamma;
   _Track.constant(List<double> value)
-    : constant = Float32List.fromList(value),
-      keyframes = null,
+    : this.constantValues(Float32List.fromList(value));
+  _Track.constantValues(this.constant)
+    : keyframes = null,
       simd = false,
       output = Float32List(0);
-  _Track.animated(List<_Key> keys, this.simd)
+  _Track.animated(_Keyframes data, this.simd)
     : constant = null,
-      keyframes = _Keyframes(keys, simd),
-      output = Float32List(keys.first.start.length);
+      keyframes = data,
+      output = Float32List(data.width);
 
   static final Float32List _srgbToLinear = _buildSrgbToLinear();
   static const int _lutSize = 4096;
@@ -312,16 +230,16 @@ class _Track {
 
 /// Arc-length lookup for spatial position keyframes, built without native Path.
 class _SpatialCurve {
-  _SpatialCurve(Float32List a, Float32List b, Float32List out, Float32List inc)
+  _SpatialCurve(Float32List values, int a, int b, Float32List tangents, int t)
     : points = Float64List.fromList([
-        a[0],
-        a[1],
-        a[0] + out[0],
-        a[1] + out[1],
-        b[0] + inc[0],
-        b[1] + inc[1],
-        b[0],
-        b[1],
+        values[a],
+        values[a + 1],
+        values[a] + tangents[t],
+        values[a + 1] + tangents[t + 1],
+        values[b] + tangents[t + 2],
+        values[b + 1] + tangents[t + 3],
+        values[b],
+        values[b + 1],
       ]) {
     var x = points[0], y = points[1];
     for (var i = 1; i < lengths.length; i++) {

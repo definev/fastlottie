@@ -74,6 +74,50 @@ void main() {
       throwsA(isA<UnsupportedLottieException>()),
     );
   });
+  test('escaped names and chained content expressions match baked tracks', () {
+    final json = fixture('static');
+    final shapes = json['layers'][0]['shapes'] as List;
+    final source = shapes[0]..['nm'] = 'Sourcé';
+    final alias = shapes[1]..['nm'] = 'Alias';
+    final track = animated([60, 80], [140, 110]);
+    final sourceTransform = source['it'].last;
+    final aliasTransform = alias['it'].last;
+    sourceTransform['s'] = track;
+    Map<String, dynamic> expression(String name) => {
+      ...constant([100, 100]),
+      'x': "var \$bm_rt;\n\$bm_rt = content('$name').transform.scale;",
+    };
+    aliasTransform['s'] = expression(r'Sourc\u00e9');
+    final layerTransform = json['layers'][0]['ks'];
+    layerTransform['s'] = expression('Alias');
+    final before = jsonEncode(json);
+    final actual = FastLottieComposition.fromJson(json);
+    expect(jsonEncode(json), before);
+    aliasTransform['s'] = layerTransform['s'] = track;
+    expect(actual.contentKey, FastLottieComposition.fromJson(json).contentKey);
+  });
+
+  test('cyclic content expressions still report the expression chain', () {
+    final json = fixture('static');
+    final shapes = json['layers'][0]['shapes'] as List;
+    for (var i = 0; i < 2; i++) {
+      final shape = shapes[i]..['nm'] = 'Group $i';
+      shape['it'].last['s'] = {
+        ...constant([100, 100]),
+        'x':
+            "var \$bm_rt;\n\$bm_rt = content('Group ${1 - i}').transform.scale;",
+      };
+    }
+    expect(
+      () => FastLottieComposition.fromJson(json),
+      throwsA(
+        isA<UnsupportedLottieException>()
+            .having((e) => e.jsonPath, 'path', contains('.s.x.x'))
+            .having((e) => e.message, 'message', contains('Cyclic expression')),
+      ),
+    );
+  });
+
   test('layer controls validate references without altering pixels', () async {
     final j = fixture('static');
     j['layers'][0]['ef'] = [
