@@ -2586,6 +2586,22 @@ void _flattenLeaf(
     out.endContour();
     return;
   }
+  if (src is _PolyStarGeometry) {
+    out.beginContour(true);
+    src._generatePolyStar(frame, out.addVertex, out.addVertex, (
+      x1,
+      y1,
+      x2,
+      y2,
+      x3,
+      y3,
+      prevX,
+      prevY,
+    ) {
+      out.addCubic(prevX, prevY, x1, y1, x2, y2, x3, y3, flatnessSq);
+    }, out.endContour);
+    return;
+  }
   if (src is _Primitive) {
     final p = src.position.at(frame);
     final s = src.size.at(frame);
@@ -3484,6 +3500,16 @@ final class _ContentKeyHasher {
       _mixTrack(s.position);
       _mixTrack(s.size);
       _mixTrack(s.radius);
+    } else if (s is _PolyStarGeometry) {
+      _mixInt(s.isStar ? 7 : 8);
+      _mixInt(s.reverse ? 1 : 0);
+      _mixTrack(s.points);
+      _mixTrack(s.position);
+      _mixTrack(s.rotation);
+      _mixTrack(s.outerRadius);
+      _mixTrack(s.outerRoundness);
+      if (s.innerRadius != null) _mixTrack(s.innerRadius!);
+      if (s.innerRoundness != null) _mixTrack(s.innerRoundness!);
     } else if (s is _TrimPart) {
       _mixInt(5 + s.index);
       _mixTrack(s.trim.start);

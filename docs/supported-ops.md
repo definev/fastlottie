@@ -9,7 +9,7 @@ kèm JSON path; core không tự chuyển sang renderer khác.
 | Layer | Shape (`ty:4`), null (`ty:3`), solid (`ty:1`), precomp (`ty:0`); stacking, parent transform, hidden, ip/op; alpha/luma matte thường hoặc đảo từ layer liền trước (`tt:1..4`) |
 | Precomp | Child timeline dùng start offset `st` và stretch `sr` khác 0; `tm` tĩnh hoặc động ánh xạ thời gian tính theo giây và thay thế phép tính offset/stretch |
 | Group | `gr`, nested group, `tr`, style theo thứ tự Lottie; trim path simultaneous (`m:1`) và individual (`m:2`) |
-| Geometry | `sh`: open/closed cubic Bézier; `rc`: rectangle + corner radius; `el`: ellipse; `rc` và `el` hỗ trợ hướng đảo `d:3` |
+| Geometry | `sh`: open/closed cubic Bézier; `rc`: rectangle + corner radius; `el`: ellipse; `sr`: star & regular polygon (points, inner/outer radius & roundness); `rc`, `el` và `sr` hỗ trợ hướng đảo `d:3` |
 | Paint | `fl`/`st`: solid RGB, opacity, fill rule, stroke width/cap/join/miter; `gf`/`gs`: linear/radial gradient với stop màu/opacity động; stroke dash/gap/offset động |
 | Transform | Anchor, spatial position Bézier, split x/y, rotation, scale đều hoặc không đều, opacity, skew/axis động; 2D |
 | Keyframe | Static, hold, linear, temporal cubic Bézier; easing theo component trên một số point property |
@@ -23,7 +23,7 @@ trùng tên hoặc tham chiếu vòng gián tiếp. Parent opacity không nhân 
 qua quan hệ parent. Opacity thường áp dụng trên từng paint.
 
 Các feature ngoài phạm vi gồm image/text/font, 3D, layer mask, visual effects,
-blend mode, repeater/merge/polystar, JavaScript tùy ý, slot, radial focal point,
+blend mode, repeater/merge, JavaScript tùy ý, slot, radial focal point,
 matte không liền kề hoặc nối chuỗi, và morph đổi số vertex. Compiler chỉ nhận
 các field đã biết; một file dùng shape quen thuộc vẫn có thể bị từ chối vì
 feature ở layer, modifier hoặc asset khác.

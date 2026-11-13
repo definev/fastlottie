@@ -58,6 +58,22 @@ class _Fork {
         ),
       );
     }
+    if (v is _PolyStarGeometry) {
+      return _copy(
+        v,
+        () => _PolyStarGeometry(
+          v.isStar,
+          track(v.points),
+          track(v.position),
+          track(v.rotation),
+          track(v.outerRadius),
+          track(v.outerRoundness),
+          v.innerRadius == null ? null : track(v.innerRadius!),
+          v.innerRoundness == null ? null : track(v.innerRoundness!),
+          v.reverse,
+        ),
+      );
+    }
     throw StateError('Unknown compiled geometry');
   }
 

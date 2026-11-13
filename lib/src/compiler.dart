@@ -598,6 +598,48 @@ class _Compiler {
               _Shape(_Primitive(type == 'el', pos, size, radius, m['d'] == 3)),
             );
           }
+        case 'sr':
+          check(m, p, 'ty nm mn ix hd sy pt p r ir is or os d bm');
+          final starType = m['sy'] ?? 1;
+          if (starType != 1 && starType != 2) {
+            fail('$p.sy', 'PolyStar type $starType');
+          }
+          if (m['d'] != null && m['d'] != 1 && m['d'] != 2 && m['d'] != 3) {
+            fail('$p.d', 'Path direction');
+          }
+          final points = _track(m['pt'], '$p.pt', 1, [5]);
+          final pos = _track(m['p'], '$p.p', 2, [0, 0], separateEasing: true);
+          final rot = _track(m['r'], '$p.r', 1, [0]);
+          final outerRadius = _track(m['or'], '$p.or', 1, [0]);
+          final outerRoundness = _track(m['os'], '$p.os', 1, [0]);
+          final innerRadius = starType == 1
+              ? (m['ir'] != null
+                    ? _track(m['ir'], '$p.ir', 1, [0])
+                    : _Track.constant([0.0]))
+              : null;
+          final innerRoundness = starType == 1
+              ? (m['is'] != null
+                    ? _track(m['is'], '$p.is', 1, [0])
+                    : _Track.constant([0.0]))
+              : null;
+          commands += 12;
+          if (!hidden) {
+            sources.add(
+              _Shape(
+                _PolyStarGeometry(
+                  starType == 1,
+                  points,
+                  pos,
+                  rot,
+                  outerRadius,
+                  outerRoundness,
+                  innerRadius,
+                  innerRoundness,
+                  m['d'] == 3,
+                ),
+              ),
+            );
+          }
         case 'tm':
           check(m, p, 'ty nm mn ix hd s e o m bm');
           final mode = m['m'] ?? 1;

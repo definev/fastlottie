@@ -612,6 +612,230 @@ class _Primitive extends _Geometry {
   }
 }
 
+class _PolyStarGeometry extends _Geometry {
+  _PolyStarGeometry(
+    this.isStar,
+    this.points,
+    this.position,
+    this.rotation,
+    this.outerRadius,
+    this.outerRoundness,
+    this.innerRadius,
+    this.innerRoundness,
+    this.reverse,
+  );
+
+  final bool isStar, reverse;
+  final _Track points, position, rotation, outerRadius, outerRoundness;
+  final _Track? innerRadius, innerRoundness;
+
+  @override
+  bool get isStatic =>
+      points.isStatic &&
+      position.isStatic &&
+      rotation.isStatic &&
+      outerRadius.isStatic &&
+      outerRoundness.isStatic &&
+      (innerRadius?.isStatic ?? true) &&
+      (innerRoundness?.isStatic ?? true);
+
+  @override
+  Rect computeBounds(double frame) {
+    final p = position.at(frame);
+    final r = outerRadius.scalar(frame).abs();
+    final roundness = (outerRoundness.scalar(frame) * 0.01).abs();
+    final maxR = r * (1.0 + roundness * 0.5);
+    return Rect.fromLTRB(p[0] - maxR, p[1] - maxR, p[0] + maxR, p[1] + maxR);
+  }
+
+  @override
+  Path build(double frame) {
+    final path = (_cached ??= Path())..reset();
+    _generatePolyStar(
+      frame,
+      path.moveTo,
+      path.lineTo,
+      (x1, y1, x2, y2, x3, y3, px, py) => path.cubicTo(x1, y1, x2, y2, x3, y3),
+      path.close,
+    );
+    return path;
+  }
+
+  void _generatePolyStar(
+    double frame,
+    void Function(double x, double y) moveTo,
+    void Function(double x, double y) lineTo,
+    void Function(
+      double x1,
+      double y1,
+      double x2,
+      double y2,
+      double x3,
+      double y3,
+      double prevX,
+      double prevY,
+    )
+    cubicTo,
+    void Function() close,
+  ) {
+    final pos = position.at(frame);
+    final px = pos[0], py = pos[1];
+    final rot = rotation.scalar(frame);
+    final or = outerRadius.scalar(frame);
+    final os = outerRoundness.scalar(frame);
+    final rawPts = points.scalar(frame);
+
+    if (isStar) {
+      final pts = math.max(1.0, rawPts);
+      final ir = innerRadius?.scalar(frame) ?? 0.0;
+      final isR = innerRoundness?.scalar(frame) ?? 0.0;
+      var currentAngle = (rot - 90.0) * math.pi / 180.0;
+      var anglePerPoint = 2.0 * math.pi / pts;
+      if (reverse) anglePerPoint *= -1.0;
+      final halfAnglePerPoint = anglePerPoint / 2.0;
+      final partialPointAmount = pts - pts.floorToDouble();
+      if (partialPointAmount != 0.0) {
+        currentAngle += halfAnglePerPoint * (1.0 - partialPointAmount);
+      }
+      final innerRoundedness = isR / 100.0;
+      final outerRoundedness = os / 100.0;
+
+      double x, y;
+      double previousX, previousY;
+      var partialPointRadius = 0.0;
+      if (partialPointAmount != 0.0) {
+        partialPointRadius = ir + partialPointAmount * (or - ir);
+        x = px + partialPointRadius * math.cos(currentAngle);
+        y = py + partialPointRadius * math.sin(currentAngle);
+        moveTo(x, y);
+        currentAngle += anglePerPoint * partialPointAmount / 2.0;
+      } else {
+        x = px + or * math.cos(currentAngle);
+        y = py + or * math.sin(currentAngle);
+        moveTo(x, y);
+        currentAngle += halfAnglePerPoint;
+      }
+
+      var longSegment = false;
+      final numPoints = (pts.ceil() * 2);
+      for (var i = 0; i < numPoints; i++) {
+        var radius = longSegment ? or : ir;
+        var dTheta = halfAnglePerPoint;
+        if (partialPointRadius != 0.0 && i == numPoints - 2) {
+          dTheta = anglePerPoint * partialPointAmount / 2.0;
+        }
+        if (partialPointRadius != 0.0 && i == numPoints - 1) {
+          radius = partialPointRadius;
+        }
+        previousX = x;
+        previousY = y;
+        x = px + radius * math.cos(currentAngle);
+        y = py + radius * math.sin(currentAngle);
+
+        if (innerRoundedness == 0.0 && outerRoundedness == 0.0) {
+          lineTo(x, y);
+        } else {
+          final cp1Theta =
+              math.atan2(previousY - py, previousX - px) - math.pi / 2.0;
+          final cp1Dx = math.cos(cp1Theta);
+          final cp1Dy = math.sin(cp1Theta);
+
+          final cp2Theta = math.atan2(y - py, x - px) - math.pi / 2.0;
+          final cp2Dx = math.cos(cp2Theta);
+          final cp2Dy = math.sin(cp2Theta);
+
+          final cp1Roundedness = longSegment
+              ? innerRoundedness
+              : outerRoundedness;
+          final cp2Roundedness = longSegment
+              ? outerRoundedness
+              : innerRoundedness;
+          final cp1Radius = longSegment ? ir : or;
+          final cp2Radius = longSegment ? or : ir;
+
+          var cp1x = cp1Radius * cp1Roundedness * 0.47829 * cp1Dx;
+          var cp1y = cp1Radius * cp1Roundedness * 0.47829 * cp1Dy;
+          var cp2x = cp2Radius * cp2Roundedness * 0.47829 * cp2Dx;
+          var cp2y = cp2Radius * cp2Roundedness * 0.47829 * cp2Dy;
+
+          if (partialPointAmount != 0.0) {
+            if (i == 0) {
+              cp1x *= partialPointAmount;
+              cp1y *= partialPointAmount;
+            } else if (i == numPoints - 1) {
+              cp2x *= partialPointAmount;
+              cp2y *= partialPointAmount;
+            }
+          }
+          cubicTo(
+            previousX - cp1x,
+            previousY - cp1y,
+            x + cp2x,
+            y + cp2y,
+            x,
+            y,
+            previousX,
+            previousY,
+          );
+        }
+        currentAngle += dTheta;
+        longSegment = !longSegment;
+      }
+      close();
+    } else {
+      final pts = math.max(1, rawPts.floor());
+      var currentAngle = (rot - 90.0) * math.pi / 180.0;
+      var anglePerPoint = 2.0 * math.pi / pts;
+      if (reverse) anglePerPoint *= -1.0;
+      final roundedness = os / 100.0;
+
+      double previousX, previousY;
+      var x = px + or * math.cos(currentAngle);
+      var y = py + or * math.sin(currentAngle);
+      moveTo(x, y);
+      currentAngle += anglePerPoint;
+
+      for (var i = 0; i < pts; i++) {
+        previousX = x;
+        previousY = y;
+        x = px + or * math.cos(currentAngle);
+        y = py + or * math.sin(currentAngle);
+
+        if (roundedness != 0.0) {
+          final cp1Theta =
+              math.atan2(previousY - py, previousX - px) - math.pi / 2.0;
+          final cp1Dx = math.cos(cp1Theta);
+          final cp1Dy = math.sin(cp1Theta);
+
+          final cp2Theta = math.atan2(y - py, x - px) - math.pi / 2.0;
+          final cp2Dx = math.cos(cp2Theta);
+          final cp2Dy = math.sin(cp2Theta);
+
+          final cp1x = or * roundedness * 0.25 * cp1Dx;
+          final cp1y = or * roundedness * 0.25 * cp1Dy;
+          final cp2x = or * roundedness * 0.25 * cp2Dx;
+          final cp2y = or * roundedness * 0.25 * cp2Dy;
+
+          cubicTo(
+            previousX - cp1x,
+            previousY - cp1y,
+            x + cp2x,
+            y + cp2y,
+            x,
+            y,
+            previousX,
+            previousY,
+          );
+        } else {
+          lineTo(x, y);
+        }
+        currentAngle += anglePerPoint;
+      }
+      close();
+    }
+  }
+}
+
 class _Style implements _Draw {
   _Style(
     this.sources,
@@ -665,7 +889,9 @@ class _Style implements _Draw {
     while (source is _Shape) {
       source = source.content;
     }
-    if ((source is _Primitive || source is _BezierGeometry) &&
+    if ((source is _Primitive ||
+            source is _BezierGeometry ||
+            source is _PolyStarGeometry) &&
         source.isPathStatic) {
       return source;
     }
