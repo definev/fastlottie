@@ -105,8 +105,8 @@ class EmojiComposerController extends TextEditingController {
     return String.fromCharCode(puaBase + idx);
   }
 
-  /// Converts any PUA emoji tokens in [sourceText] (or [text]) into human-readable
-  /// shortcodes (e.g. `\uE000` -> `:studio_microphone:`).
+  /// Converts any PUA emoji tokens in [sourceText] (or [text]) as well as any
+  /// raw Unicode emojis into human-readable shortcodes (e.g. `\uE000` or `😀` -> `:smile:`).
   String toShortcodeText([String? sourceText]) {
     final raw = sourceText ?? text;
     final cat = catalog;
@@ -123,19 +123,32 @@ class EmojiComposerController extends TextEditingController {
         buf.writeCharCode(code);
       }
     }
-    return buf.toString();
+    final expanded = buf.toString();
+    if (cat.unicodeMap.isEmpty ||
+        !TgsRemoteCatalog.couldContainEmojiOrShortcode(expanded)) {
+      return expanded;
+    }
+    return expanded.replaceAllMapped(cat.emojiAndShortcodeRegex, (match) {
+      final token = match.group(0)!;
+      if (token.startsWith(':')) return token;
+      final item = cat.findItem(token);
+      return item?.shortcode ?? token;
+    });
   }
 
-  /// Converts human-readable shortcodes (e.g. `:studio_microphone:`) in [sourceText]
-  /// into single-character PUA tokens (`\uE000`).
+  /// Converts human-readable shortcodes (e.g. `:studio_microphone:`) and raw
+  /// Unicode emojis (e.g. `😀`, `🔥`, `❤️‍🔥`) in [sourceText] into single-character
+  /// PUA tokens (`\uE000`).
   String decodeShortcodes(String sourceText) {
     final cat = catalog;
-    if (cat == null || cat.shortcodeMap.isEmpty) return sourceText;
-    final shortcodeMap = cat.shortcodeMap;
+    if (cat == null || cat.emojis.isEmpty) return sourceText;
+    if (!TgsRemoteCatalog.couldContainEmojiOrShortcode(sourceText)) {
+      return sourceText;
+    }
     final emojis = cat.emojis;
-    return sourceText.replaceAllMapped(RegExp(r':[a-z0-9_]+:'), (match) {
+    return sourceText.replaceAllMapped(cat.emojiAndShortcodeRegex, (match) {
       final token = match.group(0)!;
-      final item = shortcodeMap[token];
+      final item = cat.findItem(token);
       if (item != null) {
         final idx = emojis.indexOf(item);
         if (idx >= 0) {
@@ -261,14 +274,13 @@ class EmojiComposerController extends TextEditingController {
 }
 
 /// Automatically collapses typed `:shortcode:` tokens (e.g. `:studio_microphone:`)
-/// into their corresponding 1-character UTF-16 PUA emoji token as soon as the
-/// closing colon is typed, adjusting selection offsets accurately.
+/// and typed / pasted Unicode emojis (e.g. `😀`, `🔥`, `❤️`) into their corresponding
+/// 1-character UTF-16 PUA emoji token as soon as entered, adjusting selection
+/// offsets accurately.
 class EmojiShortcodeTextInputFormatter extends TextInputFormatter {
   EmojiShortcodeTextInputFormatter(this.getCatalog);
 
   final TgsRemoteCatalog? Function() getCatalog;
-
-  static final RegExp _shortcodeRegex = RegExp(r':[a-z0-9_]+:');
 
   @override
   TextEditingValue formatEditUpdate(
@@ -279,22 +291,22 @@ class EmojiShortcodeTextInputFormatter extends TextInputFormatter {
       return newValue;
     }
     final text = newValue.text;
-    if (!text.contains(':')) {
+    if (!TgsRemoteCatalog.couldContainEmojiOrShortcode(text)) {
       return newValue;
     }
     final catalog = getCatalog();
-    if (catalog == null || catalog.shortcodeMap.isEmpty) {
+    if (catalog == null || catalog.emojis.isEmpty) {
       return newValue;
     }
 
-    final matches = _shortcodeRegex.allMatches(text).toList();
+    final matches = catalog.emojiAndShortcodeRegex.allMatches(text).toList();
     if (matches.isEmpty) {
       return newValue;
     }
 
     bool hasMatch = false;
     for (final m in matches) {
-      if (catalog.shortcodeMap.containsKey(m.group(0)!)) {
+      if (catalog.findItem(m.group(0)!) != null) {
         hasMatch = true;
         break;
       }
@@ -310,7 +322,7 @@ class EmojiShortcodeTextInputFormatter extends TextInputFormatter {
 
     for (final match in matches) {
       final token = match.group(0)!;
-      final item = catalog.shortcodeMap[token];
+      final item = catalog.findItem(token);
       if (item == null) continue;
       final idx = catalog.emojis.indexOf(item);
       if (idx < 0) continue;
@@ -671,7 +683,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _composerController.store = _store;
     _composerController.renderer = _renderer;
     _composerController.still = _reduced || _pressure.constrained;
-    if (_composerController.text.contains(':')) {
+    if (TgsRemoteCatalog.couldContainEmojiOrShortcode(
+      _composerController.text,
+    )) {
       final decoded = _composerController.decodeShortcodes(
         _composerController.text,
       );
@@ -788,7 +802,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       ChatMessage.text(
         id: 'seed_welcome_${_messageSeq++}',
         text:
-            '${sc(':studio_microphone:', 0)} Try typing a message with Noto Emoji (${sc(':smile:', 0)} ${sc(':heart_eyes:', 0)} ${sc(':partying_face:', 0)} ${sc(':heart_on_fire:', 0)} ${sc(':thumbs_up:', 0)}) or Topics Emoji (${sc(':strawberry:', 40)} ${sc(':pizza:', 70)} ${sc(':cat2:', 87)}), or tap the smiley button below to open the picker! ${sc(':sparkles:', 3)}',
+            '${sc(':studio_microphone:', 0)} Try typing or pasting real emoji (${sc(':smile:', 0)} 😀 ${sc(':heart_eyes:', 0)} 😍 ${sc(':partying_face:', 0)} 🥳 ${sc(':heart_on_fire:', 0)} ❤️‍🔥 ${sc(':thumbs_up:', 0)} 👍) or shortcodes (${sc(':strawberry:', 40)} ${sc(':pizza:', 70)} ${sc(':cat2:', 87)}), or tap the smiley button below to open the picker! ${sc(':sparkles:', 3)}',
         isOutgoing: true,
         timestamp: now.subtract(const Duration(minutes: 1)),
       ),
@@ -1236,7 +1250,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              '${item.label}${item.shortcode != null ? ' · ${item.shortcode}' : ''}',
+              '${item.label}${item.unicode != null ? ' (${item.unicode})' : ''}${item.shortcode != null ? ' · ${item.shortcode}' : ''}',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -1280,7 +1294,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                 Navigator.of(ctx).pop();
                 _insertEmojiShortcode(item);
               },
-              child: Text('Insert ${item.shortcode ?? 'Emoji'}'),
+              child: Text(
+                'Insert ${item.unicode != null ? '${item.unicode} ' : ''}${item.shortcode ?? 'Emoji'}',
+              ),
             ),
         ],
       ),
@@ -2237,10 +2253,6 @@ class _ChatMessageRow extends StatelessWidget {
     );
   }
 
-  static final RegExp _tokenOrPuaRegex = RegExp(
-    r':[a-z0-9_]+:|[\uE000-\uF8FF]',
-  );
-
   List<InlineSpan> _parseRichSpans(
     String text,
     TgsRemoteCatalog catalog,
@@ -2251,17 +2263,10 @@ class _ChatMessageRow extends StatelessWidget {
     final stickerSize = stickerOnly ? 40.0 : emojiSize;
     final spans = <InlineSpan>[];
     var cursor = 0;
-    for (final match in _tokenOrPuaRegex.allMatches(text)) {
+    final regex = catalog.richMessageRegex;
+    for (final match in regex.allMatches(text)) {
       final token = match.group(0)!;
-      final TgsRemoteItem? item;
-      if (token.startsWith(':')) {
-        item = catalog.shortcodeMap[token];
-      } else {
-        final idx = token.codeUnitAt(0) - EmojiComposerController.puaBase;
-        item = (idx >= 0 && idx < catalog.emojis.length)
-            ? catalog.emojis[idx]
-            : null;
-      }
+      final item = catalog.findItem(token);
       if (item == null) continue;
       if (match.start > cursor) {
         spans.add(TextSpan(text: text.substring(cursor, match.start)));
@@ -2298,17 +2303,10 @@ class _ChatMessageRow extends StatelessWidget {
   ) {
     var cursor = 0;
     var foundSticker = false;
-    for (final match in _tokenOrPuaRegex.allMatches(text)) {
+    final regex = catalog.richMessageRegex;
+    for (final match in regex.allMatches(text)) {
       final token = match.group(0)!;
-      final TgsRemoteItem? item;
-      if (token.startsWith(':')) {
-        item = catalog.shortcodeMap[token];
-      } else {
-        final idx = token.codeUnitAt(0) - EmojiComposerController.puaBase;
-        item = (idx >= 0 && idx < catalog.emojis.length)
-            ? catalog.emojis[idx]
-            : null;
-      }
+      final item = catalog.findItem(token);
       if (item == null) continue;
       if (text.substring(cursor, match.start).trim().isNotEmpty) return false;
       foundSticker = true;
