@@ -179,6 +179,39 @@ class _RasterWorkspace {
     return _groupMatrixPool[depth];
   }
 
+  final _maskPolyPool = <_PolyPath>[];
+  final _maskLocalPolyPool = <_PolyPath>[];
+  final _maskSpansPool = <_RleSpans>[];
+  final _maskIntersectSpansPool = <_RleSpans>[];
+
+  _PolyPath _acquireMaskPoly(int depth) {
+    while (_maskPolyPool.length <= depth) {
+      _maskPolyPool.add(_PolyPath());
+    }
+    return _maskPolyPool[depth]..clear();
+  }
+
+  _PolyPath _acquireMaskLocalPoly(int depth) {
+    while (_maskLocalPolyPool.length <= depth) {
+      _maskLocalPolyPool.add(_PolyPath());
+    }
+    return _maskLocalPolyPool[depth]..clear();
+  }
+
+  _RleSpans _acquireMaskSpans(int depth) {
+    while (_maskSpansPool.length <= depth) {
+      _maskSpansPool.add(_RleSpans());
+    }
+    return _maskSpansPool[depth];
+  }
+
+  _RleSpans _acquireIntersectMaskSpans(int depth) {
+    while (_maskIntersectSpansPool.length <= depth) {
+      _maskIntersectSpansPool.add(_RleSpans());
+    }
+    return _maskIntersectSpansPool[depth];
+  }
+
   // Only matte and rotated precomp draws need a scratch plane. Allocate each
   // nesting slot on first use, sized to the affected bounds rather than the frame.
   final _scratchLayers = <Uint32List?>[];
@@ -213,6 +246,16 @@ class _RasterWorkspace {
     _precompClipSpans?.dispose();
     _maskedSpans?.dispose();
     _rasterSpans = _precompClipSpans = _maskedSpans = null;
+    for (final s in _maskSpansPool) {
+      s.dispose();
+    }
+    for (final s in _maskIntersectSpansPool) {
+      s.dispose();
+    }
+    _maskSpansPool.clear();
+    _maskIntersectSpansPool.clear();
+    _maskPolyPool.clear();
+    _maskLocalPolyPool.clear();
     _scratchLayers.clear();
     _scanline = null;
   }
@@ -284,6 +327,18 @@ class _RasterWorkspace {
     _rasterSpans?.trimIfOversized(aggressive: aggressive);
     _precompClipSpans?.trimIfOversized(aggressive: aggressive);
     _maskedSpans?.trimIfOversized(aggressive: aggressive);
+    for (var i = 0; i < _maskPolyPool.length; i++) {
+      _maskPolyPool[i].trimIfOversized(aggressive: aggressive);
+    }
+    for (var i = 0; i < _maskLocalPolyPool.length; i++) {
+      _maskLocalPolyPool[i].trimIfOversized(aggressive: aggressive);
+    }
+    for (var i = 0; i < _maskSpansPool.length; i++) {
+      _maskSpansPool[i].trimIfOversized(aggressive: aggressive);
+    }
+    for (var i = 0; i < _maskIntersectSpansPool.length; i++) {
+      _maskIntersectSpansPool[i].trimIfOversized(aggressive: aggressive);
+    }
     if (aggressive) {
       _scanline = null;
     } else {
@@ -1410,6 +1465,95 @@ abstract final class _SwarBlender {
       }
     }
   }
+
+  static int blendPixel(int src, int dst, int mode) {
+    if (src == 0) return dst;
+    if (dst == 0) return src;
+
+    final sa = src >>> 24;
+    final sr = (src >> 16) & 0xFF;
+    final sg = (src >> 8) & 0xFF;
+    final sb = src & 0xFF;
+
+    final da = dst >>> 24;
+    final dr = (dst >> 16) & 0xFF;
+    final dg = (dst >> 8) & 0xFF;
+    final db = dst & 0xFF;
+
+    final outA = (sa + da - ((sa * da + 127) ~/ 255)).clamp(0, 255);
+    if (outA == 0) return 0;
+
+    int blendChannel(int sc, int dc) {
+      final invDa = 255 - da;
+      final invSa = 255 - sa;
+      final linearPart = (sc * invDa + dc * invSa + 127) ~/ 255;
+      int term;
+      switch (mode) {
+        case 1:
+          term = (sc * dc + 127) ~/ 255;
+        case 2:
+          term = (sc * da + dc * sa - sc * dc + 127) ~/ 255;
+        case 3:
+          if (2 * dc <= da) {
+            term = da == 0 ? 0 : (2 * sc * dc + (da ~/ 2)) ~/ da;
+          } else {
+            term = da == 0
+                ? 0
+                : (sa * da - (2 * (da - dc) * (sa - sc) + (da ~/ 2)) ~/ da);
+          }
+          term = (term + 127) ~/ 255;
+        case 4:
+          final m1 = sc * da;
+          final m2 = dc * sa;
+          term = (m1 < m2 ? m1 : m2) ~/ 255;
+        case 5:
+          final m1 = sc * da;
+          final m2 = dc * sa;
+          term = (m1 > m2 ? m1 : m2) ~/ 255;
+        case 10:
+          final diff = (sc * da - dc * sa).abs();
+          term = diff ~/ 255;
+        case 11:
+          term = (sc * da + dc * sa - 2 * sc * dc + 127) ~/ 255;
+        case 16:
+          return (sc + dc).clamp(0, 255);
+        default:
+          term = (sc * da + 127) ~/ 255;
+      }
+      return (term + linearPart).clamp(0, 255);
+    }
+
+    final outR = blendChannel(sr, dr).clamp(0, outA);
+    final outG = blendChannel(sg, dg).clamp(0, outA);
+    final outB = blendChannel(sb, db).clamp(0, outA);
+
+    return (outA << 24) | (outR << 16) | (outG << 8) | outB;
+  }
+
+  static void compositeBlended(
+    Uint32List dst,
+    int dstOriginX,
+    int dstOriginY,
+    int dstStride,
+    Uint32List src,
+    int srcOriginX,
+    int srcOriginY,
+    int srcStride,
+    int w,
+    int h,
+    int blendMode,
+  ) {
+    for (var y = 0; y < h; y++) {
+      final dstRow = (dstOriginY + y) * dstStride + dstOriginX;
+      final srcRow = (srcOriginY + y) * srcStride + srcOriginX;
+      for (var x = 0; x < w; x++) {
+        final s = src[srcRow + x];
+        if (s == 0) continue;
+        final d = dst[dstRow + x];
+        dst[dstRow + x] = blendPixel(s, d, blendMode);
+      }
+    }
+  }
 }
 
 /// Renders [scene] at [frame] directly into [outBgra8888] (`pixelWidth * pixelHeight`
@@ -1498,31 +1642,90 @@ void _renderCompilerInto(
     if (layerAlpha == 0) continue;
 
     final matte = layer.matte;
+    final bm = layer.blendMode;
     if (matte == null) {
-      _renderLayerInto(
-        layer,
-        frame,
-        alpha,
-        dst,
-        dstOriginX,
-        dstOriginY,
-        dstStride,
-        clipX0,
-        clipY0,
-        clipX1,
-        clipY1,
-        ma,
-        mb,
-        mc,
-        md,
-        mtx,
-        mty,
-        clipMask,
-        ws,
-        depth,
-        stableTransform,
-        nativeDst,
-      );
+      if (bm == 0) {
+        _renderLayerInto(
+          layer,
+          frame,
+          alpha,
+          dst,
+          dstOriginX,
+          dstOriginY,
+          dstStride,
+          clipX0,
+          clipY0,
+          clipX1,
+          clipY1,
+          ma,
+          mb,
+          mc,
+          md,
+          mtx,
+          mty,
+          clipMask,
+          ws,
+          depth,
+          stableTransform,
+          nativeDst,
+        );
+      } else {
+        final bounds = layer.worldBounds(frame);
+        if (bounds != null) {
+          var bx0 = _transformedMinX(bounds, ma, mc, mtx).floor() - 1;
+          var by0 = _transformedMinY(bounds, mb, md, mty).floor() - 1;
+          var bx1 = _transformedMaxX(bounds, ma, mc, mtx).ceil() + 1;
+          var by1 = _transformedMaxY(bounds, mb, md, mty).ceil() + 1;
+          if (bx0 < clipX0) bx0 = clipX0;
+          if (by0 < clipY0) by0 = clipY0;
+          if (bx1 > clipX1) bx1 = clipX1;
+          if (by1 > clipY1) by1 = clipY1;
+          final bw = bx1 - bx0;
+          final bh = by1 - by0;
+          if (bw > 0 && bh > 0) {
+            final layerBuf = ws._acquireScratch(depth * 3 + 2, bw * bh);
+            layerBuf.fillRange(0, bw * bh, 0);
+
+            _renderLayerInto(
+              layer,
+              frame,
+              alpha,
+              layerBuf,
+              bx0,
+              by0,
+              bw,
+              bx0,
+              by0,
+              bx1,
+              by1,
+              ma,
+              mb,
+              mc,
+              md,
+              mtx,
+              mty,
+              clipMask,
+              ws,
+              depth + 1,
+              stableTransform,
+            );
+
+            _SwarBlender.compositeBlended(
+              dst,
+              bx0 - dstOriginX,
+              by0 - dstOriginY,
+              dstStride,
+              layerBuf,
+              0,
+              0,
+              bw,
+              bw,
+              bh,
+              bm,
+            );
+          }
+        }
+      }
       continue;
     }
 
@@ -1858,6 +2061,66 @@ void _renderLayerInto(
   }
 
   final stable = stableTransform && layer.hasStaticSpatialChain;
+  _RleSpans? effectiveClipMask = clipMask;
+  var effClipX0 = clipX0, effClipY0 = clipY0, effClipX1 = clipX1, effClipY1 = clipY1;
+  final masks = layer.masks;
+  if (masks != null && masks.isNotEmpty) {
+    var hasActive = false;
+    for (var i = 0; i < masks.length; i++) {
+      if (masks[i].mode != 'n') {
+        hasActive = true;
+        break;
+      }
+    }
+    if (hasActive) {
+      final maskPoly = ws._acquireMaskPoly(depth);
+      final scaleX = math.sqrt(ca * ca + cb * cb);
+      final scaleY = math.sqrt(cc * cc + cd * cd);
+      final maxScale = math.max(scaleX, scaleY);
+      final localFlatness = maxScale <= 1e-6
+          ? 0.25
+          : (0.25 / maxScale).clamp(0.005, 1.5);
+      final flatnessSq = localFlatness * localFlatness;
+      final localPoly = ws._acquireMaskLocalPoly(depth);
+
+      for (var i = 0; i < masks.length; i++) {
+        final m = masks[i];
+        if (m.mode == 'a' && !m.inverted) {
+          localPoly.clear();
+          _flattenLeaf(m.geometry, frame, flatnessSq, localPoly);
+          maskPoly.appendTransformed(localPoly, ca, cb, cc, cd, ctx, cty);
+        }
+      }
+
+      if (maskPoly.contourCount > 0) {
+        final layerMaskSpans = ws._acquireMaskSpans(depth);
+        ws._rasterize(
+          maskPoly,
+          false /* nonZero */,
+          layerMaskSpans,
+          clipX0,
+          clipY0,
+          clipX1,
+          clipY1,
+        );
+        if (layerMaskSpans.spanCount == 0) return;
+        if (clipMask != null) {
+          final intersected = ws._acquireIntersectMaskSpans(depth);
+          _RleSpans.intersect(layerMaskSpans, clipMask, intersected);
+          if (intersected.spanCount == 0) return;
+          effectiveClipMask = intersected;
+        } else {
+          effectiveClipMask = layerMaskSpans;
+        }
+        effClipX0 = math.max(effClipX0, effectiveClipMask.minX);
+        effClipY0 = math.max(effClipY0, effectiveClipMask.minY);
+        effClipX1 = math.min(effClipX1, effectiveClipMask.maxX);
+        effClipY1 = math.min(effClipY1, effectiveClipMask.maxY);
+        if (effClipX0 >= effClipX1 || effClipY0 >= effClipY1) return;
+      }
+    }
+  }
+
   final group = layer.group;
   if (group != null) {
     _renderGroupInto(
@@ -1868,17 +2131,17 @@ void _renderLayerInto(
       dstOriginX,
       dstOriginY,
       dstStride,
-      clipX0,
-      clipY0,
-      clipX1,
-      clipY1,
+      effClipX0,
+      effClipY0,
+      effClipX1,
+      effClipY1,
       ca,
       cb,
       cc,
       cd,
       ctx,
       cty,
-      clipMask,
+      effectiveClipMask,
       ws,
       depth + 1,
       stable,
@@ -1898,10 +2161,10 @@ void _renderLayerInto(
       final x1 = (ctx + (ca >= 0 ? ca * cw : 0.0)).ceil();
       final y0 = (cty + (cd >= 0 ? 0.0 : cd * ch)).floor();
       final y1 = (cty + (cd >= 0 ? cd * ch : 0.0)).ceil();
-      final nx0 = math.max(clipX0, x0);
-      final ny0 = math.max(clipY0, y0);
-      final nx1 = math.min(clipX1, x1);
-      final ny1 = math.min(clipY1, y1);
+      final nx0 = math.max(effClipX0, x0);
+      final ny0 = math.max(effClipY0, y0);
+      final nx1 = math.min(effClipX1, x1);
+      final ny1 = math.min(effClipY1, y1);
       if (nx0 < nx1 && ny0 < ny1) {
         _renderCompilerInto(
           child,
@@ -1921,7 +2184,7 @@ void _renderLayerInto(
           cd,
           ctx,
           cty,
-          clipMask,
+          effectiveClipMask,
           ws,
           depth + 1,
           stable,
@@ -1931,19 +2194,19 @@ void _renderLayerInto(
     } else {
       // Rotated/skewed precomp clip quad via bounded scratch buffer masked by clip quad RLE.
       final rx0 = math.max(
-        clipX0,
+        effClipX0,
         _transformedMinX(Rect.fromLTWH(0, 0, cw, ch), ca, cc, ctx).floor() - 1,
       );
       final ry0 = math.max(
-        clipY0,
+        effClipY0,
         _transformedMinY(Rect.fromLTWH(0, 0, cw, ch), cb, cd, cty).floor() - 1,
       );
       final rx1 = math.min(
-        clipX1,
+        effClipX1,
         _transformedMaxX(Rect.fromLTWH(0, 0, cw, ch), ca, cc, ctx).ceil() + 1,
       );
       final ry1 = math.min(
-        clipY1,
+        effClipY1,
         _transformedMaxY(Rect.fromLTWH(0, 0, cw, ch), cb, cd, cty).ceil() + 1,
       );
       if (rx0 < rx1 && ry0 < ry1) {
@@ -1983,8 +2246,13 @@ void _renderLayerInto(
           ..addVertex(cc * ch + ctx, cd * ch + cty)
           ..endContour();
         ws._rasterize(ws._polyPath, false, ws._clipSpans, rx0, ry0, rx1, ry1);
-        final count = ws._clipSpans.spanCount * 2;
-        final sdata = ws._clipSpans.data;
+        var spansToBlend = ws._clipSpans;
+        if (effectiveClipMask != null) {
+          _RleSpans.intersect(ws._clipSpans, effectiveClipMask, ws._intersectSpans);
+          spansToBlend = ws._intersectSpans;
+        }
+        final count = spansToBlend.spanCount * 2;
+        final sdata = spansToBlend.data;
         for (var k = 0; k < count; k += 2) {
           final w0 = sdata[k], w1 = sdata[k + 1];
           final y = w0 >>> 16,
@@ -2147,9 +2415,11 @@ void _renderStyleInto(
     );
     if (bounds == null) return;
     final (x0, y0, x1, y1) = bounds;
+    final useEvenOdd = !style.stroke &&
+        (style.evenOdd || style.sources.any((s) => s is _MergePathSource));
     ws._rasterize(
       ws._workPolyB,
-      !style.stroke && style.evenOdd,
+      useEvenOdd,
       ws._spans,
       x0,
       y0,
@@ -2537,6 +2807,24 @@ void _flattenLeaf(
   double flatnessSq,
   _PolyPath out,
 ) {
+  if (src is _MergePathSource) {
+    final path = src.path(frame);
+    final metrics = path.computeMetrics();
+    for (final metric in metrics) {
+      final len = metric.length;
+      if (len <= 0) continue;
+      out.beginContour(metric.isClosed);
+      final step = math.max(0.5, math.min(1.5, math.sqrt(flatnessSq)));
+      for (var d = 0.0; d < len; d += step) {
+        final pos = metric.getTangentForOffset(d)!.position;
+        out.addVertex(pos.dx, pos.dy);
+      }
+      final endPos = metric.getTangentForOffset(len)!.position;
+      out.addVertex(endPos.dx, endPos.dy);
+      out.endContour();
+    }
+    return;
+  }
   if (src is _BezierGeometry) {
     final pts = src.track.at(frame);
     final count = pts.length ~/ 6;
@@ -3522,6 +3810,11 @@ final class _ContentKeyHasher {
       for (final sub in s.sources) {
         _mixSource(sub);
       }
+    } else if (s is _MergePathSource) {
+      _mixInt(9 + s.mode);
+      for (final sub in s.sources) {
+        _mixSource(sub);
+      }
     }
   }
 
@@ -3573,7 +3866,7 @@ final class _ContentKeyHasher {
       _mixDouble(l.ip);
       _mixDouble(l.op);
       _mixDouble(l.offset);
-      _mixInt((l.hidden ? 1 : 0) | (l.matteType << 2));
+      _mixInt((l.hidden ? 1 : 0) | (l.matteType << 2) | (l.blendMode << 6));
       _mixTransform(l.transform);
       final g = l.group;
       if (g != null) _mixDraw(g);

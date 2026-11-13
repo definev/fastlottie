@@ -145,6 +145,28 @@ class _Transform {
   }
 }
 
+class _Mask {
+  _Mask(
+    this.geometry,
+    this.mode,
+    this.opacity,
+    this.inverted, {
+    this.expand,
+  });
+  final _BezierGeometry geometry;
+  final String mode; // 'a', 's', 'i', 'f', 'n'
+  final _Track opacity;
+  final bool inverted;
+  final _Track? expand;
+
+  late final bool isStatic =
+      geometry.isStatic &&
+      opacity.isStatic &&
+      (expand?.isStatic ?? true);
+
+  Path path(double frame) => geometry.path(frame);
+}
+
 class _Layer {
   _Layer(
     this.transform,
@@ -157,6 +179,8 @@ class _Layer {
     this.stretch = 1,
     this.timeRemap,
     this.matteType = 0,
+    this.masks,
+    this.blendMode = 0,
   });
   final _Transform transform;
   final _Group? group;
@@ -166,6 +190,8 @@ class _Layer {
   final double offset, stretch;
   final _Track? timeRemap;
   final int matteType;
+  final List<_Mask>? masks;
+  final int blendMode;
   _Layer? matte;
   bool isMatteSource = false;
   late final Paint contentPaint = Paint();
@@ -203,7 +229,8 @@ class _Layer {
       (timeRemap?.isStatic ?? true) &&
       (group?.isStatic ?? true) &&
       (child?.isStatic ?? true) &&
-      (parent?.isStatic ?? true);
+      (parent?.isStatic ?? true) &&
+      (masks?.every((m) => m.isStatic) ?? true);
   late final bool hasStaticSpatialChain =
       transform.isSpatialStatic && (parent?.hasStaticSpatialChain ?? true);
 
@@ -242,6 +269,20 @@ class _Layer {
       bounds = _unionRect(bounds, child!.worldBounds(childFrame));
     }
     if (bounds == null) return _cachedWorldBounds = null;
+    if (masks != null && masks!.isNotEmpty) {
+      Rect? maskBounds;
+      for (var i = 0; i < masks!.length; i++) {
+        final m = masks![i];
+        if (m.mode == 'a' && !m.inverted) {
+          final mb = m.geometry.pathBounds(frame);
+          if (mb != null) maskBounds = _unionRect(maskBounds, mb);
+        }
+      }
+      if (maskBounds != null) {
+        bounds = bounds.intersect(maskBounds);
+        if (bounds.isEmpty) return _cachedWorldBounds = null;
+      }
+    }
     for (_Layer? p = this; p != null; p = p.parent) {
       bounds = p.transform.transformRect(bounds!, frame);
     }
@@ -251,10 +292,19 @@ class _Layer {
   bool visible(double frame) =>
       !hidden && (group != null || child != null) && frame >= ip && frame < op;
 
-  int effectiveAlpha(double frame, int parentAlpha) =>
-      (parentAlpha * transform.opacity.scalar(frame).round() / 100)
-          .toInt()
-          .clamp(0, 255);
+  int effectiveAlpha(double frame, int parentAlpha) {
+    var a = (parentAlpha * transform.opacity.scalar(frame).round() / 100)
+        .toInt()
+        .clamp(0, 255);
+    final ms = masks;
+    if (ms != null && ms.length == 1 && ms[0].mode == 'a') {
+      final mo = ms[0].opacity.scalar(frame);
+      if (mo < 100) {
+        a = (a * mo / 100).round().clamp(0, 255);
+      }
+    }
+    return a;
+  }
 
   void draw(Canvas canvas, double frame, int parentAlpha) {
     if (!visible(frame)) return;
@@ -263,18 +313,97 @@ class _Layer {
     final childFrame = timeRemap != null
         ? timeRemap!.scalar(frame) * child!.fps - child!.start
         : (frame - offset) / stretch;
-    if (!hasAnySpatialTransform) {
+    final hasActiveMasks = masks != null && masks!.any((m) => m.mode != 'n');
+    final uiBlendMode = _resolveBlendMode(blendMode);
+    if (!hasAnySpatialTransform && !hasActiveMasks && uiBlendMode == null) {
       group?.draw(canvas, frame, alpha);
       child?.draw(canvas, childFrame, alpha);
       return;
     }
-    canvas.save();
+    if (uiBlendMode != null) {
+      final bounds = worldBounds(frame) ?? Rect.largest;
+      canvas.saveLayer(bounds, contentPaint..blendMode = uiBlendMode);
+    } else {
+      canvas.save();
+    }
     applyParents(canvas, frame);
+    if (hasActiveMasks) {
+      _applyCanvasMasks(canvas, frame);
+    }
     group?.draw(canvas, frame, alpha);
     child?.draw(canvas, childFrame, alpha);
     canvas.restore();
   }
+
+  void _applyCanvasMasks(Canvas canvas, double frame) {
+    final list = masks;
+    if (list == null || list.isEmpty) return;
+    if (list.length == 1) {
+      final m = list[0];
+      if (m.mode == 'a' && !m.inverted) {
+        canvas.clipPath(m.path(frame));
+        return;
+      }
+      if (m.mode == 'n') return;
+    }
+    Path? combined;
+    for (var i = 0; i < list.length; i++) {
+      final m = list[i];
+      if (m.mode == 'n') continue;
+      final p = m.path(frame);
+      if (m.mode == 'a' && !m.inverted) {
+        combined = combined == null
+            ? p
+            : Path.combine(PathOperation.union, combined, p);
+      } else if (m.mode == 's' && !m.inverted) {
+        final b = worldBounds(frame) ?? Rect.largest;
+        final base = combined ?? (Path()..addRect(b));
+        combined = Path.combine(PathOperation.difference, base, p);
+      } else if (m.mode == 'i' && !m.inverted) {
+        if (combined != null) {
+          combined = Path.combine(PathOperation.intersect, combined, p);
+        }
+      } else if (m.mode == 'f' && !m.inverted) {
+        combined = combined == null
+            ? p
+            : Path.combine(PathOperation.xor, combined, p);
+      } else if (m.inverted) {
+        final b = worldBounds(frame) ?? Rect.largest;
+        final invPath = Path.combine(
+          PathOperation.difference,
+          Path()..addRect(b),
+          p,
+        );
+        combined = combined == null
+            ? invPath
+            : Path.combine(PathOperation.union, combined, invPath);
+      }
+    }
+    if (combined != null) {
+      canvas.clipPath(combined);
+    }
+  }
 }
+
+BlendMode? _resolveBlendMode(int bm) => switch (bm) {
+  1 => BlendMode.multiply,
+  2 => BlendMode.screen,
+  3 => BlendMode.overlay,
+  4 => BlendMode.darken,
+  5 => BlendMode.lighten,
+  6 => BlendMode.colorDodge,
+  7 => BlendMode.colorBurn,
+  8 => BlendMode.hardLight,
+  9 => BlendMode.softLight,
+  10 => BlendMode.difference,
+  11 => BlendMode.exclusion,
+  12 => BlendMode.hue,
+  13 => BlendMode.saturation,
+  14 => BlendMode.color,
+  15 => BlendMode.luminosity,
+  16 => BlendMode.plus,
+  _ => null,
+};
 
 class _Group implements _PathSource, _Draw {
   _Group(this.sources, this.draws, this.transform);
@@ -388,6 +517,93 @@ class _Group implements _PathSource, _Draw {
       d.draw(canvas, frame, alpha);
     }
     canvas.restore();
+  }
+}
+
+class _MergePathSource implements _PathSource {
+  _MergePathSource(this.sources, this.mode);
+  final List<_PathSource> sources;
+  final int mode;
+
+  @override
+  late final bool isStatic = sources.every((s) => s.isStatic);
+  @override
+  late final bool isPathStatic = sources.every((s) => s.isPathStatic);
+
+  Path? _cached;
+  double _last = double.nan;
+  Rect? _cachedBounds;
+  double _lastBoundsFrame = double.nan;
+
+  @override
+  Path path(double frame) {
+    if (_cached != null && (isPathStatic || _last == frame)) {
+      return _cached!;
+    }
+    _last = frame;
+    if (sources.isEmpty) {
+      return _cached = Path();
+    }
+    if (sources.length == 1) {
+      final p = sources[0].path(frame);
+      if (mode == 1 || mode == 2 || mode == 5) {
+        return _cached = p;
+      }
+      final op = mode == 3
+          ? PathOperation.reverseDifference
+          : PathOperation.intersect;
+      return _cached = Path.combine(op, p, Path());
+    }
+
+    if (mode == 1) {
+      final p = Path();
+      for (var i = 0; i < sources.length; i++) {
+        p.addPath(sources[i].path(frame), Offset.zero);
+      }
+      return _cached = p;
+    }
+
+    final op = switch (mode) {
+      2 => PathOperation.union,
+      3 => PathOperation.reverseDifference,
+      4 => PathOperation.intersect,
+      5 => PathOperation.xor,
+      _ => PathOperation.union,
+    };
+
+    final remainder = Path();
+    for (var i = 0; i < sources.length - 1; i++) {
+      remainder.addPath(sources[i].path(frame), Offset.zero);
+    }
+    final first = sources.last.path(frame);
+    return _cached = Path.combine(op, first, remainder);
+  }
+
+  @override
+  Rect? pathBounds(double frame) {
+    if (isPathStatic && !_lastBoundsFrame.isNaN) return _cachedBounds;
+    if (_lastBoundsFrame == frame) return _cachedBounds;
+    _lastBoundsFrame = frame;
+    if (sources.isEmpty) return _cachedBounds = null;
+    if (sources.length == 1) return _cachedBounds = sources[0].pathBounds(frame);
+
+    if (mode == 4) {
+      final b1 = sources.last.pathBounds(frame);
+      if (b1 == null) return _cachedBounds = null;
+      Rect? b2;
+      for (var i = 0; i < sources.length - 1; i++) {
+        b2 = _unionRect(b2, sources[i].pathBounds(frame));
+      }
+      if (b2 == null) return _cachedBounds = null;
+      final inter = b1.intersect(b2);
+      return _cachedBounds = inter.isEmpty ? null : inter;
+    }
+
+    Rect? acc;
+    for (var i = 0; i < sources.length; i++) {
+      acc = _unionRect(acc, sources[i].pathBounds(frame));
+    }
+    return _cachedBounds = acc;
   }
 }
 

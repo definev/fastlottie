@@ -213,6 +213,16 @@ void main() {
       } on UnsupportedLottieException {
         continue;
       }
+      // package:lottie 3.8.2 disables MergePaths (`mm`) due to an internal
+      // initialization timing bug in `LottieDrawable`, and does not implement
+      // layer blend modes (`bm: 1..16`) on Flutter Canvas. Skip differential
+      // comparison against package:lottie for these stickers; they are verified
+      // against Skia ground truth in `test/merge_paths_test.dart` and
+      // `test/blend_mode_test.dart`.
+      final jsonStr = utf8.decode(raw, allowMalformed: true);
+      if (jsonStr.contains('"ty":"mm"') || RegExp(r'"bm":\s*[1-9]').hasMatch(jsonStr)) {
+        continue;
+      }
       // Topics/file_4798713.tgs moves an 81-layer wireframe cart along curved
       // spatial Bézier tangents (`to`/`ti`) on `OSNOVA`. `package:lottie` uses
       // Skia `PathMetric` (`kDefaultTolerance=0.25px` coarse chordification),
@@ -323,7 +333,7 @@ void main() {
     }
     // ignore: avoid_print
     print('TGS_AUDIT $accepted native, $rejected unsupported');
-    expect(accepted, 959);
-    expect(rejected, 104);
+    expect(accepted, 1030);
+    expect(rejected, 33);
   });
 }

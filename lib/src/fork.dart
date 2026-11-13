@@ -18,6 +18,7 @@ class _Fork {
     _Draw d => d.isStatic,
     _Layer l => l.isStatic == l.hasAnySpatialTransform,
     _Transform t => t.isStatic,
+    _Mask m => m.isStatic,
     _Compiler c => c.isStatic,
     _ => false,
   };
@@ -40,6 +41,12 @@ class _Fork {
     if (v is _Group) return group(v);
     if (v is _Shape) return _copy(v, () => _Shape(source(v.content)));
     if (v is _TrimPart) return _copy(v, () => _TrimPart(trim(v.trim), v.index));
+    if (v is _MergePathSource) {
+      return _copy(
+        v,
+        () => _MergePathSource(v.sources.map(source).toList(), v.mode),
+      );
+    }
     if (v is _BezierGeometry) {
       return _copy(
         v,
@@ -130,6 +137,20 @@ class _Fork {
   );
   _Dash dash(_Dash v) =>
       _copy(v, () => _Dash(v.intervals.map(track).toList(), track(v.offset)));
+  _Mask mask(_Mask v) => _copy(
+    v,
+    () => _Mask(
+      _BezierGeometry(
+        track(v.geometry.track),
+        v.geometry.closed,
+        v.geometry.closures,
+      ),
+      v.mode,
+      track(v.opacity),
+      v.inverted,
+      expand: v.expand == null ? null : track(v.expand!),
+    ),
+  );
   _Layer layer(_Layer v) => _copy(
     v,
     () =>
@@ -144,6 +165,8 @@ class _Fork {
             stretch: v.stretch,
             timeRemap: v.timeRemap == null ? null : track(v.timeRemap!),
             matteType: v.matteType,
+            masks: v.masks?.map(mask).toList(),
+            blendMode: v.blendMode,
           )
           ..parent = v.parent == null ? null : layer(v.parent!)
           ..isMatteSource = v.isMatteSource,

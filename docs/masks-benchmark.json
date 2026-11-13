@@ -1,0 +1,117 @@
+{
+  "Masked Solid Layer (Static)": {
+    "compile": {
+      "min_us": 23.0,
+      "median_us": 69.0,
+      "p95_us": 166.0,
+      "mean_us": 72.84,
+      "fps": 13728.72048325096
+    },
+    "vector_canvas_record": {
+      "min_us": 3.0,
+      "median_us": 4.0,
+      "p95_us": 7.0,
+      "mean_us": 4.672,
+      "fps": 214041.09589041097
+    },
+    "software_rle_rasterizer": {
+      "min_us": 63.0,
+      "median_us": 89.0,
+      "p95_us": 1207.0,
+      "mean_us": 232.2,
+      "fps": 4306.632213608958
+    }
+  },
+  "Masked Shape Layer (Static)": {
+    "compile": {
+      "min_us": 45.0,
+      "median_us": 50.0,
+      "p95_us": 79.0,
+      "mean_us": 55.12,
+      "fps": 18142.235123367198
+    },
+    "vector_canvas_record": {
+      "min_us": 3.0,
+      "median_us": 4.0,
+      "p95_us": 5.0,
+      "mean_us": 5.845,
+      "fps": 171086.3986313088
+    },
+    "software_rle_rasterizer": {
+      "min_us": 62.0,
+      "median_us": 93.0,
+      "p95_us": 996.0,
+      "mean_us": 247.06,
+      "fps": 4047.5997733344125
+    }
+  },
+  "Masked Solid Layer (Animated Mask)": {
+    "compile": {
+      "min_us": 23.0,
+      "median_us": 26.0,
+      "p95_us": 63.0,
+      "mean_us": 32.715,
+      "fps": 30567.01818737582
+    },
+    "vector_canvas_record": {
+      "min_us": 4.0,
+      "median_us": 6.0,
+      "p95_us": 9.0,
+      "mean_us": 7.923,
+      "fps": 126214.81761958855
+    },
+    "software_rle_rasterizer": {
+      "min_us": 56.0,
+      "median_us": 75.0,
+      "p95_us": 485.0,
+      "mean_us": 143.19,
+      "fps": 6983.7279139604725
+    }
+  },
+  "Real TGS: emoji_u1f308": {
+    "compile": {
+      "min_us": 217.0,
+      "median_us": 255.0,
+      "p95_us": 697.0,
+      "mean_us": 332.785,
+      "fps": 3004.943131451237
+    },
+    "vector_canvas_record": {
+      "min_us": 3.0,
+      "median_us": 15.0,
+      "p95_us": 42.0,
+      "mean_us": 20.75,
+      "fps": 48192.77108433735
+    },
+    "software_rle_rasterizer": {
+      "min_us": 72.0,
+      "median_us": 291.0,
+      "p95_us": 1002.0,
+      "mean_us": 336.67,
+      "fps": 2970.2676211126623
+    }
+  },
+  "Real TGS: emoji_u1f483": {
+    "compile": {
+      "min_us": 4905.0,
+      "median_us": 5797.0,
+      "p95_us": 9413.0,
+      "mean_us": 6063.055,
+      "fps": 164.93335455475827
+    },
+    "vector_canvas_record": {
+      "min_us": 40.0,
+      "median_us": 50.0,
+      "p95_us": 103.0,
+      "mean_us": 60.07,
+      "fps": 16647.244880972197
+    },
+    "software_rle_rasterizer": {
+      "min_us": 684.0,
+      "median_us": 815.0,
+      "p95_us": 2560.0,
+      "mean_us": 1009.09,
+      "fps": 990.9918837764718
+    }
+  }
+}

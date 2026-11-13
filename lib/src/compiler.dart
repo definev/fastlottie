@@ -100,8 +100,18 @@ class _Compiler {
         path,
         'ddd ind ty nm sr st ip op ks shapes parent ao bm tt td tp masksProperties hasMask ef hd cl ln refId w h ct sw sh sc tm',
       );
-      for (final key in ['ddd', 'ao', 'bm', 'hasMask']) {
+      final bm = m['bm'] ?? 0;
+      if (bm is! int || bm < 0 || bm > 16) {
+        fail('$path.bm', 'Blend mode $bm');
+      }
+      for (final key in ['ddd', 'ao']) {
         zero(m, key, path);
+      }
+      if (m['hasMask'] != null &&
+          m['hasMask'] is! bool &&
+          m['hasMask'] != 0 &&
+          m['hasMask'] != 1) {
+        fail('$path.hasMask', 'Expected boolean hasMask');
       }
       final matteType = m['tt'] ?? 0;
       if (matteType is! int || matteType < 0 || matteType > 4) {
@@ -117,8 +127,36 @@ class _Compiler {
       if (m['td'] != null && m['td'] != 0 && m['td'] != 1) {
         fail('$path.td', 'Matte source flag');
       }
-      for (final key in ['masksProperties']) {
-        empty(m, key, path);
+      List<_Mask>? masks;
+      final rawMasks = m['masksProperties'];
+      if (rawMasks != null) {
+        if (rawMasks is! List) {
+          fail('$path.masksProperties', 'Expected list');
+        }
+        if (rawMasks.isNotEmpty) {
+          masks = <_Mask>[];
+          for (var k = 0; k < rawMasks.length; k++) {
+            final maskPath = '$path.masksProperties[$k]';
+            final maskObj = map(rawMasks[k], maskPath);
+            check(maskObj, maskPath, 'inv mode pt o x nm');
+            final inv = maskObj['inv'] == true;
+            final mode = (maskObj['mode'] as String?) ?? 'a';
+            if (!const {'a', 's', 'i', 'f', 'n'}.contains(mode)) {
+              fail('$maskPath.mode', 'Unsupported mask mode $mode');
+            }
+            if (maskObj['pt'] == null) {
+              fail('$maskPath.pt', 'Missing mask path');
+            }
+            final geom = _parseBezierTrack(maskObj['pt'], '$maskPath.pt');
+            final opacity = maskObj['o'] != null
+                ? _track(maskObj['o'], '$maskPath.o', 1, [100])
+                : _Track.constant([100]);
+            final expand = maskObj['x'] != null
+                ? _track(maskObj['x'], '$maskPath.x', 1, [0])
+                : null;
+            masks.add(_Mask(geom, mode, opacity, inv, expand: expand));
+          }
+        }
       }
       _controls(m['ef'], '$path.ef', list);
       if (_hasExpression(m)) {
@@ -213,6 +251,8 @@ class _Compiler {
         stretch: stretch,
         timeRemap: timeRemap,
         matteType: matteType,
+        masks: masks,
+        blendMode: bm,
       );
       layers.add(layer);
       final id = m['ind'] ?? i;
@@ -496,6 +536,66 @@ class _Compiler {
     return false;
   }
 
+  _BezierGeometry _parseBezierTrack(dynamic rawKs, String p) {
+    bool? closed;
+    final closures = <String, bool>{};
+    List<double> decode(dynamic raw, String at) {
+      if (raw is List && raw.length == 1 && raw.first is Map) {
+        raw = raw.first;
+      }
+      final shape = map(raw, at);
+      check(shape, at, 'v i o c');
+      if (shape['c'] is! bool) fail('$at.c', 'Expected closed flag');
+      closed ??= shape['c'];
+      closures[at] = shape['c'];
+      final v = shape['v'], incoming = shape['i'], outgoing = shape['o'];
+      if (v is! List ||
+          incoming is! List ||
+          outgoing is! List ||
+          v.length != incoming.length ||
+          v.length != outgoing.length) {
+        fail(at, 'Invalid path topology');
+      }
+      final data = <double>[];
+      for (var n = 0; n < v.length; n++) {
+        for (final item in [v[n], incoming[n], outgoing[n]]) {
+          if (item is! List || item.length != 2) {
+            fail(at, 'Expected 2D path point');
+          }
+          data.add(number(item[0], at));
+          data.add(number(item[1], at));
+        }
+      }
+      return data;
+    }
+
+    final track = _track(rawKs, p, -1, [], decode: decode);
+    final closureKeys = <(bool, bool)>[];
+    final keyframes = track.keyframes;
+    if (keyframes != null && closures.values.any((c) => c != closed)) {
+      final starts = <bool>[], ends = <bool?>[];
+      var previous = closed ?? true;
+      for (var n = 0; n < keyframes.count; n++) {
+        final at = '$p.k[$n]';
+        final start = closures['$at.s'] ?? previous;
+        final end = closures['$at.e'];
+        starts.add(start);
+        ends.add(end);
+        previous = end ?? start;
+      }
+      for (var n = 0; n < starts.length; n++) {
+        closureKeys.add((
+          starts[n],
+          keyframes.isHold(n)
+              ? starts[n]
+              : ends[n] ?? starts[math.min(n + 1, starts.length - 1)],
+        ));
+      }
+    }
+    commands += track.valueCount ~/ 6;
+    return _BezierGeometry(track, closed ?? true, closureKeys);
+  }
+
   _Group _group(dynamic value, String path) {
     if (value is! List) fail(path, 'Expected shape list');
     final sources = <_PathSource>[];
@@ -506,7 +606,10 @@ class _Compiler {
       final p = '$path[$i]';
       final m = map(value[i], p);
       final type = m['ty'];
-      zero(m, 'bm', p);
+      final bm = m['bm'] ?? 0;
+      if (bm is! int || bm < 0 || bm > 16) {
+        fail('$p.bm', 'Blend mode $bm');
+      }
       final hidden = m['hd'] == true;
       switch (type) {
         case 'tr':
@@ -524,64 +627,10 @@ class _Compiler {
           }
         case 'sh':
           check(m, p, 'ty nm mn ix hd ks ind d bm');
-          bool? closed;
-          final closures = <String, bool>{};
-          List<double> decode(dynamic raw, String at) {
-            if (raw is List && raw.length == 1 && raw.first is Map) {
-              raw = raw.first;
-            }
-            final shape = map(raw, at);
-            check(shape, at, 'v i o c');
-            if (shape['c'] is! bool) fail('$at.c', 'Expected closed flag');
-            closed ??= shape['c'];
-            closures[at] = shape['c'];
-            final v = shape['v'], incoming = shape['i'], outgoing = shape['o'];
-            if (v is! List ||
-                incoming is! List ||
-                outgoing is! List ||
-                v.length != incoming.length ||
-                v.length != outgoing.length) {
-              fail(at, 'Invalid path topology');
-            }
-            final data = <double>[];
-            for (var n = 0; n < v.length; n++) {
-              for (final item in [v[n], incoming[n], outgoing[n]]) {
-                if (item is! List || item.length != 2) {
-                  fail(at, 'Expected 2D path point');
-                }
-                data.add(number(item[0], at));
-                data.add(number(item[1], at));
-              }
-            }
-            return data;
-          }
           if (m['ks'] == null) fail('$p.ks', 'Missing path data');
-          final track = _track(m['ks'], '$p.ks', -1, [], decode: decode);
-          final closureKeys = <(bool, bool)>[];
-          final keyframes = track.keyframes;
-          if (keyframes != null && closures.values.any((c) => c != closed)) {
-            final starts = <bool>[], ends = <bool?>[];
-            var previous = closed!;
-            for (var n = 0; n < keyframes.count; n++) {
-              final at = '$p.ks.k[$n]';
-              final start = closures['$at.s'] ?? previous;
-              final end = closures['$at.e'];
-              starts.add(start);
-              ends.add(end);
-              previous = end ?? start;
-            }
-            for (var n = 0; n < starts.length; n++) {
-              closureKeys.add((
-                starts[n],
-                keyframes.isHold(n)
-                    ? starts[n]
-                    : ends[n] ?? starts[math.min(n + 1, starts.length - 1)],
-              ));
-            }
-          }
-          commands += track.valueCount ~/ 6;
+          final geom = _parseBezierTrack(m['ks'], '$p.ks');
           if (!hidden) {
-            sources.add(_Shape(_BezierGeometry(track, closed!, closureKeys)));
+            sources.add(_Shape(geom));
           }
         case 'rc':
         case 'el':
@@ -725,9 +774,17 @@ class _Compiler {
         case 'mm':
           check(m, p, 'ty nm mn ix hd mm bm cix');
           final mode = m['mm'] ?? 1;
-          if (mode != 1) {
+          if (mode is! int || mode < 1 || mode > 5) {
             fail('$p.mm', 'Shape op mm mode $mode');
           }
+          if (!hidden && sources.isNotEmpty) {
+            final merged = _MergePathSource(List.of(sources), mode);
+            sources.clear();
+            sources.add(merged);
+          } else if (hidden) {
+            sources.clear();
+          }
+          commands++;
         default:
           fail('$p.ty', 'Shape op $type');
       }
