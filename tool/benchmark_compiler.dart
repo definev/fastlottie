@@ -10,7 +10,7 @@ void main() {
     final paths = [
       for (final name in ['static', 'many_shapes', 'morph'])
         'example/assets/$name.json',
-      for (final id in ['1f426', '1f32a_fe0f', '1f9cb'])
+      for (final id in ['1f426', '1f32a_fe0f', '1f9cb', '1f30e'])
         'example/assets/tgs/NotoEmoji/emoji_u$id.tgs',
     ];
     for (final path in paths) {

@@ -258,6 +258,75 @@ void main() {
     },
   );
 
+  test('multiple precomposition layers sharing an asset ID render with independent timing', () async {
+    final base = fixture('static');
+    final nested = base['layers'];
+    final precomp1 = {
+      'ddd': 0,
+      'ind': 1,
+      'ty': 0,
+      'nm': 'P1',
+      'sr': 1,
+      'st': 0,
+      'ip': 0,
+      'op': 60,
+      'ks': {
+        'a': constant([0, 0]),
+        'p': constant([0, 0]),
+        's': constant([50, 50]),
+        'r': constant(0),
+        'o': constant(100),
+      },
+      'refId': 'shared_comp',
+      'w': 256,
+      'h': 256,
+    };
+    final precomp2 = {
+      'ddd': 0,
+      'ind': 2,
+      'ty': 0,
+      'nm': 'P2',
+      'sr': 1,
+      'st': 10,
+      'ip': 10,
+      'op': 60,
+      'ks': {
+        'a': constant([0, 0]),
+        'p': constant([128, 128]),
+        's': constant([50, 50]),
+        'r': constant(45),
+        'o': constant(80),
+      },
+      'refId': 'shared_comp',
+      'w': 256,
+      'h': 256,
+    };
+    final doc = {
+      'v': '5.5.7',
+      'fr': 60,
+      'ip': 0,
+      'op': 60,
+      'w': 256,
+      'h': 256,
+      'nm': 'SharedPrecomps',
+      'assets': [
+        {'id': 'shared_comp', 'layers': nested},
+      ],
+      'layers': [precomp1, precomp2],
+    };
+    final comp = FastLottieComposition.fromJson(doc);
+    final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
+    addTearDown(player.dispose);
+    final frame0 = await render(
+      (c) => player.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256), 0),
+    );
+    final frame15 = await render(
+      (c) => player.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256), 15 / 60),
+    );
+    expect(frame0.any((b) => b > 0), isTrue);
+    expect(frame15.any((b) => b > 0), isTrue);
+  });
+
   test(
     'luma mattes use rlottie RGB weights, including inverse and opacity',
     () async {

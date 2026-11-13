@@ -100,6 +100,7 @@ class _Compiler {
     Map<String, dynamic> json, {
     Map<String, Map<String, dynamic>>? assetModels,
     Set<String> precompStack = const {},
+    Map<(String, double, double), _Compiler>? precompTemplates,
   }) {
     check(json, _JsonPath.root, const {
       'v',
@@ -153,6 +154,8 @@ class _Compiler {
     }
     final list = json['layers'];
     if (list is! List) fail(_JsonPath.layers, 'Expected layers');
+    final precomps =
+        precompTemplates ?? <(String, double, double), _Compiler>{};
     final paths = _ShapePathCompiler(this, list);
     final byId = <int, _Layer>{};
     final parents = <_Layer, int>{};
@@ -330,19 +333,28 @@ class _Compiler {
         if (precompStack.contains(id)) {
           fail(path.field('refId'), 'Cyclic precomposition');
         }
-        child = _Compiler(options)
-          ..compile(
-            {
-              'w': m['w'] ?? width,
-              'h': m['h'] ?? height,
-              'ip': 0,
-              'op': end - start,
-              'fr': fps,
-              'layers': asset['layers'],
-            },
-            assetModels: assets,
-            precompStack: {...precompStack, id},
-          );
+        final cw = number(m['w'] ?? width, path.field('w'));
+        final ch = number(m['h'] ?? height, path.field('h'));
+        final precompKey = (id, cw, ch);
+        var template = precomps[precompKey];
+        if (template == null) {
+          template = _Compiler(options)
+            ..compile(
+              {
+                'w': cw,
+                'h': ch,
+                'ip': 0,
+                'op': end - start,
+                'fr': fps,
+                'layers': asset['layers'],
+              },
+              assetModels: assets,
+              precompStack: {...precompStack, id},
+              precompTemplates: precomps,
+            );
+          precomps[precompKey] = template;
+        }
+        child = _Fork().scene(template);
         commands += child.commands;
         hasStroke |= child.hasStroke;
       }
