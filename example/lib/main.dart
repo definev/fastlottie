@@ -13,7 +13,9 @@ Future<void> main() async {
 }
 
 class FastLottieCupertinoApp extends StatefulWidget {
-  const FastLottieCupertinoApp({super.key});
+  const FastLottieCupertinoApp({super.key, this.memoryWorkload});
+
+  final ChatMemoryWorkload? memoryWorkload;
 
   @override
   State<FastLottieCupertinoApp> createState() => _FastLottieCupertinoAppState();
@@ -41,6 +43,7 @@ class _FastLottieCupertinoAppState extends State<FastLottieCupertinoApp> {
     ),
     home: CupertinoChatScreen(
       isDark: _isDark,
+      memoryWorkload: widget.memoryWorkload,
       rasterWorkerCount: _positiveOption('workers'),
       stripFrames: _positiveOption('strip'),
       onBrightnessChanged: (next) => setState(() => _isDark = next),

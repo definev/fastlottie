@@ -1,5 +1,8 @@
 # Benchmark RAM: FastLottie, rlottie và ThorVG
 
+Để đo RAM của toàn bộ app example (chat, sticker picker, worker và cache),
+xem [benchmark RAM của app example](chat-memory-benchmark.md).
+
 Bộ đo này so **software renderer ghi vào buffer BGRA8888**, mỗi instance có
 buffer riêng. Các process không dùng chung runtime. FastLottie chạy Flutter
 release/AOT với kernel native; rlottie mặc định build `LOTTIE_THREAD=OFF`;

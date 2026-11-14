@@ -71,4 +71,4 @@ See the [example guide](example/README.md) for the local TGS server, renderer
 comparison, and other entry points. For development, run `flutter analyze`
 and `flutter test` from the root, and `flutter test` from `example/`.
 
-[Architecture](docs/architecture.md) · [Benchmarks](docs/benchmarks.md)
+[RAM/performance tuning guide](docs/memory-performance-guide.md) · [Architecture](docs/architecture.md) · [Benchmarks](docs/benchmarks.md)

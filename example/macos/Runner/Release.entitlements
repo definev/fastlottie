@@ -6,5 +6,8 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- The example serves bundled sticker assets over loopback. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 </dict>
 </plist>

@@ -21,7 +21,33 @@ import 'web_support_stub.dart'
     if (dart.library.js_interop) 'web_support.dart'
     as web_support;
 
+part 'chat_memory_workload.dart';
+
 enum ChatRendererMode { fastlottie, lottie }
+
+/// Benchmark-only override; the regular demo keeps its existing hero policy.
+class HeroStickerCacheScope extends InheritedWidget {
+  const HeroStickerCacheScope({
+    super.key,
+    required this.cache,
+    required super.child,
+  });
+
+  final FastLottieCache cache;
+
+  @override
+  bool updateShouldNotify(HeroStickerCacheScope oldWidget) =>
+      cache != oldWidget.cache;
+}
+
+// Measured on macOS. Keep other platforms on their existing profile until
+// separately validated. Explicit defines allow A/B runs on the same workload.
+final _compactChat = const bool.hasEnvironment('CHAT_COMPACT')
+    ? const bool.fromEnvironment('CHAT_COMPACT')
+    : !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+final _opaqueChatHeader = const bool.hasEnvironment('CHAT_OPAQUE_HEADER')
+    ? const bool.fromEnvironment('CHAT_OPAQUE_HEADER')
+    : _compactChat;
 
 enum _DrawerTab { all, pack, emoji }
 
@@ -458,6 +484,7 @@ class CupertinoChatScreen extends StatefulWidget {
     this.rasterStrategy = FastLottieRasterStrategy.miniStrip,
     this.stripFrames,
     this.rasterWorkerCount,
+    this.memoryWorkload,
   });
 
   final Uri? externalServerUri;
@@ -468,6 +495,7 @@ class CupertinoChatScreen extends StatefulWidget {
   final FastLottieRasterStrategy rasterStrategy;
   final int? stripFrames;
   final int? rasterWorkerCount;
+  final ChatMemoryWorkload? memoryWorkload;
 
   @override
   State<CupertinoChatScreen> createState() => _CupertinoChatScreenState();
@@ -484,28 +512,31 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         framePaced: true,
         // Visible cells stay pinned. This only bounds models that have
         // already scrolled off; compiling them again reads the disk cache.
-        maximumEntries: 48,
+        maximumEntries: _compactChat ? 8 : 48,
       );
 
-  late FastLottieRasterStrategy _rasterStrategy = widget.rasterStrategy;
+  late FastLottieRasterStrategy _rasterStrategy =
+      widget.memoryWorkload?.strategy ?? widget.rasterStrategy;
   late FastLottieRasterCache _rasterCache = _createRasterCache(_rasterStrategy);
 
   FastLottieRasterCache _createRasterCache(FastLottieRasterStrategy strategy) =>
       switch (strategy) {
         FastLottieRasterStrategy.miniStrip => FastLottieRasterCache.miniStrip(
-          maximumBytes: 48 * 1024 * 1024,
-          maximumCompressedMemoryBytes: 16 * 1024 * 1024,
+          maximumBytes: (_compactChat ? 6 : 48) * 1024 * 1024,
+          maximumInFlight: _compactChat ? 2 : 8,
+          maximumCompressedMemoryBytes: (_compactChat ? 2 : 16) * 1024 * 1024,
           maximumDiskBytes: 128 * 1024 * 1024,
           maximumFrameRate: stickerThumbnailFrameRate,
           stripFrames: widget.stripFrames,
-          workerCount: widget.rasterWorkerCount,
+          workerCount: widget.rasterWorkerCount ?? (_compactChat ? 1 : null),
         ),
         FastLottieRasterStrategy.pingPong => FastLottieRasterCache.pingPong(
-          maximumBytes: 48 * 1024 * 1024,
-          maximumCompressedMemoryBytes: 16 * 1024 * 1024,
+          maximumBytes: (_compactChat ? 6 : 48) * 1024 * 1024,
+          maximumInFlight: _compactChat ? 2 : 8,
+          maximumCompressedMemoryBytes: (_compactChat ? 2 : 16) * 1024 * 1024,
           maximumDiskBytes: 128 * 1024 * 1024,
           maximumFrameRate: stickerThumbnailFrameRate,
-          workerCount: widget.rasterWorkerCount,
+          workerCount: widget.rasterWorkerCount ?? (_compactChat ? 1 : null),
         ),
       };
 
@@ -536,7 +567,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   Object? _bootError;
   bool _booting = true;
 
-  ChatRendererMode _renderer = ChatRendererMode.fastlottie;
+  late ChatRendererMode _renderer =
+      widget.memoryWorkload?.renderer ?? ChatRendererMode.fastlottie;
   late bool _isDark = widget.isDark;
   bool? _reducedMotionOverride;
   bool _foreground = true;
@@ -573,9 +605,17 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       _bootError = null;
     });
     try {
-      await ensureDefaultExampleDiskCache();
-      await attachExampleDiskCache(_rasterCache);
-      final urlCacheDir = await resolveUrlDiskCacheDirectory();
+      final workload = widget.memoryWorkload;
+      final String? urlCacheDir;
+      if (workload == null) {
+        await ensureDefaultExampleDiskCache();
+        await attachExampleDiskCache(_rasterCache);
+        urlCacheDir = await resolveUrlDiskCacheDirectory();
+      } else {
+        _rasterCache.attachDiskDirectory(workload.rasterCachePath);
+        FastLottieRasterCache.defaultDiskDirectory = workload.rasterCachePath;
+        urlCacheDir = workload.urlCachePath;
+      }
       if (urlCacheDir != null && _store.sourceCacheDirectory == null) {
         _store.attachSourceCacheDirectory(urlCacheDir);
       }
@@ -606,7 +646,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
       if (!mounted) return;
       _setupCatalog(catalog);
+      if (workload != null) unawaited(workload._run(this, catalog));
     } catch (error) {
+      widget.memoryWorkload?.onError(error);
       if (!mounted) return;
       setState(() {
         _bootError = error;
@@ -1007,6 +1049,21 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     }
   }
 
+  void _dismissPicker() {
+    if (_composerFocus.hasFocus) _composerFocus.unfocus();
+    if (_drawerOpen) setState(() => _drawerOpen = false);
+  }
+
+  void _selectPickerTab(int index) {
+    setState(() => _selectedTabIndex = index);
+    if (_pickerScroll.hasClients) _pickerScroll.jumpTo(0);
+  }
+
+  void _setReducedMotion(bool reduced) {
+    setState(() => _reducedMotionOverride = reduced);
+    _syncPlayback();
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_messageScroll.hasClients) return;
@@ -1214,8 +1271,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
             onPressed: () {
               final next = !_reduced;
               Navigator.of(ctx).pop();
-              setState(() => _reducedMotionOverride = next);
-              _syncPlayback();
+              _setReducedMotion(next);
             },
             child: Text(
               'Reduce Motion: ${_reduced ? 'ON (Static)' : 'OFF (Animated)'}',
@@ -1452,7 +1508,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         backgroundColor: palette.background,
         navigationBar: CupertinoNavigationBar(
           automaticallyImplyLeading: false,
-          backgroundColor: palette.navBar,
+          backgroundColor: _opaqueChatHeader
+              ? Color.alphaBlend(palette.navBar, palette.background)
+              : palette.navBar,
           border: Border(
             bottom: BorderSide(color: palette.separator, width: 0.5),
           ),
@@ -1544,14 +1602,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                         children: [
                           GestureDetector(
                             behavior: HitTestBehavior.translucent,
-                            onTap: () {
-                              if (_composerFocus.hasFocus) {
-                                _composerFocus.unfocus();
-                              }
-                              if (_drawerOpen) {
-                                setState(() => _drawerOpen = false);
-                              }
-                            },
+                            onTap: _dismissPicker,
                             child: CupertinoScrollbar(
                               controller: _messageScroll,
                               child: ListView.builder(
@@ -1561,6 +1612,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                 physics: const BouncingScrollPhysics(
                                   parent: AlwaysScrollableScrollPhysics(),
                                 ),
+                                scrollCacheExtent: _compactChat
+                                    ? const ScrollCacheExtent.pixels(0)
+                                    : null,
                                 addAutomaticKeepAlives: false,
                                 padding: const EdgeInsets.fromLTRB(
                                   12,
@@ -1651,12 +1705,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                         catalog: catalog,
                         tabs: _buildTabs(catalog),
                         selectedTabIndex: _selectedTabIndex,
-                        onTabChanged: (idx) {
-                          setState(() => _selectedTabIndex = idx);
-                          if (_pickerScroll.hasClients) {
-                            _pickerScroll.jumpTo(0);
-                          }
-                        },
+                        onTabChanged: _selectPickerTab,
                         scrollController: _pickerScroll,
                         stickerSheet: _stickerSheet!,
                         emojiSheet: _emojiSheet!,
@@ -2093,6 +2142,9 @@ class _StickerPickerDrawer extends StatelessWidget {
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
+                    scrollCacheExtent: _compactChat
+                        ? const ScrollCacheExtent.pixels(0)
+                        : null,
                     addAutomaticKeepAlives: false,
                     addRepaintBoundaries: false,
                     itemCount: items.length,
@@ -2221,7 +2273,7 @@ class _ChatMessageRow extends StatelessWidget {
                       store: store,
                       renderer: renderer,
                       animate: animateHero,
-                      size: 220,
+                      size: _compactChat ? 160 : 220,
                       placeholderColor: palette.tilePlaceholder,
                       borderColor: palette.incomingBorder,
                       accentColor: palette.accent,
@@ -2890,7 +2942,13 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
               repeat: true,
               useFrameRate: true,
               usePipeline: false,
-              cache: FastLottieCache.unbounded,
+              cache:
+                  context
+                      .dependOnInheritedWidgetOfExactType<
+                        HeroStickerCacheScope
+                      >()
+                      ?.cache ??
+                  FastLottieCache.unbounded,
             ),
           );
         }

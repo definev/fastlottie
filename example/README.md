@@ -81,6 +81,9 @@ large sticker messages use vector rendering.
 
 ## Comparison targets
 
+For release memory measurements of the chat itself on macOS and Android, see
+[the chat memory benchmark](../docs/chat-memory-benchmark.md).
+
 Run the release harness from the repository root. Write new runs to a separate
 output file to preserve the measured snapshots:
 
@@ -99,3 +102,12 @@ python3 tool/run_benchmark.py --device macos --target lib/tgs_benchmark.dart \
 See [the gallery](../docs/tgs-grid.md) for its fixture corpus and
 [benchmarks](../docs/benchmarks.md) for how to read the results. Android also
 ships a separate [TGS Compose launcher](../docs/compose-tgs.md).
+
+## macOS memory profile
+
+The macOS chat now uses a 6 MiB image budget, 2 MiB compressed cache, one raster
+worker, and 160 logical-pixel vector stickers. Thumbnail resolution and autoplay
+are preserved. The header is opaque and lists do not prebuild offscreen cells.
+Use `--dart-define=CHAT_COMPACT=false` to compare with the previous profile.
+Android and web retain their previous defaults.
+See [measurements and tradeoffs](../docs/chat-graphics-memory-macos.md).
