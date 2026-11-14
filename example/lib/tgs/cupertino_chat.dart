@@ -457,6 +457,7 @@ class CupertinoChatScreen extends StatefulWidget {
     this.onBrightnessChanged,
     this.rasterStrategy = FastLottieRasterStrategy.miniStrip,
     this.stripFrames,
+    this.rasterWorkerCount,
   });
 
   final Uri? externalServerUri;
@@ -466,6 +467,7 @@ class CupertinoChatScreen extends StatefulWidget {
   final ValueChanged<bool>? onBrightnessChanged;
   final FastLottieRasterStrategy rasterStrategy;
   final int? stripFrames;
+  final int? rasterWorkerCount;
 
   @override
   State<CupertinoChatScreen> createState() => _CupertinoChatScreenState();
@@ -496,12 +498,14 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
           maximumDiskBytes: 128 * 1024 * 1024,
           maximumFrameRate: stickerThumbnailFrameRate,
           stripFrames: widget.stripFrames,
+          workerCount: widget.rasterWorkerCount,
         ),
         FastLottieRasterStrategy.pingPong => FastLottieRasterCache.pingPong(
           maximumBytes: 48 * 1024 * 1024,
           maximumCompressedMemoryBytes: 16 * 1024 * 1024,
           maximumDiskBytes: 128 * 1024 * 1024,
           maximumFrameRate: stickerThumbnailFrameRate,
+          workerCount: widget.rasterWorkerCount,
         ),
       };
 
@@ -949,9 +953,12 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       _isDark = widget.isDark;
     }
     if (oldWidget.rasterStrategy != widget.rasterStrategy ||
-        oldWidget.stripFrames != widget.stripFrames) {
+        oldWidget.stripFrames != widget.stripFrames ||
+        oldWidget.rasterWorkerCount != widget.rasterWorkerCount) {
       final nextStrategy = widget.rasterStrategy;
-      final force = oldWidget.stripFrames != widget.stripFrames;
+      final force =
+          oldWidget.stripFrames != widget.stripFrames ||
+          oldWidget.rasterWorkerCount != widget.rasterWorkerCount;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           unawaited(_setRasterStrategy(nextStrategy, forceRebuild: force));

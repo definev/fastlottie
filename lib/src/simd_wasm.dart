@@ -166,6 +166,7 @@ Future<void> initializeWasmKernels(Uint8List bytes) async {
   if (exports.memory.buffer.toDart.lengthInBytes == 0) {
     throw StateError('FastLottie Wasm memory is empty');
   }
+
   _kernels = exports;
 }
 

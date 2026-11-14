@@ -53,6 +53,10 @@ the repository root with `dart run tool/build_web_worker.dart`. Pass `--check`
 to verify the bundled script matches the current source and SDK. To measure the
 inline fallback, build with `--dart-define=FASTLOTTIE_DISABLE_WEB_WORKER=true`.
 
+On the web chat demo, use `?workers=1&strip=4` or `?workers=2&strip=4` to compare
+pool sizes with the same mini-strip length. Without the query parameters,
+FastLottie chooses the worker count and strip length automatically.
+
 ## Use a separate TGS server
 
 From the repository root, run:

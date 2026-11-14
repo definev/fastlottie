@@ -47,9 +47,11 @@ canvas drawing, own a `FastLottiePlayer`, call `draw(canvas, rect, progress)`,
 and dispose it when finished. See [cache options](docs/lod-cache.md) and
 [full-loop raster preparation](docs/dpr-raster.md).
 
-On web, raster caches start a dedicated worker automatically. The worker keeps
-its own compiled scenes and LZ4 cache, uses the standalone C Wasm kernels when
-available, and transfers completed pixel strips back to Flutter. Serve the
+On web, raster caches start dedicated workers automatically: two on browsers
+that report at least four logical processors, otherwise one. Each worker keeps
+its own compiled scenes and share of the LZ4 budget, uses the standalone C Wasm
+kernels when available, and transfers completed pixel strips back to Flutter.
+Set `workerCount: 1` on the raster cache to use one browser worker. Serve the
 worker script from the same origin as the app; when workers are unavailable,
 raster jobs run inline. Native builds continue to use Dart isolates.
 

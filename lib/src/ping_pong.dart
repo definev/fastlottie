@@ -10,7 +10,9 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   }) {
     workerPool = _RasterWorkerPool(
       listener: this,
-      workerCount: defaultWorkerCount(workerCount),
+      workerCount: kIsWeb
+          ? browserRasterWorkerCount(workerCount)
+          : defaultWorkerCount(workerCount),
       maximumCompressedMemoryBytes: cache.maximumCompressedMemoryBytes,
       maximumDiskBytes: cache.maximumDiskBytes,
       diskCacheDirectory: diskCacheDirectory,
@@ -23,11 +25,31 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   final _highPriorityQueue = LinkedHashSet<_RasterEntry>.identity();
   final _lowPriorityQueue = LinkedHashSet<_RasterEntry>.identity();
   final _activeDiskKeys = <String>{};
+  final _activeWebShards = <int>{};
+  final _awaitingWebImages = <_RasterEntry>{};
   int _activeJobs = 0;
   bool _disposed = false;
   bool _pumpScheduled = false;
 
-  int get _maximumInFlight => kIsWeb ? 1 : cache.maximumInFlight;
+  // Allow another strip per browser worker while Flutter creates images.
+  // This caps the total drafts in flight; each shard has at most one RPC.
+  int get _maximumInFlight => kIsWeb
+      ? math.min(
+          cache.maximumInFlight,
+          math.max(1, workerPool.browserWorkers * 2),
+        )
+      : cache.maximumInFlight;
+
+  bool _canDispatch(_RasterEntry entry) {
+    if (!kIsWeb) return _activeJobs < _maximumInFlight;
+    final shard = workerPool.webShard(entry.entryKey);
+    if (_activeJobs >= _maximumInFlight) return false;
+    if (_activeWebShards.contains(shard)) return false;
+    // Multiple browser workers can fail asynchronously. Keep new inline
+    // work on a single slot even when more than one shard fell back.
+    return !workerPool.isInlineShard(shard) ||
+        !_activeWebShards.any(workerPool.isInlineShard);
+  }
 
   int get activeJobCount => _activeJobs;
   int get pendingCount =>
@@ -328,7 +350,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       if (highPriority) entry.queuedHighPriority = true;
       return;
     }
-    if (_activeJobs >= _maximumInFlight) {
+    if (!_canDispatch(entry) || (kIsWeb && entry.queuedForPingPong)) {
       entry.pendingStripStart = stripStart;
       entry.pendingStripCount = stripCount;
       if (!entry.queuedForPingPong) {
@@ -355,6 +377,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         entry.queuedHighPriority = true;
         _highPriorityQueue.add(entry);
       }
+      if (kIsWeb) _pumpPending();
       return;
     }
     _dispatchEntryStrip(entry, stripStart, stripCount);
@@ -379,6 +402,9 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     entry.inFlightStripStart = stripStart;
     entry.inFlightStripCount = stripCount;
     final dispatchedGen = entry.stripGeneration;
+    if (kIsWeb) {
+      _activeWebShards.add(workerPool.webShard(entry.entryKey));
+    }
     _activeJobs++;
 
     workerPool.dispatchStrip(
@@ -491,6 +517,14 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     }
 
     try {
+      if (kIsWeb) {
+        final shard = workerPool.webShard(entry.entryKey);
+        if (!workerPool.isInlineShard(shard)) {
+          _activeWebShards.remove(shard);
+          _awaitingWebImages.add(entry);
+          _pumpPending();
+        }
+      }
       ui.decodeImageFromPixels(
         bgraBytes,
         stripWidth,
@@ -508,6 +542,25 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       _finishJob(entry, scheduleFollowup: false);
       cache._failed(error);
     }
+  }
+
+  @override
+  void onBrowserWorkerFallback(_RasterEntry entry) {
+    if (entry.pendingStripStart < 0) {
+      final desired = entry.desiredFrameIndex;
+      final start =
+          desired >= 0 &&
+              !_stripContains(
+                entry.renderingStripStart,
+                entry.renderingStripCount,
+                desired,
+              )
+          ? _stripStartFor(entry, desired)
+          : _stripStartFor(entry, entry.inFlightStripStart);
+      entry.pendingStripStart = start;
+      entry.pendingStripCount = _stripCountFor(entry, start, entry.totalFrames);
+    }
+    _finishJob(entry, scheduleFollowup: true);
   }
 
   @override
@@ -659,6 +712,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   }
 
   void _finishJob(_RasterEntry entry, {required bool scheduleFollowup}) {
+    if (kIsWeb && !_disposed) {
+      if (!_awaitingWebImages.remove(entry)) {
+        _activeWebShards.remove(workerPool.webShard(entry.entryKey));
+      }
+    }
     if (_activeJobs > 0) _activeJobs--;
     entry.inFlightStripStart = -1;
     entry.inFlightStripCount = 0;
@@ -718,10 +776,10 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       if (_disposed || !cache._enabled || cache.lastError != null) return;
       while ((_highPriorityQueue.isNotEmpty || _lowPriorityQueue.isNotEmpty) &&
           _activeJobs < _maximumInFlight) {
-        final queue = _highPriorityQueue.isNotEmpty
-            ? _highPriorityQueue
-            : _lowPriorityQueue;
-        final entry = queue.first;
+        final high = _firstDispatchable(_highPriorityQueue);
+        final queue = high != null ? _highPriorityQueue : _lowPriorityQueue;
+        final entry = high ?? _firstDispatchable(_lowPriorityQueue);
+        if (entry == null) break;
         queue.remove(entry);
         entry.queuedForPingPong = false;
         entry.queuedHighPriority = false;
@@ -753,6 +811,13 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     });
   }
 
+  _RasterEntry? _firstDispatchable(Set<_RasterEntry> queue) {
+    for (final entry in queue) {
+      if (_canDispatch(entry)) return entry;
+    }
+    return null;
+  }
+
   void _notifyUsers(_RasterEntry entry) {
     if (entry.users.length == 1) {
       entry.users.first._rasterReady();
@@ -774,6 +839,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     if (_disposed) return;
     _disposed = true;
     clearPending();
+    _activeWebShards.clear();
+    _awaitingWebImages.clear();
     workerPool.dispose();
   }
 }

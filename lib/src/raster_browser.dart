@@ -9,6 +9,12 @@ import 'isolate_stub.dart';
 import 'raster_web_protocol.dart';
 import 'simd_web.dart';
 
+int browserRasterWorkerCount(int? override) {
+  if (const bool.fromEnvironment('FASTLOTTIE_DISABLE_WEB_WORKER')) return 1;
+  return override?.clamp(1, 2) ??
+      (web.window.navigator.hardwareConcurrency >= 4 ? 2 : 1);
+}
+
 WorkerHandle? startBrowserRasterWorker(String name) {
   if (const bool.fromEnvironment('FASTLOTTIE_DISABLE_WEB_WORKER')) return null;
   try {

@@ -18,8 +18,9 @@ const _requireHook = bool.fromEnvironment('FASTLOTTIE_REQUIRE_WASM_HOOK');
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _checkRendering();
+  final icon = await FastLottieComposition.loadAsset('assets/icon.json');
   for (final composition in [
-    await FastLottieComposition.loadAsset('assets/icon.json'),
+    icon,
     await _gradientIcon(),
     await FastLottieComposition.loadAsset(
       'assets/tgs/Crocosaurus-1794222759141/file_4786080.tgs',
@@ -27,6 +28,7 @@ Future<void> main() async {
   ]) {
     await _checkMiniStrip(composition);
   }
+  if (_requireBrowserWorker || _requireInline) await _checkWorkerPool(icon);
   const result = 'FastLottie Wasm smoke test passed';
   debugPrint(result);
   runApp(
@@ -36,6 +38,79 @@ Future<void> main() async {
 
 void _check(bool condition, String message) {
   if (!condition) throw StateError(message);
+}
+
+Future<void> _checkWorkerPool(FastLottieComposition composition) async {
+  final cache = FastLottieRasterCache.miniStrip(stripFrames: 2, workerCount: 2);
+  final players = [
+    for (var i = 0; i < 8; i++)
+      FastLottiePlayer(
+        composition,
+        rasterCache: cache,
+        cache: FastLottieCache.none,
+      ),
+  ];
+
+  void drawAll(int frame) {
+    for (var i = 0; i < players.length; i++) {
+      final recorder = ui.PictureRecorder();
+      players[i].draw(
+        ui.Canvas(recorder),
+        ui.Rect.fromLTWH(0, 0, 64 + i.toDouble(), 64 + i.toDouble()),
+        frame / composition.frameCount,
+        coldFallback: (_, _) {},
+      );
+      recorder.endRecording().dispose();
+    }
+  }
+
+  Future<void> drain() async {
+    for (var i = 0; i < 1600 && cache.pendingFrames > 0; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    _check(
+      cache.lastError == null && cache.pendingFrames == 0,
+      'Pool did not drain: ${cache.lastError}',
+    );
+  }
+
+  try {
+    drawAll(0);
+    if (_requireBrowserWorker) {
+      _check(cache.workerDispatches == 2, 'Expected two simultaneous jobs');
+    }
+    await drain();
+    _check(
+      cache.vectorRasterizedFrames == 2 * players.length,
+      'Some first strips were not rendered',
+    );
+    _check(
+      cache.browserWasmWorkers == (_requireBrowserWorker ? 2 : 0),
+      'Unexpected number of workers using Wasm',
+    );
+    if (_requireInline) {
+      _check(cache.browserWorkers == 0, 'Expected all workers to fall back');
+    }
+    final hits = cache.hits;
+    drawAll(1);
+    _check(cache.hits - hits == players.length, 'Missing first strip');
+    await drain();
+    final dispatched = cache.workerDispatches;
+    drawAll(8);
+    _check(
+      cache.workerDispatches - dispatched == (_requireBrowserWorker ? 2 : 1),
+      'Unexpected number of jobs in flight after startup',
+    );
+    await drain();
+    final seekHits = cache.hits;
+    drawAll(8);
+    _check(cache.hits - seekHits == players.length, 'Missing strip after seek');
+  } finally {
+    for (final player in players) {
+      player.dispose();
+    }
+    cache.dispose();
+  }
 }
 
 Future<void> _checkRendering() async {

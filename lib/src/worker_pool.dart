@@ -2,6 +2,20 @@ part of '../fastlottie.dart';
 
 int _shardForKey(String entryKey, int shardCount) {
   if (shardCount <= 1) return 0;
+  if (kIsWeb) {
+    // Mix the whole key before using a low bit for a two-worker pool. Two
+    // identical dimensions in a square raster key otherwise cancel that bit.
+    var hash = 0;
+    for (var i = 0; i < entryKey.length; i++) {
+      hash += entryKey.codeUnitAt(i);
+      hash = (hash + (hash << 10)) & 0x7fffffff;
+      hash ^= hash >>> 6;
+    }
+    hash = (hash + (hash << 3)) & 0x7fffffff;
+    hash ^= hash >>> 11;
+    hash = (hash + (hash << 15)) & 0x7fffffff;
+    return hash % shardCount;
+  }
   var h = 0x811c9dc5;
   for (var i = 0; i < entryKey.length; i++) {
     h ^= entryKey.codeUnitAt(i);
@@ -28,6 +42,8 @@ abstract interface class _RasterWorkerListener {
   });
 
   void onStripError(_RasterEntry entry, Object error);
+
+  void onBrowserWorkerFallback(_RasterEntry entry);
 }
 
 final class _PendingWorkerRequest {
@@ -124,22 +140,38 @@ final class _RasterWorkerPool {
   void _ensureStarted() {
     if (_started || _disposed) return;
     _started = true;
-    final perWorkerRam = workerCount <= 0
-        ? maximumCompressedMemoryBytes
-        : maximumCompressedMemoryBytes ~/ workerCount;
-    final effectiveDiskDir = maximumDiskBytes > 0 ? _diskDir : null;
     for (var i = 0; i < workerCount; i++) {
-      final shard = i;
+      final browser = startBrowserRasterWorker('fastlottie.raster.$i');
+      if (kIsWeb && browser == null) {
+        // No browser workers (disabled or blocked by the host). Keep a
+        // single inline workspace with the full cache budget.
+        for (final handle in _handles) {
+          handle.dispose();
+        }
+        _handles
+          ..clear()
+          ..add(_inlineOrNativeHandle(0));
+        break;
+      }
+      _handles.add(browser ?? _inlineOrNativeHandle(i));
+    }
+    final perWorkerRam = maximumCompressedMemoryBytes ~/ _handles.length;
+    final effectiveDiskDir = maximumDiskBytes > 0 ? _diskDir : null;
+    for (var shard = 0; shard < _handles.length; shard++) {
+      final handle = _handles[shard];
       _registeredScenes.add(<String>{});
       _workerRamBytes.add(0);
-      final handle =
-          startBrowserRasterWorker('fastlottie.raster.$i') ??
-          _inlineOrNativeHandle(shard);
-      _handles.add(handle);
       _subs.add(_listen(shard, handle));
       handle.send((opConfigure, effectiveDiskDir, perWorkerRam));
     }
   }
+
+  int webShard(String entryKey) {
+    _ensureStarted();
+    return _shardForKey(entryKey, _handles.length);
+  }
+
+  bool isInlineShard(int shard) => !isBrowserRasterWorker(_handles[shard]);
 
   int get browserWorkers => _handles.where(isBrowserRasterWorker).length;
   int get browserWasmWorkers =>
@@ -172,12 +204,14 @@ final class _RasterWorkerPool {
     handle.send((
       opConfigure,
       null,
-      maximumCompressedMemoryBytes ~/ workerCount,
+      maximumCompressedMemoryBytes ~/ _handles.length,
     ));
-    for (final request in _pendingRequests.values) {
-      if (request.shard != shard) continue;
-      request.retried = false;
-      _sendRequest(request);
+    final interrupted = _pendingRequests.values
+        .where((request) => request.shard == shard)
+        .toList();
+    for (final request in interrupted) {
+      _pendingRequests.remove(request.reqId);
+      listener.onBrowserWorkerFallback(request.entry);
     }
   }
 
@@ -261,9 +295,7 @@ final class _RasterWorkerPool {
     }
     if (_started) {
       final effective = maximumDiskBytes > 0 ? _diskDir : null;
-      final perWorkerRam = workerCount <= 0
-          ? maximumCompressedMemoryBytes
-          : maximumCompressedMemoryBytes ~/ workerCount;
+      final perWorkerRam = maximumCompressedMemoryBytes ~/ _handles.length;
       for (final h in _handles) {
         h.send((opConfigure, effective, perWorkerRam));
       }
@@ -455,7 +487,7 @@ final class _RasterWorkerPool {
   void _evictKeyOnShard(String entryKey) {
     _pendingDiskDeletes.add(entryKey);
     if (_started) {
-      final shard = _shardForKey(entryKey, workerCount);
+      final shard = _shardForKey(entryKey, _handles.length);
       _handles[shard].send((opDeleteDisk, entryKey));
     } else if (_diskDir != null && isDiskCacheSupported) {
       PlatformDiskFs.deleteFile(joinPath(_diskDir!, '$entryKey.flcache'));
@@ -479,7 +511,7 @@ final class _RasterWorkerPool {
   }) {
     if (_disposed) return;
     _ensureStarted();
-    final shard = _shardForKey(entryKey, workerCount);
+    final shard = _shardForKey(entryKey, _handles.length);
     final contentKey = composition.contentKey;
     final reqId = _nextReqId++;
     debugDispatchCount++;
