@@ -23,8 +23,9 @@ on a worker isolate on native platforms. For HTTP(S) on native, use
 removed or the URI changes. Use `FastLottieComposition.loadNetwork(uri)` when
 you need to reuse the compiled result.
 
-The widget uses a shared ping-pong raster cache by default. It renders on demand
-and retains up to two images per animated cache entry. To control the budget,
+The widget uses a shared Mini-Strip raster cache by default. Long animations
+start with one sampled frame and switch to strips as playback advances. The
+cache retains up to two images per animated entry. To control the budget,
 thumbnail resolution, or sampling rate, pass a shared cache of your own:
 
 ```dart
@@ -41,6 +42,10 @@ final thumbnail = FastLottie(
   rasterCache: thumbnails,
 );
 ```
+
+Raster caches default to a 1 MiB host budget for skipping uploads of identical
+frames or strips. See [playback tuning](docs/playback-experiments.md) for the
+startup and deduplication settings, and how to provide visibility state.
 
 Set `usePipeline: false` for vector playback with picture caching. For direct
 canvas drawing, own a `FastLottiePlayer`, call `draw(canvas, rect, progress)`,

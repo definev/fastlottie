@@ -20,6 +20,35 @@ final class _DefaultPingPongScope {
   }
 }
 
+/// Playback policy supplied by the owning viewport or screen.
+enum FastLottiePlayback { active, prewarm, hidden }
+
+/// Controls descendants without polling layout on every animation tick.
+///
+/// The owner determines visibility (including occlusion). [FastLottiePlayback.prewarm]
+/// prepares a poster; [FastLottiePlayback.hidden] keeps layout but stops painting,
+/// detaches animation listeners and releases the widget's cache lease. External
+/// controllers remain owned by their callers and are never stopped by this scope.
+class FastLottiePlaybackScope extends InheritedWidget {
+  const FastLottiePlaybackScope({
+    super.key,
+    required this.playback,
+    required super.child,
+  });
+
+  final FastLottiePlayback playback;
+
+  static FastLottiePlayback of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<FastLottiePlaybackScope>()
+          ?.playback ??
+      FastLottiePlayback.active;
+
+  @override
+  bool updateShouldNotify(FastLottiePlaybackScope oldWidget) =>
+      playback != oldWidget.playback;
+}
+
 /// Plays a compiled composition. Animation ticks only repaint the canvas.
 class FastLottie extends StatefulWidget {
   const FastLottie({
@@ -119,6 +148,15 @@ class _FastLottieState extends State<FastLottie>
   late final AnimationController _controller;
   late final _FrameRepaint _repaint;
   bool _reducedMotion = false;
+  FastLottiePlayback _playback = FastLottiePlayback.active;
+  FastLottieRasterMode get _rasterMode =>
+      _playback == FastLottiePlayback.prewarm
+      ? FastLottieRasterMode.poster
+      : widget.rasterMode;
+  Animation<double> get _paintAnimation =>
+      _playback == FastLottiePlayback.active
+      ? animation
+      : const AlwaysStoppedAnimation<double>(0);
   bool _repeating = false;
   bool _usesDefaultPipeline = false;
   Animation<double> get animation => widget.controller ?? _controller;
@@ -153,7 +191,7 @@ class _FastLottieState extends State<FastLottie>
       widget.composition,
       cache: widget.cache,
       rasterCache: effectiveRaster,
-      rasterMode: widget.rasterMode,
+      rasterMode: _rasterMode,
       resolutionScale: widget.resolutionScale,
       maximumFrameRate: widget.maximumFrameRate,
     );
@@ -168,9 +206,29 @@ class _FastLottieState extends State<FastLottie>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _reducedMotion = MediaQuery.disableAnimationsOf(context);
+    final nextPlayback = FastLottiePlaybackScope.of(context);
+    if (nextPlayback != _playback) {
+      final previous = _player;
+      _playback = nextPlayback;
+      _player = FastLottiePlayer(
+        widget.composition,
+        cache: widget.cache,
+        rasterCache: previous.rasterCache,
+        rasterMode: _rasterMode,
+        resolutionScale: widget.resolutionScale,
+        maximumFrameRate: widget.maximumFrameRate,
+      );
+      _repaint.update(
+        _player,
+        _paintAnimation,
+        widget.useFrameRate,
+        widget.controller == null && _reducedMotion,
+      );
+      previous.dispose();
+    }
     _repaint.update(
       _player,
-      animation,
+      _paintAnimation,
       widget.useFrameRate,
       widget.controller == null && _reducedMotion,
     );
@@ -178,7 +236,8 @@ class _FastLottieState extends State<FastLottie>
   }
 
   void _play() {
-    if (widget.controller != null ||
+    if (_playback != FastLottiePlayback.active ||
+        widget.controller != null ||
         !widget.animate ||
         _reducedMotion ||
         widget.composition.isStatic) {
@@ -225,13 +284,13 @@ class _FastLottieState extends State<FastLottie>
         widget.composition,
         cache: widget.cache,
         rasterCache: nextRaster,
-        rasterMode: widget.rasterMode,
+        rasterMode: _rasterMode,
         resolutionScale: widget.resolutionScale,
         maximumFrameRate: widget.maximumFrameRate,
       );
       _repaint.update(
         _player,
-        animation,
+        _paintAnimation,
         widget.useFrameRate,
         widget.controller == null && _reducedMotion,
       );
@@ -247,7 +306,7 @@ class _FastLottieState extends State<FastLottie>
     } else {
       _repaint.update(
         _player,
-        animation,
+        _paintAnimation,
         widget.useFrameRate,
         widget.controller == null && _reducedMotion,
       );
@@ -269,22 +328,27 @@ class _FastLottieState extends State<FastLottie>
 
   @override
   Widget build(BuildContext context) => RepaintBoundary(
-    child: CustomPaint(
-      size: Size(
-        widget.width ?? widget.composition.width,
-        widget.height ?? widget.composition.height,
-      ),
-      painter: _FastPainter(
-        _player,
-        animation,
-        widget.fit,
-        widget.alignment,
-        widget.useFrameRate,
-        widget.controller == null && _reducedMotion,
-        MediaQuery.devicePixelRatioOf(context),
-        repaint: _repaint,
-      ),
-    ),
+    child: _playback == FastLottiePlayback.hidden
+        ? SizedBox(
+            width: widget.width ?? widget.composition.width,
+            height: widget.height ?? widget.composition.height,
+          )
+        : CustomPaint(
+            size: Size(
+              widget.width ?? widget.composition.width,
+              widget.height ?? widget.composition.height,
+            ),
+            painter: _FastPainter(
+              _player,
+              _paintAnimation,
+              widget.fit,
+              widget.alignment,
+              widget.useFrameRate,
+              widget.controller == null && _reducedMotion,
+              MediaQuery.devicePixelRatioOf(context),
+              repaint: _repaint,
+            ),
+          ),
   );
 }
 

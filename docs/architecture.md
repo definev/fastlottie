@@ -118,8 +118,10 @@ sequenceDiagram
 
 ## 3. Phân tích Lựa chọn Kiến trúc Chi tiết
 
-### 3.1. Kiến trúc Single-Library (`part` / `part of`) & Trừu tượng hóa Nền tảng
-- **Tổ chức `part` trong `lib/fastlottie.dart`**: Toàn bộ 11 module cốt lõi (`compiler.dart`, `track.dart`, `scene.dart`, `widget.dart`, `fork.dart`, `gradient.dart`, `path_ops.dart`, `raster_cache.dart`, `rle_rasterizer.dart`, `worker_pool.dart`, `ping_pong.dart`) thuộc cùng một library. Cách tổ chức này cho phép các lớp nội bộ truy cập trực tiếp trường private (`_cursor`, `_matrix`, `_values`, `_rasterEntry`) mà không cần mở public API hoặc tạo wrapper trung gian, giúp trình biên dịch AOT của Dart inline tối đa các hàm trên hot-path.
+### 3.1. Hai Library (`part` / `part of`) & Trừu tượng hóa Nền tảng
+- **`lib/fastlottie.dart`**: Library phía Flutter chứa composition/player và các `part` quản lý widget, raster cache, worker pool, ping-pong, software session. Đây là nơi quản lý vòng đời `ui.Image`, repaint và giao tiếp với worker.
+- **`lib/src/raster_core.dart`**: Library biên dịch và kết xuất dùng chung cho Flutter và browser worker. Các `part` gồm compiler, expressions, track, scene, fork, gradient, path ops, software rasterizer và raster worker. `RasterScene` cung cấp thao tác compile/fork/draw cùng metadata; `renderSceneSoftware` là điểm vào kết xuất pixel. Conditional import `raster_flutter_canvas.dart` / `raster_no_canvas.dart` cho phép browser worker dùng core mà không phụ thuộc `dart:ui`.
+- **Giữ private trong từng library**: `part` cho phép các thuật toán liên quan dùng chung trạng thái nội bộ mà không phải mở rộng public API. Khi thêm logic, đặt nó vào library sở hữu dữ liệu và vòng đời tương ứng; không đưa phụ thuộc Flutter vào compiler hoặc software worker.
 - **Conditional Imports cho Đa nền tảng (Native IO vs Web)**:
   - `isolate_io.dart` / `isolate_stub.dart`: Trên Native sử dụng `Isolate.spawn` và `TransferableTypedData` (chuyển vùng nhớ BGRA8888 zero-copy từ worker về UI); trên Web fallback về `StreamController` nội cục.
   - `platform_io.dart` / `platform_stub.dart`: Cung cấp `RandomAccessFile` đồng bộ (`PlatformFileHandle`) cho worker isolate đọc/ghi trực tiếp theo offset trong file `.flcache`.
@@ -127,7 +129,9 @@ sequenceDiagram
 
 ### 3.2. Compiler "Fail-Fast", Biên dịch Tĩnh Expressions & Đồ thị Modifier DAG
 - **Kiểm tra Whitelist nghiêm ngặt (`_Compiler.check`)**: Thay vì âm thầm bỏ qua các thuộc tính không hỗ trợ gây sai lệch hình ảnh, `_Compiler` đối chiếu từng trường JSON với các tập trường `const Set<String>` và kiểm tra các cờ (`ddd`, `ao`, `bm`, `hasMask` phải bằng `0`/`false`). Mọi tính năng ngoài phạm vi đều ném `UnsupportedLottieException` kèm đường dẫn JSON chính xác (`$.layers[i]...`).
-- **Biên dịch tĩnh Expressions (`_walkExpressions`)**: Các biểu thức After Effects tham chiếu chéo thuộc tính như `$bm_rt = content('...').transform.scale`, `transform.rotation`, `opacity` hoặc `transform.xPosition`/`yPosition` được giải quyết ngay trong pha compile bằng Regex, kiểm tra chu trình (`resolving` set) và **nối thẳng (rewire) dữ liệu keyframe của nguồn vào đích**. Không có bộ thông dịch JavaScript nào chạy ở mỗi frame.
+- **Biên dịch tĩnh Expressions (`_ExpressionResolver.resolveLayer`)**: Các biểu thức After Effects tham chiếu chéo thuộc tính như `$bm_rt = content('...').transform.scale`, `transform.rotation`, `opacity` hoặc `transform.xPosition`/`yPosition` được giải quyết ngay trong pha compile bằng Regex, kiểm tra chu trình (`resolving` set) và **nối thẳng (rewire) dữ liệu keyframe của nguồn vào đích**. Không có bộ thông dịch JavaScript nào chạy ở mỗi frame.
+- **Thứ tự biên dịch layer**: `_Compiler.compile()` kiểm tra metadata, gọi `_compileMasks()`, giải quyết expression rồi dựng transform và nội dung layer. Sau khi tất cả layer tồn tại, `_linkMattes()` nối track matte/Set Matte và `_linkParents()` nối parent, kiểm tra chu trình. Giữ thứ tự này khi refactor để bảo toàn thứ tự lỗi, đường dẫn JSON và số lệnh dùng cho ngân sách cache.
+- **Tham chiếu path (`_ShapePathCompiler`)**: Cùng nằm trong `expressions.dart`, nhưng xử lý sau khi nhận diện expression của shape path. Nó chia sẻ geometry đã biên dịch theo identity, giữ transform/style riêng cho từng shape và phát hiện tham chiếu vòng; resolver thuộc tính không thay thế JSON của loại expression này.
 - **Đồ thị phi chu trình (DAG) cho Trim Paths (`_Shape` & `_TrimPart`)**: Trong chuẩn Lottie, một modifier `tm` (`_Trim`) có thể tác động lên các shape đã được khai báo và bắt vào `_Style` ở phía trên hoặc nằm trong nhóm lồng nhau. Compiler bọc mọi hình học trong lớp vỏ đại diện `_Shape`. Khi gặp `tm`, compiler đóng băng danh sách nội dung gốc vào `trim.inputs`, rồi thay thế nội dung của từng `_Shape` bằng `_TrimPart(trim, n)`. Đồ thị sau biên dịch là một DAG thuần Dart, không chứa đối tượng `dart:ui` và không cần duyệt lại cây layer lúc vẽ.
 
 ### 3.3. Bố cục Dữ liệu Kiểu Cột (Columnar Layout) & Nội suy SIMD trong `_Track`
@@ -231,7 +235,9 @@ Vì các đối tượng `dart:ui` (`Canvas`, `Path`, `Picture`) không thể kh
 | :--- | :--- |
 | `lib/fastlottie.dart` | Public API: `FastLottieComposition`, `FastLottiePlayer`, `FastLottieCache`, `FastLottieOptions`, điều phối 3 tầng render trong `draw()`. |
 | `lib/decoding.dart` | `decodeLottieBytes()`: Phát hiện chữ ký GZip (`0x1f 0x8b`) cho `.tgs` và giải nén an toàn với giới hạn `maximumBytes` (16 MiB). |
-| `lib/src/compiler.dart` | `_Compiler`: Kiểm tra schema fail-fast, biên dịch tĩnh expressions & Layer Control, dựng cây layer, precomp, matte, trim. |
+| `lib/src/raster_core.dart` | Library dùng chung cho Flutter/browser worker; `RasterScene` và `renderSceneSoftware` là các điểm vào. |
+| `lib/src/compiler.dart` | `_Compiler`: Kiểm tra schema, biên dịch track/mask/Layer Control, dựng layer/precomp và nối matte/parent. |
+| `lib/src/expressions.dart` | `_ExpressionResolver`, `_ShapePathCompiler`: Giải quyết expression thuộc tính và tham chiếu geometry, kiểm tra tham chiếu thiếu/trùng/vòng. |
 | `lib/src/track.dart` | `_Keyframes`, `_Track`, `_SpatialCurve`: Lưu trữ keyframe dạng cột, con trỏ $O(1)$, Newton-Raphson easing, SIMD `Float32x4`, LUT sRGB. |
 | `lib/src/scene.dart` | `_Transform`, `_Layer`, `_Group`, `_BezierGeometry`, `_Primitive`, `_Style`: Cây scene vector, tối ưu hóa ma trận và tính khung bao `worldBounds`. |
 | `lib/src/path_ops.dart` | `_Shape`, `_TrimPart`, `_Trim`, `_Dash`: Đồ thị alias DAG cho Trim Paths và Stroke Dash kèm bộ nhớ đệm `ui.PathMetric`. |
@@ -240,7 +246,8 @@ Vì các đối tượng `dart:ui` (`Canvas`, `Path`, `Picture`) không thể kh
 | `lib/src/rle_rasterizer.dart` | `_FtScanlineRasterizer`, `_SwarBlender`, `_renderSceneSoftware`, `_ContentKeyHasher`: Trình kết xuất phần mềm RLE + SWAR thuần Dart và băm nội dung 128-bit. |
 | `lib/src/raster_cache.dart` | `FastLottieRasterCache`, `_RasterEntry`: Quản lý ngân sách VRAM, kiểm tra admission $O(1)$, bảo vệ poster và xả `ui.Image` theo lô. |
 | `lib/src/ping_pong.dart` | `_PingPongCoordinator`: Điều phối cặp `renderingImage` / `backgroundImage`, lookahead prefetch và chống tràn hàng đợi. |
-| `lib/src/worker_pool.dart` | `_RasterWorkerPool`, `_softwareWorkerEntry`: Pool các Isolate phân mảnh theo FNV-1a và quản lý LRU đĩa `.flcache` toàn cục. |
+| `lib/src/worker_pool.dart` | `_RasterWorkerPool`: Điều phối worker, phân mảnh request và quản lý LRU đĩa `.flcache` toàn cục. |
+| `lib/src/raster_worker.dart` | `softwareWorkerEntry`: Xử lý protocol, giữ scene/workspace và đọc/ghi frame trong worker. |
 | `lib/src/bitstream_cache.dart` | `BitstreamStore`: Cache frame nén trong RAM (LRU) và định dạng file `.flcache` (`FLC1`) kèm kiểm tra/phục hồi lỗi CRC31. |
 | `lib/src/lz4.dart` | `Lz4Codec`, `Lz4Scratch`: Bộ nén và giải nén LZ4 thuần Dart tối ưu cho buffer pixel BGRA8888 (fast-path `offset == 4`). |
 | `lib/src/widget.dart` | `FastLottie`, `FastLottieView`, `FastLottieNetwork`, `_FrameRepaint`, `_DefaultPingPongScope` (singleton ref-counted). |
@@ -257,21 +264,24 @@ Phần này tổng hợp 12 hướng tiếp cận tối ưu hóa chuyên sâu ch
 2. **Tận dụng tài nguyên phần cứng & bộ nhớ đệm tốt hơn (Resource Utilization)**: Khử cấp phát tạm thời, chia sẻ khung hình chuẩn hóa giữa các tốc độ phát khác nhau và điều phối hàng đợi ưu tiên hai làn.
 3. **Tối ưu thuật toán & cấu trúc dữ liệu (Algorithmic & SIMD Optimization)**: Loại bỏ hàm lượng giác đắt đỏ, cắt tỉa sớm theo khung bao (Early AABB Clip Culling), sai phân tiến kết hợp SIMD `Float32x4` và toán học nguyên không phép chia.
 
+Các thử nghiệm tiếp theo đã có mã và cách bật tại [Playback experiments](playback-experiments.md).
+Startup một frame, fused fill và bỏ upload trùng được bật mặc định; kết quả A/B và cách tắt được ghi trong tài liệu trên.
+
 ### 5.1. Ma trận Tổng hợp 12 Hướng Tối ưu
 
 | Mã | Hạng mục tối ưu | Nhóm mục tiêu | Trạng thái | Tác động chính |
 | :---: | :--- | :--- | :---: | :--- |
 | **#1** | **Sub-tree Static Layer Memoization** trong `_RasterWorkspace` | Giảm nhiệt / Thuật toán | Đề xuất | Tránh vẽ lại các nền tĩnh bên dưới các lớp động ở mỗi frame trên Worker Isolate. |
-| **#2** | **Adaptive Frame Deduplication (Bitwise Hash / Dirty-Rect Skip)** | Giảm nhiệt / GPU | Đề xuất | Phát hiện hai frame liên tiếp có đầu ra pixel giống hệt nhau để tái sử dụng `ui.Image` mà không gọi `decodeImageFromPixels`. |
+| **#2** | **Adaptive Frame Deduplication (Bitwise Hash / Dirty-Rect Skip)** | Giảm nhiệt / GPU | **Bật mặc định** | So sánh byte chính xác toàn frame/strip trên host trong ngân sách `maximumDuplicateFrameBytes`, tái sử dụng texture bằng clone handle. Phát hiện hai frame liên tiếp có đầu ra pixel giống hệt nhau để tái sử dụng `ui.Image` mà không gọi `decodeImageFromPixels`. |
 | **#3** | **Loại bỏ lượng giác (`atan2`/`acos`/`cos`/`sin`) trong `_expandStroke`** | Thuật toán / Giảm nhiệt | **Đã triển khai** | Thay bằng đệ quy chia đôi pháp tuyến đơn vị (Recursive Unit-Normal Bisection) dựa trên sai số dây cung (sagitta), giảm ~3–4× chi phí CPU khi mở rộng nét vẽ tròn (`round join`/`round cap`). |
 | **#4** | **Cắt tỉa sớm theo khung bao (`Early Bounding-Box Clip Culling`) trong `_renderStyleInto`** | Thuật toán / Giảm nhiệt | **Đã triển khai** | Kiểm tra giao cắt giữa `style.drawBounds(frame)` (sau biến đổi affine) với vùng clip hiện tại trước khi làm phẳng đường cong Bézier, cắt nét đứt hay mở rộng độ dày nét, đồng thời thu hẹp vùng quét scanline. |
 | **#5** | **Hàng đợi Ưu tiên 2 Làn (2-Lane Priority Queue) trong `_PingPongCoordinator`** | Tài nguyên / Độ trễ | **Đã triển khai** | Tách biệt hàng đợi khung hình hiện tại (`_highPriorityQueue`, `isPrefetch: false`) và hàng đợi dự đoán (`_lowPriorityQueue`, `isPrefetch: true`), hỗ trợ thăng cấp tại chỗ và ưu tiên loại bỏ prefetch trước khi đầy tải. |
 | **#6** | **Chuẩn hóa Khóa Cache theo Khung hình Nguồn (`Canonical Source-Frame Indexing`)** | Tài nguyên / Đĩa & RAM | **Đã triển khai** | Định danh `.flcache` và mục LRU RAM theo `sourceFrameCount` thay vì số lượng mẫu phụ thuộc FPS, giúp chế độ `poster`, `24fps`, `30fps`, `60fps` dùng chung duy nhất một file `.flcache` và các frame nén LZ4 trong RAM. |
 | **#7** | **Nén Spans Đen/Trong suốt (Sparse Tile / Row-Directory) trước LZ4** | Tài nguyên / Băng thông | Đề xuất | Ghi trực tiếp danh sách span hoặc chỉ số dòng có điểm ảnh khác `0` cho các sticker thưa, giảm lượng dữ liệu phải quét qua LZ4 và `decodeImageFromPixels`. |
-| **#8** | **Gộp biến đổi Affine ngay trong bước Flatten Bézier (`Fused Transform + Flatten`)** | Thuật toán / Bộ nhớ | Đề xuất | Biến đổi các điểm điều khiển Bézier sang không gian thiết bị trước khi chia nhỏ De Casteljau cho các style chỉ tô đặc (`fill` không có `dash`/`stroke`), bỏ qua bước copy qua `_workPolyB`. |
+| **#8** | **Gộp biến đổi Affine ngay trong bước Flatten Bézier (`Fused Transform + Flatten`)** | Thuật toán / Bộ nhớ | **Bật mặc định cho fill đủ điều kiện** | Hỗ trợ fill Bézier động đơn, không stroke/dash/trim. Biến đổi các điểm điều khiển Bézier sang không gian thiết bị trước khi chia nhỏ De Casteljau cho các style chỉ tô đặc (`fill` không có `dash`/`stroke`), bỏ qua bước copy qua `_workPolyB`. |
 | **#9** | **Sai phân tiến bậc 2 + SIMD `Float32x4` cho Radial Gradient & Luma Matte nguyên không phép chia** | Thuật toán / SIMD | **Đã triển khai** | Dùng sai phân tiến bậc 2 ($\Delta^2 D^2 = 2(\text{nia}^2 + \text{nib}^2)$) kết hợp `Float32x4.sqrt()` xử lý 4 pixel/nhịp cho Radial Gradient, và bảng nghịch đảo `_invAlphaLut` 16.16 fixed-point kết hợp hệ số nguyên BT.601 cho Luma Matte. |
 | **#10** | **Tự động điều chỉnh FPS theo kích thước hiển thị (Perceptual Screen-Size FPS Scaling)** | Giảm nhiệt / Pin | Đề xuất | Hạ tần số lấy mẫu hợp lý khi diện tích hiển thị vật lý rất nhỏ (ví dụ icon `< 32×32` logical px) mà mắt người không phân biệt được chuyển động dưới pixel. |
-| **#11** | **Tự động đóng băng Ticker khi khuất tầm nhìn (`Visibility / Viewport Gating`)** | Giảm nhiệt / Pin | Đề xuất | Tạm dừng `AnimationController` khi `RenderBox` nằm ngoài viewport cuộn hoặc bị che khuất hoàn toàn. |
+| **#11** | **Tự động đóng băng Ticker khi khuất tầm nhìn (`Visibility / Viewport Gating`)** | Giảm nhiệt / Pin | **Có scope do owner điều khiển** | `FastLottiePlaybackScope`: active/prewarm/hidden; owner xác định viewport/occlusion. Chưa tự dò `RenderBox`. Tạm dừng `AnimationController` khi `RenderBox` nằm ngoài viewport cuộn hoặc bị che khuất hoàn toàn. |
 | **#12** | **Chế độ Nén Delta-Frame (XOR + LZ4) cho Chuỗi Khung hình Liên tiếp** | Tài nguyên / RAM | Đề xuất | XOR hai khung hình liên tiếp trước khi đưa vào LZ4 cho các cảnh có phần nền lớn đứng yên để tăng tỷ lệ nén trong RAM. |
 
 ---

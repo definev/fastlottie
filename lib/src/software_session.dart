@@ -10,10 +10,12 @@ class FastLottieSoftwareSession {
     required this.pixelHeight,
     bool preferNative = true,
     bool retainCoverage = true,
+    bool fuseFillTransforms = defaultFuseFillTransforms,
   }) : _ws = RasterWorkspace(
          initialHeight: pixelHeight,
          preferNative: preferNative,
          retainCoverage: retainCoverage,
+         fuseFillTransforms: fuseFillTransforms,
        ),
        _scene = composition._template.fork(),
        _pixelBuffer = NativePixelBuffer(pixelWidth * pixelHeight);
@@ -29,6 +31,8 @@ class FastLottieSoftwareSession {
 
   /// Allocated temporary pixel planes, excluding the output and span buffers.
   int get scratchPixelBytes => _ws.scratchPixelBytes;
+
+  int get fusedFillDraws => _ws.fusedFillDraws;
 
   Uint32List get pixels => _pixelBuffer.typedList;
 

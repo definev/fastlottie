@@ -47,6 +47,181 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
+    'different pixels and undersized comparison budgets never alias textures',
+    (tester) async {
+      final composition = FastLottieComposition.fromJson(fixture('icon'));
+      for (final budget in [1, 128 * 1024]) {
+        final cache = FastLottieRasterCache.pingPong(
+          maximumDuplicateFrameBytes: budget,
+          workerCount: 1,
+        );
+        final player = FastLottiePlayer(composition, rasterCache: cache);
+        try {
+          for (final frame in [0, 20, 40]) {
+            _record(player, frame / 60);
+            await _drain(tester, cache);
+          }
+          expect(cache.skippedImageUploads, 0);
+          expect(cache.duplicateFrameBytes, lessThanOrEqualTo(budget));
+        } finally {
+          player.dispose();
+          cache.dispose();
+        }
+      }
+    },
+  );
+
+  testWidgets(
+    'progressive in-flight seeks settle on the latest frame and resize',
+    (tester) async {
+      final cache = FastLottieRasterCache.miniStrip(
+        progressiveFirstFrame: true,
+        workerCount: 1,
+        maximumInFlight: 1,
+      );
+      final composition = FastLottieComposition.fromJson(fixture('icon'));
+      final player = FastLottiePlayer(composition, rasterCache: cache);
+      addTearDown(() {
+        player.dispose();
+        cache.dispose();
+      });
+      _record(player, 0);
+      _record(player, .6);
+      _record(player, .2);
+      await _drain(tester, cache);
+      var hits = cache.hits;
+      _record(player, .2);
+      expect(cache.hits, hits + 1);
+      _record(player, .8, size: 96);
+      await _drain(tester, cache);
+      hits = cache.hits;
+      _record(player, .8, size: 96);
+      expect(cache.hits, hits + 1);
+      expect(cache.gpuBytes, lessThanOrEqualTo(cache.reservedBytes));
+    },
+  );
+
+  testWidgets(
+    'duplicate strips reuse textures exactly within a bounded host budget',
+    (tester) async {
+      // Animated transform with equal values: distinct source indices, same pixels.
+      final json = fixture('static');
+      json['layers'][0]['ks']['r'] = {
+        'a': 1,
+        'k': [
+          {
+            't': 0,
+            's': [0],
+          },
+          {
+            't': 59,
+            's': [0],
+          },
+        ],
+      };
+      final composition = FastLottieComposition.fromJson(json);
+      expect(composition.isStatic, isFalse);
+      final cache = FastLottieRasterCache.miniStrip(
+        stripFrames: 4,
+        workerCount: 1,
+      );
+      final player = FastLottiePlayer(composition, rasterCache: cache);
+      addTearDown(() {
+        player.dispose();
+        cache.dispose();
+      });
+      _record(player, 0);
+      await _drain(tester, cache);
+      expect(cache.skippedImageUploads, 0);
+      _record(player, 1 / 60);
+      await _drain(tester, cache);
+      expect(cache.skippedImageUploads, greaterThan(0));
+      for (final frame in [4, 8, 12, 0, 8]) {
+        _record(player, frame / 60);
+        await _drain(tester, cache);
+        final hits = cache.hits;
+        _record(player, frame / 60);
+        expect(cache.hits, hits + 1);
+        expect(cache.duplicateFrameBytes, lessThanOrEqualTo(1024 * 1024));
+        expect(cache.gpuBytes, lessThanOrEqualTo(cache.reservedBytes));
+      }
+      // A reused clone must still paint valid pixels after its original front
+      // handle was queued for disposal.
+      _record(player, 8 / 60);
+      await _drain(tester, cache);
+      final beforePixels = await tester.runAsync(
+        () => render(
+          (canvas) =>
+              player.draw(canvas, const ui.Rect.fromLTWH(0, 0, 64, 64), 8 / 60),
+          size: 64,
+        ),
+      );
+      expect(beforePixels!.any((v) => v != 0), isTrue);
+      cache.clear();
+      expect(cache.duplicateFrameBytes, 0);
+      _record(player, 8 / 60);
+      await _drain(tester, cache);
+      final freshPixels = await tester.runAsync(
+        () => render(
+          (canvas) =>
+              player.draw(canvas, const ui.Rect.fromLTWH(0, 0, 64, 64), 8 / 60),
+          size: 64,
+        ),
+      );
+      expect(beforePixels, orderedEquals(freshPixels!));
+      _record(player, 0);
+      await _drain(tester, cache);
+      player.dispose();
+      expect(cache.duplicateFrameBytes, 0);
+    },
+  );
+
+  testWidgets(
+    'progressive startup renders one sample then resumes regular strips',
+    (tester) async {
+      final comp = FastLottieComposition.fromJson(fixture('icon')..['op'] = 10);
+      final cache = FastLottieRasterCache.miniStrip(
+        stripFrames: 4,
+
+        workerCount: 1,
+      );
+      final player = FastLottiePlayer(comp, rasterCache: cache);
+      addTearDown(() {
+        player.dispose();
+        cache.dispose();
+      });
+
+      // Starting in the middle of a strip must render the requested frame only.
+      _record(player, .6);
+      await _drain(tester, cache);
+      expect(cache.vectorRasterizedFrames, 1);
+      expect(cache.gpuBytes, 64 * 64 * 4);
+      final dispatches = cache.workerDispatches;
+      _record(player, .6);
+      await _drain(tester, cache);
+      expect(cache.workerDispatches, dispatches);
+
+      // Advancing fills the regular strip, reusing source frame 6 from LZ4.
+      _record(player, .7);
+      await _drain(tester, cache);
+      final hits = cache.hits;
+      _record(player, .7);
+      expect(cache.hits, hits + 1);
+      expect(cache.compressedCacheHits, greaterThan(0));
+      expect(cache.gpuBytes, lessThanOrEqualTo(cache.reservedBytes));
+      // Reverse seek, loop wrap and another advance all settle on exact samples.
+      for (final progress in [.0, .1, .9, .0, .6]) {
+        _record(player, progress);
+        await _drain(tester, cache);
+        final before = cache.hits;
+        _record(player, progress);
+        expect(cache.hits, before + 1);
+        await _drain(tester, cache);
+      }
+    },
+  );
+
+  testWidgets(
     'miniStrip (K=4) reduces IPC/uploads 4x, isolates slots with 1px gutters, swaps O(1) at boundaries, and matches vector output',
     (tester) async {
       final json = fixture('icon')
@@ -57,6 +232,7 @@ void main() {
 
       final cache = FastLottieRasterCache.miniStrip(
         stripFrames: 4,
+        progressiveFirstFrame: false,
         workerCount: 2,
       );
       expect(cache.strategy, FastLottieRasterStrategy.miniStrip);
@@ -173,6 +349,7 @@ void main() {
 
       final cache = FastLottieRasterCache.miniStrip(
         stripFrames: 4,
+        progressiveFirstFrame: false,
         resolutionScale: .5,
         workerCount: 1,
       );

@@ -17,6 +17,7 @@ import 'simd_stub.dart'
 import 'tile_playback.dart';
 
 part 'compiler.dart';
+part 'expressions.dart';
 part 'track.dart';
 part 'scene.dart';
 part 'fork.dart';
@@ -26,6 +27,11 @@ part 'rle_rasterizer.dart';
 part 'raster_worker.dart';
 
 const _isWeb = bool.fromEnvironment('dart.library.js_interop');
+
+// Browser workers ship as a separate precompiled asset. Keep its pixel
+// algorithm aligned with the Flutter web host, including inline fallback.
+const defaultFuseFillTransforms =
+    _isWeb || bool.fromEnvironment('FASTLOTTIE_FUSED_FILL', defaultValue: true);
 
 final class RasterScene {
   RasterScene._(this._compiler);
@@ -43,7 +49,12 @@ final class RasterScene {
   double get fps => _compiler.fps;
   int get commands => _compiler.commands;
   bool get isStatic => _compiler.isStatic;
-  String get contentKey => _computeCompositionContentKey(_compiler);
+  String get contentKey {
+    final key = _computeCompositionContentKey(_compiler);
+    // Device-space flattening can alter edge pixels, so it uses a separate
+    // cache namespace from the original rasterizer.
+    return defaultFuseFillTransforms ? '${key}_fused1' : key;
+  }
 
   RasterScene fork({bool warm = false}) =>
       RasterScene._(_Fork(warm: warm).scene(_compiler));

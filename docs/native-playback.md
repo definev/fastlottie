@@ -17,6 +17,10 @@ mini-strip slots use the same pipeline.
   When the worker releases or replaces a compiled scene, it drops only that
   scene's coverage, flattened paths, trim lengths and gradient tables. The
   workspace still shares scratch buffers and applies the same cache limits.
+- Native requests for a first raster image wait on the host until their worker
+  is available. Leaving the viewport or seeking can remove or replace a queued
+  request before it reaches the worker. Entries with an image can still queue
+  ahead for playback. See [the Pixel 7a worker queue benchmark](worker-queue-pixel7a.md).
 - A warm page with two to four resident frames at up to 65,536 pixels per frame
   can be rebuilt in RAM as a dictionary of identical 16×16 tiles plus an index
   per frame. A page can include only the frames sampled by a lower playback

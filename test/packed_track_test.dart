@@ -87,7 +87,9 @@ void main() {
     for (final entry in expected.entries) {
       expect(
         FastLottieComposition.fromJson(fixture(entry.key)).contentKey,
-        entry.value,
+        const bool.fromEnvironment('FASTLOTTIE_FUSED_FILL', defaultValue: true)
+            ? '${entry.value}_fused1'
+            : entry.value,
       );
     }
   });

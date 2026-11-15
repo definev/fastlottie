@@ -166,9 +166,9 @@ final class _RasterWorkerPool {
     }
   }
 
-  int webShard(String entryKey) {
+  int shardForEntry(_RasterEntry entry) {
     _ensureStarted();
-    return _shardForKey(entryKey, _handles.length);
+    return entry.workerShard ??= _shardForKey(entry.entryKey, _handles.length);
   }
 
   bool isInlineShard(int shard) => !isBrowserRasterWorker(_handles[shard]);
@@ -510,8 +510,7 @@ final class _RasterWorkerPool {
     required bool poster,
   }) {
     if (_disposed) return;
-    _ensureStarted();
-    final shard = _shardForKey(entryKey, _handles.length);
+    final shard = shardForEntry(entry);
     final contentKey = composition.contentKey;
     final reqId = _nextReqId++;
     debugDispatchCount++;

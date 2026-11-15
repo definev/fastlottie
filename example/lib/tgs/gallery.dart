@@ -473,16 +473,21 @@ class _AnimatedStickerState extends State<_AnimatedSticker> {
 
   @override
   Widget build(BuildContext context) => widget.model.fast != null
-      ? FastLottie(
-          composition: widget.model.fast!,
-          controller: progress,
-          cache: FastLottieCache.none,
-          rasterCache: widget.rasterCache,
-          rasterMode: widget.animate
-              ? FastLottieRasterMode.animation
-              : FastLottieRasterMode.poster,
-          maximumFrameRate: widget.maximumFrameRate,
-          usePipeline: widget.rasterCache != null,
+      ? FastLottiePlaybackScope(
+          playback: widget.animate
+              ? FastLottiePlayback.active
+              : FastLottiePlayback.prewarm,
+          child: FastLottie(
+            composition: widget.model.fast!,
+            controller: progress,
+            cache: FastLottieCache.none,
+            rasterCache: widget.rasterCache,
+            rasterMode: widget.animate
+                ? FastLottieRasterMode.animation
+                : FastLottieRasterMode.poster,
+            maximumFrameRate: widget.maximumFrameRate,
+            usePipeline: widget.rasterCache != null,
+          ),
         )
       : Lottie(
           composition: widget.model.reference!,

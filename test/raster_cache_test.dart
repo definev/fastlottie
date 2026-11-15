@@ -345,6 +345,44 @@ void main() {
   );
 
   testWidgets(
+    'a busy native worker never receives raster jobs for entries canceled in its queue',
+    (tester) async {
+      final cache = FastLottieRasterCache.miniStrip(
+        workerCount: 1,
+        maximumInFlight: 8,
+      );
+      final players = [
+        for (var i = 0; i < 4; i++)
+          FastLottiePlayer(distinctIcon(i), rasterCache: cache),
+      ];
+      addTearDown(() {
+        for (final player in players) {
+          player.dispose();
+        }
+        cache.dispose();
+      });
+      for (final player in players) {
+        record(player, 0);
+      }
+      expect(cache.workerDispatches, 1);
+      expect(cache.pendingFrames, 4);
+
+      // Two queued tiles leave before the worker finishes. The last moves to
+      // a different strip while waiting and must only draw the latest request.
+      players[1].dispose();
+      players[2].dispose();
+      record(players.last, .8);
+      expect(cache.pendingFrames, 2);
+      await drain(tester, cache);
+      expect(cache.workerDispatches, 2);
+      expect(players.last.rasterBytes, greaterThan(0));
+      record(players.last, .8);
+      await drain(tester, cache);
+      expect(cache.workerDispatches, 2);
+    },
+  );
+
+  testWidgets(
     'suspension and disposal cancel queued work, bounded pending queue cannot grow',
     (tester) async {
       final cache = FastLottieRasterCache(

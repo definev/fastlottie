@@ -25,14 +25,37 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   final _highPriorityQueue = LinkedHashSet<_RasterEntry>.identity();
   final _lowPriorityQueue = LinkedHashSet<_RasterEntry>.identity();
   final _activeDiskKeys = <String>{};
-  final _activeWebShards = <int>{};
-  final _awaitingWebImages = <_RasterEntry>{};
+  final _activeWorkerShards = <int, int>{};
+  final _awaitingImages = <_RasterEntry>{};
+  // A non-owning image reference: reuse only while it is still a front/back
+  // buffer. Independent clone handles let the normal disposal path stay intact.
+  final _duplicateFrames = <_RasterEntry, (Uint8List, ui.Image)>{};
+  int duplicateFrameBytes = 0;
+  int skippedImageUploads = 0;
+
+  void _forgetDuplicate(_RasterEntry entry) {
+    final previous = _duplicateFrames.remove(entry);
+    if (previous != null) duplicateFrameBytes -= previous.$1.lengthInBytes;
+  }
+
+  void _rememberDuplicate(_RasterEntry entry, Uint8List bytes, ui.Image image) {
+    _forgetDuplicate(entry);
+    if (bytes.lengthInBytes > cache.maximumDuplicateFrameBytes) return;
+    while (duplicateFrameBytes + bytes.lengthInBytes >
+        cache.maximumDuplicateFrameBytes) {
+      _forgetDuplicate(_duplicateFrames.keys.first);
+    }
+    final copy = bytes;
+    _duplicateFrames[entry] = (copy, image);
+    duplicateFrameBytes += copy.lengthInBytes;
+  }
+
   int _activeJobs = 0;
   bool _disposed = false;
   bool _pumpScheduled = false;
 
-  // Allow another strip per browser worker while Flutter creates images.
-  // This caps the total drafts in flight; each shard has at most one RPC.
+  // Cap the total of worker jobs and images being decoded. Browser uploads
+  // also have a limit relative to the number of live workers.
   int get _maximumInFlight => kIsWeb
       ? math.min(
           cache.maximumInFlight,
@@ -41,14 +64,19 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       : cache.maximumInFlight;
 
   bool _canDispatch(_RasterEntry entry) {
-    if (!kIsWeb) return _activeJobs < _maximumInFlight;
-    final shard = workerPool.webShard(entry.entryKey);
     if (_activeJobs >= _maximumInFlight) return false;
-    if (_activeWebShards.contains(shard)) return false;
+    final shard = workerPool.shardForEntry(entry);
+    // Keep first-image work cancelable during viewport churn. Once an entry
+    // has an image, native workers retain their playback lookahead throughput.
+    if ((kIsWeb || entry.renderingImage == null) &&
+        (_activeWorkerShards[shard] ?? 0) > 0) {
+      return false;
+    }
+    if (!kIsWeb) return true;
     // Multiple browser workers can fail asynchronously. Keep new inline
     // work on a single slot even when more than one shard fell back.
     return !workerPool.isInlineShard(shard) ||
-        !_activeWebShards.any(workerPool.isInlineShard);
+        !_activeWorkerShards.keys.any(workerPool.isInlineShard);
   }
 
   int get activeJobCount => _activeJobs;
@@ -73,17 +101,19 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   }
 
   void onEntryReleased(_RasterEntry entry) {
+    _forgetDuplicate(entry);
     if (entry.queuedForPingPong) {
       _highPriorityQueue.remove(entry);
       _lowPriorityQueue.remove(entry);
       entry.queuedForPingPong = false;
-      entry.queuedHighPriority = false;
     }
+    entry.queuedHighPriority = false;
     entry.pendingStripStart = -1;
     entry.pendingStripCount = 0;
   }
 
   void onEntryDemoted(_RasterEntry entry) {
+    _forgetDuplicate(entry);
     if (entry.pendingStripStart >= 0) {
       if (entry.desiredFrameIndex >= 0 &&
           (entry.queuedHighPriority || entry.renderingImage == null)) {
@@ -128,7 +158,18 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       frameIndex >= stripStart &&
       frameIndex < stripStart + stripCount;
 
+  bool _needsFirstFrame(_RasterEntry entry) =>
+      cache.progressiveFirstFrame &&
+      entry.renderingImage == null &&
+      entry.stripFrames > 1 &&
+      entry.totalFrames > entry.stripFrames;
+
+  // A bootstrap frame can overlap a requested strip without satisfying it.
+  static bool _coversStrip(int start, int count, int wanted, int wantedCount) =>
+      count > 0 && wanted >= start && wanted + wantedCount <= start + count;
+
   int _stripStartFor(_RasterEntry entry, int frameIndex) {
+    if (_needsFirstFrame(entry)) return frameIndex;
     if (entry.stripFrames <= 1 || entry.poster || entry.totalFrames <= 1) {
       return frameIndex;
     }
@@ -136,6 +177,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   }
 
   int _stripCountFor(_RasterEntry entry, int stripStart, int total) {
+    if (_needsFirstFrame(entry)) return 1;
     if (entry.stripFrames <= 1 || entry.poster || total <= 1) {
       return 1;
     }
@@ -151,7 +193,9 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     if (entry.stripFrames <= 1 || entry.poster || total <= 1) {
       return (currentStart + 1) % total;
     }
-    return (currentStart + currentCount) % total;
+    final next = (currentStart + currentCount) % total;
+    // A bootstrap may start anywhere inside the regular strip grid.
+    return _stripStartFor(entry, next);
   }
 
   (ui.Image?, _RasterEntry?, int) lookup(
@@ -327,7 +371,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         )) {
       return;
     }
-    if (entry.inFlightStripStart == nextStart) return;
+    if (entry.inFlightStripStart == nextStart &&
+        entry.inFlightStripCount >=
+            _stripCountFor(entry, nextStart, entry.totalFrames)) {
+      return;
+    }
     final nextCount = _stripCountFor(entry, nextStart, entry.totalFrames);
     _requestStrip(entry, nextStart, nextCount, highPriority: false);
   }
@@ -338,35 +386,35 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     int stripCount, {
     required bool highPriority,
   }) {
-    if (entry.inFlightStripStart == stripStart) {
+    if (entry.inFlightStripStart == stripStart &&
+        entry.inFlightStripCount >= stripCount) {
       entry.pendingStripStart = -1;
       entry.pendingStripCount = 0;
+      entry.queuedHighPriority = false;
       return;
     }
     if (entry.inFlightStripStart >= 0) {
       // Latest desire wins without growing a request backlog.
       entry.pendingStripStart = stripStart;
       entry.pendingStripCount = stripCount;
-      if (highPriority) entry.queuedHighPriority = true;
+      entry.queuedHighPriority = highPriority;
       return;
     }
-    if (!_canDispatch(entry) || (kIsWeb && entry.queuedForPingPong)) {
-      entry.pendingStripStart = stripStart;
-      entry.pendingStripCount = stripCount;
+    final canDispatch = _canDispatch(entry);
+    if (!canDispatch ||
+        entry.queuedForPingPong ||
+        _highPriorityQueue.isNotEmpty ||
+        (!highPriority && _lowPriorityQueue.isNotEmpty)) {
       if (!entry.queuedForPingPong) {
         final totalQueued =
             _highPriorityQueue.length + _lowPriorityQueue.length;
         if (totalQueued >= cache.maximumPendingFrames) {
-          // Prefer dropping a speculative lookahead prefetch before a cold/active entry.
+          // A speculative strip must not displace a frame needed now.
+          if (!highPriority && _lowPriorityQueue.isEmpty) return;
           final victimQueue = _lowPriorityQueue.isNotEmpty
               ? _lowPriorityQueue
               : _highPriorityQueue;
-          final oldest = victimQueue.first;
-          victimQueue.remove(oldest);
-          oldest.queuedForPingPong = false;
-          oldest.queuedHighPriority = false;
-          oldest.pendingStripStart = -1;
-          oldest.pendingStripCount = 0;
+          onEntryReleased(victimQueue.first);
         }
         entry.queuedForPingPong = true;
         entry.queuedHighPriority = highPriority;
@@ -376,8 +424,16 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         _lowPriorityQueue.remove(entry);
         entry.queuedHighPriority = true;
         _highPriorityQueue.add(entry);
+      } else if (!highPriority && entry.queuedHighPriority) {
+        // A seek back to the front buffer can replace an urgent miss with
+        // lookahead. The replacement should not inherit the old priority.
+        _highPriorityQueue.remove(entry);
+        entry.queuedHighPriority = false;
+        _lowPriorityQueue.add(entry);
       }
-      if (kIsWeb) _pumpPending();
+      entry.pendingStripStart = stripStart;
+      entry.pendingStripCount = stripCount;
+      if (canDispatch) _pumpPending();
       return;
     }
     _dispatchEntryStrip(entry, stripStart, stripCount);
@@ -402,9 +458,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     entry.inFlightStripStart = stripStart;
     entry.inFlightStripCount = stripCount;
     final dispatchedGen = entry.stripGeneration;
-    if (kIsWeb) {
-      _activeWebShards.add(workerPool.webShard(entry.entryKey));
-    }
+    final shard = workerPool.shardForEntry(entry);
+    _activeWorkerShards[shard] = (_activeWorkerShards[shard] ?? 0) + 1;
     _activeJobs++;
 
     workerPool.dispatchStrip(
@@ -517,13 +572,30 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     }
 
     try {
-      if (kIsWeb) {
-        final shard = workerPool.webShard(entry.entryKey);
-        if (!workerPool.isInlineShard(shard)) {
-          _activeWebShards.remove(shard);
-          _awaitingWebImages.add(entry);
-          _pumpPending();
-        }
+      final previous = _duplicateFrames[entry];
+      if (previous != null &&
+          (identical(previous.$2, entry.renderingImage) ||
+              identical(previous.$2, entry.backgroundImage)) &&
+          previous.$2.width == stripWidth &&
+          previous.$2.height == stripHeight &&
+          listEquals(previous.$1, bgraBytes)) {
+        final image = previous.$2.clone();
+        skippedImageUploads++;
+        _onImageDecoded(
+          entry,
+          stripStart,
+          stripCount,
+          dispatchedGen,
+          image,
+          duplicateBytes: previous.$1,
+        );
+        return;
+      }
+      final shard = workerPool.shardForEntry(entry);
+      if (!kIsWeb || !workerPool.isInlineShard(shard)) {
+        _releaseWorker(shard);
+        _awaitingImages.add(entry);
+        _pumpPending();
       }
       ui.decodeImageFromPixels(
         bgraBytes,
@@ -536,6 +608,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
           stripCount,
           dispatchedGen,
           image,
+          duplicateBytes:
+              cache.maximumDuplicateFrameBytes > 0 &&
+                  bgraBytes.lengthInBytes <= cache.maximumDuplicateFrameBytes
+              ? Uint8List.fromList(bgraBytes)
+              : null,
         ),
       );
     } catch (error) {
@@ -576,8 +653,9 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     int stripStart,
     int stripCount,
     int dispatchedGen,
-    ui.Image image,
-  ) {
+    ui.Image image, {
+    Uint8List? duplicateBytes,
+  }) {
     if (_disposed ||
         entry.retired ||
         entry.users.isEmpty ||
@@ -708,14 +786,20 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       image.dispose();
     }
 
+    if (duplicateBytes != null &&
+        !_disposed &&
+        !entry.retired &&
+        entry.users.isNotEmpty &&
+        (identical(image, entry.renderingImage) ||
+            identical(image, entry.backgroundImage))) {
+      _rememberDuplicate(entry, duplicateBytes, image);
+    }
     _finishJob(entry, scheduleFollowup: true);
   }
 
   void _finishJob(_RasterEntry entry, {required bool scheduleFollowup}) {
-    if (kIsWeb && !_disposed) {
-      if (!_awaitingWebImages.remove(entry)) {
-        _activeWebShards.remove(workerPool.webShard(entry.entryKey));
-      }
+    if (!_disposed && !_awaitingImages.remove(entry)) {
+      _releaseWorker(workerPool.shardForEntry(entry));
     }
     if (_activeJobs > 0) _activeJobs--;
     entry.inFlightStripStart = -1;
@@ -734,10 +818,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         !entry.retired &&
         entry.users.isNotEmpty &&
         nextPending >= 0 &&
-        !_stripContains(
+        !_coversStrip(
           entry.renderingStripStart,
           entry.renderingStripCount,
           nextPending,
+          nextPendingCount,
         ) &&
         !(entry.backgroundImage != null &&
             _stripContains(
@@ -759,6 +844,15 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       );
     }
     _pumpPending();
+  }
+
+  void _releaseWorker(int shard) {
+    final remaining = (_activeWorkerShards[shard] ?? 1) - 1;
+    if (remaining == 0) {
+      _activeWorkerShards.remove(shard);
+    } else {
+      _activeWorkerShards[shard] = remaining;
+    }
   }
 
   void _pumpPending() {
@@ -793,10 +887,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         entry.pendingStripStart = -1;
         entry.pendingStripCount = 0;
         if (idx < 0 ||
-            _stripContains(
+            _coversStrip(
               entry.renderingStripStart,
               entry.renderingStripCount,
               idx,
+              count,
             ) ||
             (entry.backgroundImage != null &&
                 _stripContains(
@@ -838,9 +933,11 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _duplicateFrames.clear();
+    duplicateFrameBytes = 0;
     clearPending();
-    _activeWebShards.clear();
-    _awaitingWebImages.clear();
+    _activeWorkerShards.clear();
+    _awaitingImages.clear();
     workerPool.dispose();
   }
 }

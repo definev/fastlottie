@@ -436,6 +436,40 @@ void main() {
     },
   );
 
+  testWidgets('speculative lookahead cannot evict a queued first image', (
+    tester,
+  ) async {
+    final cache = FastLottieRasterCache.miniStrip(
+      stripFrames: 4,
+      progressiveFirstFrame: false,
+      workerCount: 1,
+      maximumInFlight: 8,
+      maximumPendingFrames: 1,
+    );
+    final players = [
+      for (final name in ['icon', 'features', 'many_shapes'])
+        FastLottiePlayer(
+          FastLottieComposition.fromJson(fixture(name)..['op'] = 12),
+          rasterCache: cache,
+        ),
+    ];
+    addTearDown(() {
+      for (final player in players) {
+        player.dispose();
+      }
+      cache.dispose();
+    });
+    final [warm, running, cold] = players;
+    _record(warm, 0, size: 48);
+    await _drainPingPong(tester, cache);
+    _record(running, 0, size: 48);
+    _record(cold, 0, size: 48);
+    _record(warm, 1 / 12, size: 48); // Speculate on strip 4…7.
+    await _drainPingPong(tester, cache);
+    expect(cache.workerDispatches, 3);
+    expect(cold.rasterBytes, greaterThan(0));
+  });
+
   testWidgets(
     '2-lane priority queue promotes/prioritizes cold frames over low-priority lookahead prefetches under tight queue budget',
     (tester) async {

@@ -24,6 +24,8 @@ class FastLottieRasterCache {
     this.maximumCompressedMemoryBytes = 16 * 1024 * 1024,
     this.maximumDiskBytes = 128 * 1024 * 1024,
     this.stripFrames = 1,
+    this.progressiveFirstFrame = true,
+    this.maximumDuplicateFrameBytes = 1024 * 1024,
     String? diskCacheDirectory,
     int? workerCount,
   }) : assert(maximumCompressedMemoryBytes >= 0),
@@ -32,6 +34,7 @@ class FastLottieRasterCache {
         resolutionScale <= 0 ||
         resolutionScale > 1 ||
         maximumBytes < 0 ||
+        maximumDuplicateFrameBytes < 0 ||
         reservedPosterBytes < 0 ||
         reservedPosterBytes > maximumBytes ||
         maximumPendingFrames < 1 ||
@@ -66,6 +69,7 @@ class FastLottieRasterCache {
     int maximumCompressedMemoryBytes = 16 * 1024 * 1024,
     int maximumDiskBytes = 128 * 1024 * 1024,
     int stripFrames = 1,
+    int maximumDuplicateFrameBytes = 1024 * 1024,
     String? diskCacheDirectory,
     int? workerCount,
   }) => FastLottieRasterCache(
@@ -79,6 +83,7 @@ class FastLottieRasterCache {
     maximumCompressedMemoryBytes: maximumCompressedMemoryBytes,
     maximumDiskBytes: maximumDiskBytes,
     stripFrames: stripFrames,
+    maximumDuplicateFrameBytes: maximumDuplicateFrameBytes,
     diskCacheDirectory: diskCacheDirectory,
     workerCount: workerCount,
   );
@@ -98,6 +103,8 @@ class FastLottieRasterCache {
     int maximumCompressedMemoryBytes = 16 * 1024 * 1024,
     int maximumDiskBytes = 128 * 1024 * 1024,
     int? stripFrames,
+    bool progressiveFirstFrame = true,
+    int maximumDuplicateFrameBytes = 1024 * 1024,
     String? diskCacheDirectory,
     int? workerCount,
   }) => FastLottieRasterCache(
@@ -112,6 +119,8 @@ class FastLottieRasterCache {
     maximumCompressedMemoryBytes: maximumCompressedMemoryBytes,
     maximumDiskBytes: maximumDiskBytes,
     stripFrames: stripFrames,
+    progressiveFirstFrame: progressiveFirstFrame,
+    maximumDuplicateFrameBytes: maximumDuplicateFrameBytes,
     diskCacheDirectory: diskCacheDirectory,
     workerCount: workerCount,
   );
@@ -126,6 +135,19 @@ class FastLottieRasterCache {
   /// Frames packed vertically per strip buffer (`1` = classic single-frame
   /// ping-pong; `null` = adaptive sizing based on resolution and budget).
   final int? stripFrames;
+
+  /// Render only the requested sample before starting normal strip playback.
+  /// Enabled by default. Set false for full-strip startup. Clips fitting in a
+  /// single strip keep their one-upload full-loop path.
+  final bool progressiveFirstFrame;
+
+  /// Optional host RAM for exact duplicate frame/strip detection before upload.
+  /// Defaults to 1 MiB per cache; zero disables comparison. This is separate
+  /// from GPU and compressed cache budgets.
+  /// Only the last result per entry is retained; oversized results bypass it.
+  final int maximumDuplicateFrameBytes;
+  int get duplicateFrameBytes => _pingPong.duplicateFrameBytes;
+  int get skippedImageUploads => _pingPong.skippedImageUploads;
 
   /// Keeps space available for one-frame posters while animated clips are pinned.
   final int reservedPosterBytes;
@@ -687,6 +709,7 @@ class _RasterEntry {
       stripFrames > 1 ? math.max(0, weight - minWeight) : 0;
   final double frameStep;
   final String entryKey;
+  int? workerShard;
 
   final users = <FastLottiePlayer>{};
   bool retired = false;

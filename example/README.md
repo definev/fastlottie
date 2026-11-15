@@ -83,6 +83,8 @@ large sticker messages use vector rendering.
 
 For release memory measurements of the chat itself on macOS and Android, see
 [the chat memory benchmark](../docs/chat-memory-benchmark.md).
+For CPU, GPU power impact, and thermal state on a physical iPhone 16, see
+[the Instruments benchmark](../docs/iphone16-instruments.md).
 
 Run the release harness from the repository root. Write new runs to a separate
 output file to preserve the measured snapshots:

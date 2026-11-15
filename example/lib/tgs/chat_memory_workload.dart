@@ -11,12 +11,14 @@ class ChatMemoryWorkload {
     required this.checkpoint,
     required this.onError,
     required this.onComplete,
+    this.onScroll,
   });
 
   final String mode, rasterCachePath, urlCachePath;
   final Future<void> Function(String phase) checkpoint;
   final void Function(Object error) onError;
   final Future<void> Function() onComplete;
+  final Future<void> Function(bool active)? onScroll;
   Map<String, Object?> Function()? snapshot;
 
   ChatRendererMode get renderer =>
@@ -94,6 +96,7 @@ class ChatMemoryWorkload {
     }
 
     Future<void> scrollPicker(int steps) async {
+      await onScroll?.call(true);
       for (var step = 0; step < steps; step++) {
         if (!state._pickerScroll.hasClients) {
           throw StateError('Picker has no scroll position');
@@ -107,6 +110,7 @@ class ChatMemoryWorkload {
         );
         await Future<void>.delayed(const Duration(milliseconds: 120));
       }
+      await onScroll?.call(false);
     }
 
     try {

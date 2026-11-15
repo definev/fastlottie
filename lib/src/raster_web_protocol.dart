@@ -5,7 +5,8 @@ import 'dart:typed_data';
 import 'raster_core.dart';
 
 const webWorkerAsset = 'packages/fastlottie/lib/src/wasm/fastlottie_worker.js';
-const webWorkerVersion = 1;
+// Reject cached worker assets that rasterize with the old fill algorithm.
+const webWorkerVersion = 2;
 const workerInit = -1;
 const workerReady = -2;
 const workerFailed = -3;

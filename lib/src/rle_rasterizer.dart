@@ -11,6 +11,7 @@ class RasterWorkspace {
     this.initialHeight = 256,
     bool preferNative = true,
     this.retainCoverage = true,
+    this.fuseFillTransforms = defaultFuseFillTransforms,
   }) : preferNative = preferNative && isSimdSupported;
 
   int get retainedCoverageBytes => _coverageBytes;
@@ -31,6 +32,8 @@ class RasterWorkspace {
   final int initialHeight;
   final bool preferNative;
   final bool retainCoverage;
+  final bool fuseFillTransforms;
+  int fusedFillDraws = 0;
   NativeCoverageWorkspace? _nativeCoverage;
   bool _triedNative = false;
   bool _usedLargeNativeGeometry = false;
@@ -3922,6 +3925,33 @@ void _rasterBooleanSource(
     return (effClipX0, effClipY0, effClipX1, effClipY1);
   }
 
+  // Only plain animated Bézier fills qualify: stroke, dash, trim and boolean
+  // sources require their existing local-space semantics. Transform control
+  // points once, then subdivide directly into the device polygon.
+  if (ws.fuseFillTransforms &&
+      !style.stroke &&
+      style.dash == null &&
+      style.sources.length == 1) {
+    var source = style.sources.single;
+    while (source is _Shape) {
+      source = source.content;
+    }
+    if (source is _BezierGeometry && !source.isPathStatic) {
+      final device = ws._workPolyB..clear();
+      _flattenBezier(
+        source,
+        frame,
+        0.0625,
+        device,
+        transform: (ma, mb, mc, md, mtx, mty),
+      );
+      ws.fusedFillDraws++;
+      return device.contourCount == 0
+          ? null
+          : (effClipX0, effClipY0, effClipX1, effClipY1);
+    }
+  }
+
   // Determine screen-aware curve flatness tolerance in local units.
   final scaleX = math.sqrt(ma * ma + mb * mb);
   final scaleY = math.sqrt(mc * mc + md * md);
@@ -4223,6 +4253,94 @@ double _localFlatnessSq(
   return scaleSq <= 1e-12 ? flatnessSq : flatnessSq / scaleSq;
 }
 
+// Avoid allocating a transform callback for every animated contour.
+void _appendBezierVertex(
+  _PolyPath out,
+  double x,
+  double y,
+  (double, double, double, double, double, double)? transform,
+) {
+  if (transform == null) {
+    out.addVertex(x, y);
+    return;
+  }
+  final (a, b, c, d, tx, ty) = transform;
+  out.addVertex(a * x + c * y + tx, b * x + d * y + ty);
+}
+
+void _flattenBezier(
+  _BezierGeometry src,
+  double frame,
+  double flatnessSq,
+  _PolyPath out, {
+  (double, double, double, double, double, double)? transform,
+}) {
+  final pts = src.track.at(frame);
+  final count = pts.length ~/ 6;
+  if (count == 0) return;
+  var closed = src.closed;
+  var closingCurve = src.closed;
+  if (src.closures.isNotEmpty) {
+    if (frame <= src.track.keyframes!.times.first) {
+      closed = closingCurve = src.closures.first.$1;
+    } else if (frame >= src.track.keyframes!.times.last) {
+      closed = closingCurve = src.closures.last.$1;
+    } else {
+      final (startClosed, endClosed) = src.closures[src.track._cursor];
+      closed = startClosed;
+      closingCurve = startClosed && endClosed;
+    }
+  }
+  out.beginContour(closed);
+  _appendBezierVertex(out, pts[0], pts[1], transform);
+  var lx = pts[0], ly = pts[1];
+  final limit = closingCurve ? count : count - 1;
+  for (var step = 1; step <= limit; step++) {
+    final prev = step - 1;
+    final curr = step % count;
+    final p = prev * 6, c = curr * 6;
+    final ox = pts[p + 4], oy = pts[p + 5];
+    final ix = pts[c + 2], iy = pts[c + 3];
+    final nx = pts[c], ny = pts[c + 1];
+    if (ox.abs() <= 1e-4 &&
+        oy.abs() <= 1e-4 &&
+        ix.abs() <= 1e-4 &&
+        iy.abs() <= 1e-4) {
+      _appendBezierVertex(out, nx, ny, transform);
+    } else if (transform != null) {
+      final (a, b, c, d, tx, ty) = transform;
+      final x1 = pts[p] + ox, y1 = pts[p + 1] + oy;
+      final x2 = nx + ix, y2 = ny + iy;
+      out.addCubic(
+        a * lx + c * ly + tx,
+        b * lx + d * ly + ty,
+        a * x1 + c * y1 + tx,
+        b * x1 + d * y1 + ty,
+        a * x2 + c * y2 + tx,
+        b * x2 + d * y2 + ty,
+        a * nx + c * ny + tx,
+        b * nx + d * ny + ty,
+        flatnessSq,
+      );
+    } else {
+      out.addCubic(
+        lx,
+        ly,
+        pts[p] + ox,
+        pts[p + 1] + oy,
+        nx + ix,
+        ny + iy,
+        nx,
+        ny,
+        flatnessSq,
+      );
+    }
+    lx = nx;
+    ly = ny;
+  }
+  out.endContour();
+}
+
 void _flattenLeaf(
   _PathSource src,
   double frame,
@@ -4230,55 +4348,7 @@ void _flattenLeaf(
   _PolyPath out,
 ) {
   if (src is _BezierGeometry) {
-    final pts = src.track.at(frame);
-    final count = pts.length ~/ 6;
-    if (count == 0) return;
-    var closed = src.closed;
-    var closingCurve = src.closed;
-    if (src.closures.isNotEmpty) {
-      if (frame <= src.track.keyframes!.times.first) {
-        closed = closingCurve = src.closures.first.$1;
-      } else if (frame >= src.track.keyframes!.times.last) {
-        closed = closingCurve = src.closures.last.$1;
-      } else {
-        final (startClosed, endClosed) = src.closures[src.track._cursor];
-        closed = startClosed;
-        closingCurve = startClosed && endClosed;
-      }
-    }
-    out.beginContour(closed);
-    out.addVertex(pts[0], pts[1]);
-    var lx = pts[0], ly = pts[1];
-    final limit = closingCurve ? count : count - 1;
-    for (var step = 1; step <= limit; step++) {
-      final prev = step - 1;
-      final curr = step % count;
-      final p = prev * 6, c = curr * 6;
-      final ox = pts[p + 4], oy = pts[p + 5];
-      final ix = pts[c + 2], iy = pts[c + 3];
-      final nx = pts[c], ny = pts[c + 1];
-      if (ox.abs() <= 1e-4 &&
-          oy.abs() <= 1e-4 &&
-          ix.abs() <= 1e-4 &&
-          iy.abs() <= 1e-4) {
-        out.addVertex(nx, ny);
-      } else {
-        out.addCubic(
-          lx,
-          ly,
-          pts[p] + ox,
-          pts[p + 1] + oy,
-          nx + ix,
-          ny + iy,
-          nx,
-          ny,
-          flatnessSq,
-        );
-      }
-      lx = nx;
-      ly = ny;
-    }
-    out.endContour();
+    _flattenBezier(src, frame, flatnessSq, out);
     return;
   }
   if (src is _PolyStarGeometry) {

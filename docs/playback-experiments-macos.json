@@ -1,0 +1,354 @@
+{
+  "environment": {
+    "os": "27.2",
+    "architecture": "arm64",
+    "mode": "macOS release",
+    "native": true
+  },
+  "visible": [
+    {
+      "pass": 0,
+      "first_raster_paint_p95_ms": 19.445,
+      "paint_samples_us": [
+        19442,
+        19442,
+        19443,
+        19443,
+        19444,
+        19444,
+        19445,
+        19444
+      ],
+      "vector_frames": 32,
+      "gpu_bytes": 1188864,
+      "progressive": false
+    },
+    {
+      "pass": 0,
+      "first_raster_paint_p95_ms": 6.007,
+      "paint_samples_us": [
+        6006,
+        6007,
+        6007,
+        6005,
+        6006,
+        6006,
+        6005,
+        6005
+      ],
+      "vector_frames": 8,
+      "gpu_bytes": 294912,
+      "progressive": true
+    },
+    {
+      "pass": 1,
+      "first_raster_paint_p95_ms": 8.167,
+      "paint_samples_us": [
+        8159,
+        8165,
+        8166,
+        8166,
+        8167,
+        8166,
+        8167,
+        8167
+      ],
+      "vector_frames": 8,
+      "gpu_bytes": 294912,
+      "progressive": true
+    },
+    {
+      "pass": 1,
+      "first_raster_paint_p95_ms": 7.833,
+      "paint_samples_us": [
+        7830,
+        7831,
+        7830,
+        7832,
+        7832,
+        7833,
+        7832,
+        7833
+      ],
+      "vector_frames": 32,
+      "gpu_bytes": 1188864,
+      "progressive": false
+    },
+    {
+      "pass": 2,
+      "first_raster_paint_p95_ms": 8.137,
+      "paint_samples_us": [
+        8135,
+        8136,
+        8136,
+        8137,
+        8136,
+        8136,
+        8137,
+        8137
+      ],
+      "vector_frames": 32,
+      "gpu_bytes": 1188864,
+      "progressive": false
+    },
+    {
+      "pass": 2,
+      "first_raster_paint_p95_ms": 7.818,
+      "paint_samples_us": [
+        7815,
+        7816,
+        7816,
+        7817,
+        7817,
+        7817,
+        7818,
+        7818
+      ],
+      "vector_frames": 8,
+      "gpu_bytes": 294912,
+      "progressive": true
+    },
+    {
+      "pass": 3,
+      "first_raster_paint_p95_ms": 8.131,
+      "paint_samples_us": [
+        8129,
+        8129,
+        8129,
+        8130,
+        8130,
+        8131,
+        8130,
+        8131
+      ],
+      "vector_frames": 8,
+      "gpu_bytes": 294912,
+      "progressive": true
+    },
+    {
+      "pass": 3,
+      "first_raster_paint_p95_ms": 6.95,
+      "paint_samples_us": [
+        6948,
+        6948,
+        6948,
+        6949,
+        6949,
+        6950,
+        6950,
+        6950
+      ],
+      "vector_frames": 32,
+      "gpu_bytes": 1188864,
+      "progressive": false
+    }
+  ],
+  "queue": [
+    {
+      "variant": "candidate",
+      "kind": "burst",
+      "pass": 1,
+      "first_image_p50_ms": 4.994,
+      "first_image_p95_ms": 8.543,
+      "drain_ms": 20.008,
+      "initial_dispatches": 2,
+      "dispatches": 10,
+      "vector_frames": 32,
+      "compressed_hits": 0,
+      "first_image_samples_us": [
+        3225,
+        3629,
+        4768,
+        4994,
+        5882,
+        5756,
+        7048,
+        8543
+      ],
+      "rss_before_bytes": 175652864,
+      "rss_after_bytes": 171081728
+    },
+    {
+      "variant": "candidate",
+      "kind": "burst",
+      "pass": 2,
+      "first_image_p50_ms": 3.616,
+      "first_image_p95_ms": 14.182,
+      "drain_ms": 14.296,
+      "initial_dispatches": 2,
+      "dispatches": 10,
+      "vector_frames": 32,
+      "compressed_hits": 0,
+      "first_image_samples_us": [
+        2302,
+        2430,
+        3564,
+        3616,
+        4407,
+        4965,
+        5993,
+        14182
+      ],
+      "rss_before_bytes": 171147264,
+      "rss_after_bytes": 179191808
+    },
+    {
+      "variant": "candidate",
+      "kind": "burst",
+      "pass": 3,
+      "first_image_p50_ms": 13.933,
+      "first_image_p95_ms": 22.61,
+      "drain_ms": 23.86,
+      "initial_dispatches": 2,
+      "dispatches": 10,
+      "vector_frames": 32,
+      "compressed_hits": 0,
+      "first_image_samples_us": [
+        5639,
+        13722,
+        13838,
+        13933,
+        19543,
+        19704,
+        19862,
+        22610
+      ],
+      "rss_before_bytes": 178929664,
+      "rss_after_bytes": 174309376
+    },
+    {
+      "variant": "candidate",
+      "kind": "burst",
+      "pass": 4,
+      "first_image_p50_ms": 26.488,
+      "first_image_p95_ms": 33.28,
+      "drain_ms": 33.8,
+      "initial_dispatches": 2,
+      "dispatches": 10,
+      "vector_frames": 32,
+      "compressed_hits": 0,
+      "first_image_samples_us": [
+        9949,
+        26099,
+        26106,
+        26488,
+        26800,
+        30577,
+        31319,
+        33280
+      ],
+      "rss_before_bytes": 174325760,
+      "rss_after_bytes": 183975936
+    },
+    {
+      "variant": "candidate",
+      "kind": "burst",
+      "pass": 5,
+      "first_image_p50_ms": 4.769,
+      "first_image_p95_ms": 11.669,
+      "drain_ms": 12.336,
+      "initial_dispatches": 2,
+      "dispatches": 10,
+      "vector_frames": 32,
+      "compressed_hits": 0,
+      "first_image_samples_us": [
+        2363,
+        4032,
+        4111,
+        4769,
+        5513,
+        6752,
+        9212,
+        11669
+      ],
+      "rss_before_bytes": 184025088,
+      "rss_after_bytes": 192118784
+    },
+    {
+      "variant": "candidate",
+      "kind": "burst",
+      "pass": 6,
+      "first_image_p50_ms": 7.699,
+      "first_image_p95_ms": 10.676,
+      "drain_ms": 12.494,
+      "initial_dispatches": 2,
+      "dispatches": 10,
+      "vector_frames": 32,
+      "compressed_hits": 0,
+      "first_image_samples_us": [
+        4629,
+        5888,
+        6059,
+        7699,
+        7822,
+        7941,
+        9085,
+        10676
+      ],
+      "rss_before_bytes": 192135168,
+      "rss_after_bytes": 196788224
+    },
+    {
+      "variant": "candidate",
+      "kind": "playback",
+      "progressive": false,
+      "duration_ms": 6010.788,
+      "lookups": 2880,
+      "hits": 2878,
+      "misses": 2,
+      "hit_fraction": 0.9993055555555556,
+      "dispatches": 761,
+      "vector_frames": 1611,
+      "compressed_hits": 1376,
+      "late_ticks": 0
+    },
+    {
+      "variant": "candidate",
+      "kind": "playback",
+      "progressive": true,
+      "duration_ms": 6012.504,
+      "lookups": 2880,
+      "hits": 2862,
+      "misses": 18,
+      "hit_fraction": 0.99375,
+      "dispatches": 777,
+      "vector_frames": 1611,
+      "compressed_hits": 1392,
+      "late_ticks": 0
+    },
+    {
+      "variant": "candidate",
+      "kind": "playback",
+      "progressive": true,
+      "duration_ms": 6011.27,
+      "lookups": 2880,
+      "hits": 2862,
+      "misses": 18,
+      "hit_fraction": 0.99375,
+      "dispatches": 777,
+      "vector_frames": 1611,
+      "compressed_hits": 1392,
+      "late_ticks": 1
+    },
+    {
+      "variant": "candidate",
+      "kind": "playback",
+      "progressive": false,
+      "duration_ms": 6010.871,
+      "lookups": 2880,
+      "hits": 2878,
+      "misses": 2,
+      "hit_fraction": 0.9993055555555556,
+      "dispatches": 761,
+      "vector_frames": 1611,
+      "compressed_hits": 1376,
+      "late_ticks": 0
+    }
+  ],
+  "limits": [
+    "One process; alternating order, four startup pairs and two playback pairs.",
+    "Raster canvas draw, not GPU presentation.",
+    "No macOS CPU/power measurement.",
+    "Bundled assets; no network or disk cache."
+  ]
+}
