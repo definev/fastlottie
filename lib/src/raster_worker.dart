@@ -75,18 +75,20 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
     int totalFrames,
   ) {
     if (!store.hasAllFrames(entryKey, totalFrames)) return;
-    if (scenes.remove(contentKey) == null) return;
+    final scene = scenes.remove(contentKey);
+    if (scene == null) return;
     // Coverage entries keep compiled draws and masked layers alive after
     // the scene map drops them.
-    ws.resetCaches();
+    ws.releaseScene(scene);
   }
 
   void register(String key, RasterScene scene) {
-    scenes.remove(key);
+    final previous = scenes.remove(key);
+    if (previous != null) ws.releaseScene(previous);
     failedScenes.remove(key);
     while (scenes.length >= maxWorkerScenes) {
-      scenes.remove(scenes.keys.first);
-      ws.resetCaches();
+      final oldest = scenes.remove(scenes.keys.first)!;
+      ws.releaseScene(oldest);
     }
     scenes[key] = scene;
   }

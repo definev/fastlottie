@@ -14,6 +14,15 @@ class RasterWorkspace {
   }) : preferNative = preferNative && isSimdSupported;
 
   int get retainedCoverageBytes => _coverageBytes;
+
+  /// Retained entries across all scenes sharing this workspace.
+  ({int coverage, int paths, int trimMetrics, int gradientLuts})
+  get retainedCacheEntries => (
+    coverage: _coverage.length,
+    paths: _staticPaths.length,
+    trimMetrics: _staticTrimMetrics.length,
+    gradientLuts: _staticGradientLuts.length,
+  );
   int get scratchPixelBytes => _scratchLayers.fold(
     0,
     (bytes, plane) => bytes + (plane?.typedList.lengthInBytes ?? 0),
@@ -29,6 +38,7 @@ class RasterWorkspace {
   static const _coverageEntryLimit = 256;
   final _coverage = Map<Object, _CoverageEntry>.identity();
   int _coverageBytes = 0;
+  _Compiler? _renderingScene;
 
   NativeCoverageWorkspace? get _native {
     if (!_triedNative && preferNative) {
@@ -103,17 +113,24 @@ class RasterWorkspace {
       _coverageBytes -= old.bytes;
       old.spans.dispose();
     }
-    _coverage[owner] = _CoverageEntry(key, spans._copy(), bytes);
+    _coverage[owner] = _CoverageEntry(
+      _renderingScene!,
+      key,
+      spans._copy(),
+      bytes,
+    );
     _coverageBytes += bytes;
   }
 
   _PolyPath _staticPolyline(_PathSource source, double frame) {
     final cached = _staticPaths[source];
-    if (cached != null) return cached;
+    if (cached != null) return cached.value;
     if (_staticPaths.length >= maxStaticPaths) _staticPaths.clear();
     final local = _flattenLeafPoly..clear();
     _flattenLeaf(source, frame, 0.01, local);
-    return _staticPaths[source] = local.cloneImmutable();
+    final path = local.cloneImmutable();
+    _staticPaths[source] = _SceneCacheEntry(_renderingScene!, path);
+    return path;
   }
 
   static const int maxStaticPaths = 512;
@@ -243,20 +260,42 @@ class RasterWorkspace {
 
   // Cached static geometry / gradient tables owned by this single-threaded
   // worker workspace so repeated frames never re-flatten static paths.
-  final Map<Object, _PolyPath> _staticPaths = Map<Object, _PolyPath>.identity();
-  final Map<Object, double> _staticTrimMetrics = Map<Object, double>.identity();
-  final Map<_GradientSpec, NativePixelBuffer> _staticGradientLuts =
-      Map<_GradientSpec, NativePixelBuffer>.identity();
+  final _staticPaths = Map<Object, _SceneCacheEntry<_PolyPath>>.identity();
+  final _staticTrimMetrics = Map<Object, _SceneCacheEntry<double>>.identity();
+  final _staticGradientLuts =
+      Map<_GradientSpec, _SceneCacheEntry<NativePixelBuffer>>.identity();
   NativePixelBuffer? _scratchGradientLut;
 
   void _releaseGradientLuts() {
     for (final lut in _staticGradientLuts.values) {
-      lut.dispose();
+      lut.value.dispose();
     }
     _staticGradientLuts.clear();
   }
 
   final _matrixStack = <Float64List>[];
+
+  /// Releases only caches owned by this exact compiled scene, including its
+  /// precompositions. Other scenes keep their warm geometry and paint tables.
+  /// Ownership lives on bounded cache entries so eviction leaves no side index.
+  void releaseScene(RasterScene scene) {
+    final compiler = scene._compiler;
+    _coverage.removeWhere((_, entry) {
+      if (!identical(entry.scene, compiler)) return false;
+      _coverageBytes -= entry.bytes;
+      entry.spans.dispose();
+      return true;
+    });
+    _staticPaths.removeWhere((_, entry) => identical(entry.scene, compiler));
+    _staticTrimMetrics.removeWhere(
+      (_, entry) => identical(entry.scene, compiler),
+    );
+    _staticGradientLuts.removeWhere((_, entry) {
+      if (!identical(entry.scene, compiler)) return false;
+      entry.value.dispose();
+      return true;
+    });
+  }
 
   void resetCaches() {
     for (final entry in _coverage.values) {
@@ -699,8 +738,15 @@ typedef _CoverageKey = (
   int,
 );
 
+final class _SceneCacheEntry<T> {
+  _SceneCacheEntry(this.scene, this.value);
+  final _Compiler scene;
+  final T value;
+}
+
 final class _CoverageEntry {
-  _CoverageEntry(this.key, this.spans, this.bytes);
+  _CoverageEntry(this.scene, this.key, this.spans, this.bytes);
+  final _Compiler scene;
   final _CoverageKey key;
   final _RleSpans spans;
   final int bytes;
@@ -2115,31 +2161,37 @@ void _renderSceneSoftware(
   }
   final sx = pixelWidth / scene.width;
   final sy = pixelHeight / scene.height;
-  _renderCompilerInto(
-    scene,
-    frame,
-    255,
-    outBgra8888,
-    0,
-    0,
-    pixelWidth,
-    0,
-    0,
-    pixelWidth,
-    pixelHeight,
-    sx,
-    0.0,
-    0.0,
-    sy,
-    0.0,
-    0.0,
-    null,
-    ws,
-    0,
-    true,
-    ws.preferNative,
-  );
-  ws.maybeTrimAfterFrame(total);
+  final previousScene = ws._renderingScene;
+  ws._renderingScene = scene;
+  try {
+    _renderCompilerInto(
+      scene,
+      frame,
+      255,
+      outBgra8888,
+      0,
+      0,
+      pixelWidth,
+      0,
+      0,
+      pixelWidth,
+      pixelHeight,
+      sx,
+      0.0,
+      0.0,
+      sy,
+      0.0,
+      0.0,
+      null,
+      ws,
+      0,
+      true,
+      ws.preferNative,
+    );
+    ws.maybeTrimAfterFrame(total);
+  } finally {
+    ws._renderingScene = previousScene;
+  }
 }
 
 void _renderCompilerInto(
@@ -3950,12 +4002,13 @@ NativePixelBuffer _evalGradientLut(
   // changes which index a pixel reads, not the contents of the table.
   if (grad.stops.isStatic) {
     final cached = ws._staticGradientLuts[grad];
-    if (cached != null) return cached;
+    if (cached != null) return cached.value;
     if (ws._staticGradientLuts.length >= RasterWorkspace.maxStaticLuts) {
       final oldest = ws._staticGradientLuts.keys.first;
-      ws._staticGradientLuts.remove(oldest)!.dispose();
+      ws._staticGradientLuts.remove(oldest)!.value.dispose();
     }
-    final lut = ws._staticGradientLuts[grad] = NativePixelBuffer(1024);
+    final lut = NativePixelBuffer(1024);
+    ws._staticGradientLuts[grad] = _SceneCacheEntry(ws._renderingScene!, lut);
     _fillGradientLut(grad, frame, lut.typedList);
     return lut;
   }
@@ -4560,7 +4613,7 @@ double _measureSourceLength(
 ) {
   if (src.isPathStatic) {
     final cached = ws._staticTrimMetrics[src];
-    if (cached != null) return cached;
+    if (cached != null) return cached.value;
   }
   late final _PolyPath poly;
   if (alreadyFlattened != null) {
@@ -4598,7 +4651,7 @@ double _measureSourceLength(
     if (ws._staticTrimMetrics.length >= RasterWorkspace.maxStaticMetrics) {
       ws._staticTrimMetrics.clear();
     }
-    ws._staticTrimMetrics[src] = total;
+    ws._staticTrimMetrics[src] = _SceneCacheEntry(ws._renderingScene!, total);
   }
   return total;
 }

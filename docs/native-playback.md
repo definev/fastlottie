@@ -14,6 +14,9 @@ mini-strip slots use the same pipeline.
   its coverage before applying paint and the clip mask. The cache key includes
   the resolved transform and clip rectangle. Cache limits are 1 MiB and 256
   entries per worker; changing geometry continues through the live path.
+  When the worker releases or replaces a compiled scene, it drops only that
+  scene's coverage, flattened paths, trim lengths and gradient tables. The
+  workspace still shares scratch buffers and applies the same cache limits.
 - A warm page with two to four resident frames at up to 65,536 pixels per frame
   can be rebuilt in RAM as a dictionary of identical 16×16 tiles plus an index
   per frame. A page can include only the frames sampled by a lower playback
@@ -36,9 +39,13 @@ For correctness coverage, run:
 
 ```sh
 flutter test test/software_native_parity_test.dart test/tile_playback_test.dart \
-  test/software_rasterizer_test.dart test/mini_strip_test.dart
+  test/software_rasterizer_test.dart test/mini_strip_test.dart \
+  test/raster_scene_cache_test.dart
 ```
 
 The software parity test compares the native pipeline with the Dart fallback
 across dimensions and non-monotonic frame access. The tile tests check
 materialization, seek, and RAM admission and eviction.
+
+See [the Pixel 7a cache eviction benchmark](scene-cache-pixel7a.md) for the
+raster cost under frequent scene eviction and the separate chat workload.
