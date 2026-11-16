@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'cache_codec_stub.dart' if (dart.library.ffi) 'cache_codec_io.dart';
 import 'lz4.dart';
 import 'tile_playback.dart';
 import 'platform_stub.dart' if (dart.library.io) 'platform_io.dart';
@@ -20,6 +21,14 @@ String formatBitstreamEntryKey(
 ]) => '${contentKey}_${width}x${height}_f$sourceFrameCount';
 
 typedef _RamKey = (String, int);
+
+/// Optional worker-local cache counters for experiments. A file open may come
+/// from a read or a write; RAM hits exclude decoded tile pages.
+final class BitstreamReadStats {
+  int ramHits = 0, diskHits = 0, fileOpens = 0, fileEvictions = 0;
+  int nativeDecodes = 0, dartDecodes = 0;
+  int nativeEncodes = 0, dartEncodes = 0;
+}
 
 final class _RamFrame {
   _RamFrame({required this.payload, required this.isRaw, required this.crc31});
@@ -80,6 +89,9 @@ class BitstreamStore {
     String? diskCacheDirectory,
     this._maximumRamBytes = 4 * 1024 * 1024,
     this.maximumOpenFiles = 16,
+    this.useNativeDecoder = false,
+    this.useNativeEncoder = false,
+    this.readStats,
   }) : _diskDir = (diskCacheDirectory == null || diskCacheDirectory.isEmpty)
            ? null
            : diskCacheDirectory {
@@ -129,6 +141,16 @@ class BitstreamStore {
   }
 
   final int maximumOpenFiles;
+
+  /// Experimental FLC1 decode into caller-owned bytes. Unsupported targets
+  /// and frames above the native leaf-call limit keep the Dart path.
+  final bool useNativeDecoder;
+
+  /// Experimental byte-compatible LZ4/CRC encoder for short VM leaf calls.
+  /// Unsupported targets and frames above 256 KiB use the Dart encoder.
+  final bool useNativeEncoder;
+
+  final BitstreamReadStats? readStats;
 
   final _ramLru = <_RamKey, _RamFrame>{};
   final _ramFramesByEntry = <String, Set<int>>{};
@@ -275,6 +297,7 @@ class BitstreamStore {
         dstBgra,
         expectedBytes,
       )) {
+        readStats?.ramHits++;
         return true;
       }
       _removeRamKey(ramKey);
@@ -347,6 +370,7 @@ class BitstreamStore {
       crc31: expectedCrc,
     );
     _recordIoUse(storedLen);
+    readStats?.diskHits++;
     return true;
   }
 
@@ -451,13 +475,29 @@ class BitstreamStore {
 
     final maxOut = Lz4Codec.maxCompressedLength(expectedBytes);
     final dst = scratch.ensureOutputCapacity(maxOut);
-    final written = Lz4Codec.compressInto(
-      srcBgra,
-      expectedBytes,
-      dst,
-      scratch.hashTable,
-      abortAtLength: expectedBytes,
-    );
+    final native = useNativeEncoder && expectedBytes > 0
+        ? encodeCacheFrameNative(
+            srcBgra,
+            expectedBytes,
+            dst,
+            scratch.hashTable,
+            _crcTable,
+          )
+        : null;
+    final int written;
+    if (native != null) {
+      written = native.length;
+      readStats?.nativeEncodes++;
+    } else {
+      written = Lz4Codec.compressInto(
+        srcBgra,
+        expectedBytes,
+        dst,
+        scratch.hashTable,
+        abortAtLength: expectedBytes,
+      );
+      readStats?.dartEncodes++;
+    }
     final bool isRaw;
     final Uint8List srcPayload;
     final int payloadLen;
@@ -470,7 +510,7 @@ class BitstreamStore {
       srcPayload = dst;
       payloadLen = written;
     }
-    final check = crc31(srcPayload, 0, payloadLen);
+    final check = native?.crc ?? crc31(srcPayload, 0, payloadLen);
     _putRam(
       ramKey: (entryKey, frameIndex),
       bytes: srcPayload,
@@ -567,6 +607,23 @@ class BitstreamStore {
     Uint8List dstBgra,
     int expectedBytes,
   ) {
+    if (useNativeDecoder) {
+      final decoded = decodeCacheFrameNative(
+        src,
+        offset,
+        length,
+        dstBgra,
+        expectedBytes,
+        isRaw,
+        expectedCrc,
+        _crcTable,
+      );
+      if (decoded != null) {
+        readStats?.nativeDecodes++;
+        return decoded;
+      }
+    }
+    readStats?.dartDecodes++;
     if (crc31(src, offset, length) != expectedCrc) return false;
     if (isRaw) {
       if (length != expectedBytes) return false;
@@ -663,6 +720,7 @@ class BitstreamStore {
     while (_openFiles.length >= maximumOpenFiles) {
       final oldestKey = _openFiles.keys.first;
       final victim = _openFiles.remove(oldestKey);
+      readStats?.fileEvictions++;
       try {
         victim?.handle.close();
       } catch (_) {}
@@ -670,6 +728,7 @@ class BitstreamStore {
 
     final handle = PlatformDiskFs.openReadWrite(path);
     if (handle == null) return null;
+    readStats?.fileOpens++;
 
     final expectedBytes = width * height * 4;
     final payloadStart = headerSize + frameCount * slotSize;
