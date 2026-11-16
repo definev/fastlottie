@@ -12,6 +12,7 @@ import 'package:lottie/lottie.dart';
 
 import 'cache_dir.dart';
 import 'clock.dart';
+import 'compiled_pack.dart';
 import 'network_server.dart';
 import 'network_store.dart';
 import 'pressure.dart';
@@ -503,8 +504,11 @@ class CupertinoChatScreen extends StatefulWidget {
 
 class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     with WidgetsBindingObserver {
-  late final NetworkTgsStore _store =
-      widget.store ??
+  CompiledModelPack? _availablePack;
+  bool _useCompiledPack = false;
+  late NetworkTgsStore _store;
+
+  NetworkTgsStore _createStore({CompiledModelPack? pack}) =>
       NetworkTgsStore(
         httpConcurrency: 6,
         decodeConcurrency: 2,
@@ -512,7 +516,13 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         framePaced: true,
         // Visible cells stay pinned. This only bounds models that have
         // already scrolled off; compiling them again reads the disk cache.
-        maximumEntries: _compactChat ? 8 : 48,
+        maximumEntries:
+            widget.memoryWorkload?.modelCacheEntries ?? (_compactChat ? 8 : 48),
+        modelCacheObserver: widget.memoryWorkload?.modelCacheObserver,
+        maximumCompiledBytes: widget.memoryWorkload?.compiledCacheBytes ?? 0,
+        compiledPack: pack,
+        directPackPlayback: pack != null,
+        deferredPackPlayback: pack != null,
       );
 
   late FastLottieRasterStrategy _rasterStrategy =
@@ -587,6 +597,10 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     super.initState();
     HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
     WidgetsBinding.instance.addObserver(this);
+    _useCompiledPack = widget.memoryWorkload?.compiledPack != null;
+    _store =
+        widget.store ??
+        _createStore(pack: widget.memoryWorkload?.compiledPack);
     final life = WidgetsBinding.instance.lifecycleState;
     _foreground =
         life == null ||
@@ -596,7 +610,47 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _messageScroll.addListener(_onMessageScroll);
     _composerController.addListener(_onComposerTextChanged);
     _composerFocus.addListener(_onComposerFocusChanged);
+    _initDefaultPack();
     unawaited(_bootstrap());
+  }
+
+  Future<void> _initDefaultPack() async {
+    if (widget.store != null || widget.memoryWorkload?.compiledPack != null) {
+      return;
+    }
+    final pack = await loadDefaultCompiledPack();
+    if (!mounted || pack == null) return;
+    setState(() {
+      _availablePack = pack;
+      _useCompiledPack = true;
+      _switchStore(pack);
+    });
+  }
+
+  void _switchStore(CompiledModelPack? pack) {
+    final oldStore = _store;
+    _store = _createStore(pack: pack);
+    _composerController.store = _store;
+    if (_catalog != null) {
+      _setupCatalog(_catalog!);
+    }
+    setState(() {
+      _cacheEpoch++;
+      for (var i = 0; i < _messages.length; i++) {
+        if (_messages[i].sticker != null) {
+          _messages[i] = _messages[i].withReloadEpoch(_cacheEpoch);
+        }
+      }
+    });
+    oldStore.dispose();
+  }
+
+  Future<void> _togglePackMode() async {
+    if (_availablePack == null) return;
+    final next = !_useCompiledPack;
+    setState(() => _useCompiledPack = next);
+    _rasterCache.clear();
+    _switchStore(next ? _availablePack : null);
   }
 
   Future<void> _bootstrap() async {
@@ -877,6 +931,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   void _onComposerFocusChanged() {
     if (_composerFocus.hasFocus && _drawerOpen) {
       setState(() => _drawerOpen = false);
+      _syncPlayback();
     }
   }
 
@@ -1039,6 +1094,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _syncPlayback();
   }
 
+  @override
+  void didHaveMemoryPressure() => _store.evictCompiledSnapshots();
+
   void _toggleDrawer() {
     if (_drawerOpen) {
       setState(() => _drawerOpen = false);
@@ -1047,11 +1105,13 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       _composerFocus.unfocus();
       setState(() => _drawerOpen = true);
     }
+    _syncPlayback();
   }
 
   void _dismissPicker() {
     if (_composerFocus.hasFocus) _composerFocus.unfocus();
     if (_drawerOpen) setState(() => _drawerOpen = false);
+    _syncPlayback();
   }
 
   void _selectPickerTab(int index) {
@@ -1257,6 +1317,20 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               ),
             ),
           CupertinoActionSheetAction(
+            key: const ValueKey('toggle-data-source-action'),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              unawaited(_togglePackMode());
+            },
+            child: Text(
+              _useCompiledPack
+                  ? 'Data Source: FastLottie Pack (.flp) ✓ — Switch to Standard TGS'
+                  : (_availablePack != null
+                      ? 'Data Source: Standard TGS (.tgs) — Switch to FastLottie Pack (.flp)'
+                      : 'Data Source: Standard TGS (.tgs) (No .flp pack available)'),
+            ),
+          ),
+          CupertinoActionSheetAction(
             onPressed: () {
               final next = !_isDark;
               setState(() => _isDark = next);
@@ -1310,6 +1384,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         content: Padding(
           padding: const EdgeInsets.only(top: 8),
           child: Text(
+            'Data Source: ${_useCompiledPack ? '⚡ FastLottie Pack (.flp) [AOT Snapshot]' : '🌐 Standard TGS (.tgs) [Runtime GZip & JSON]'}\n'
+            '${_useCompiledPack ? 'Pack Hits: ${_store.packHits} · Fallbacks: ${_store.packFallbacks}\nPack Read: ${(_store.packReadBytes / 1024).toStringAsFixed(1)} KB (${(_store.packReadUs / 1000).toStringAsFixed(2)} ms)\n' : ''}'
+            'GZip & Compile Time: ${((_store.inflateUs + _store.compileUs) / 1000).toStringAsFixed(2)} ms\n'
             'Server: ${_catalog?.baseUri ?? '-'}\n'
             'HTTP Requests: ${s?.requests ?? '-'}\n'
             'HTTP TGS Served: ${s?.tgsRequests ?? _store.networkDownloads} '
@@ -1801,8 +1878,11 @@ class _HeaderStatus extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: Listenable.merge([store, if (server != null) server!.stats]),
     builder: (context, _) {
+      final isPack = store.compiledPack != null;
       final subtitle = catalog == null
           ? 'Connecting…'
+          : isPack
+          ? '⚡ Pack (.flp) · Hits ${store.packHits} · Read ${(store.packReadBytes / 1024).toStringAsFixed(0)} KB'
           : store.inFlightDownloads > 0 || store.queuedDownloads > 0
           ? 'HTTP loading ${store.inFlightDownloads + store.queuedDownloads} · ${catalog!.baseUri.authority}'
           : 'HTTP ${catalog!.baseUri.authority} · DL ${store.networkDownloads} · Disk ${store.diskSourceHits}';

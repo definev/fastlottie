@@ -9,6 +9,7 @@ import 'web_support_stub.dart'
     if (dart.library.js_interop) 'web_support.dart'
     as web_support;
 import 'store.dart';
+import 'compiled_pack.dart';
 
 enum _NetStage {
   queuedFetch,
@@ -43,6 +44,15 @@ typedef NetworkUrlByteFetcher = Future<FastLottieNetworkFetchResult> Function(
   String? sourceCacheDirectory,
 });
 
+enum ModelCacheEvent { pin, unpin, ready }
+
+/// Optional benchmark observer. `ready` carries the decoded source bytes.
+typedef ModelCacheObserver = void Function(
+  ModelCacheEvent event,
+  (String, bool) key,
+  int sourceBytes,
+);
+
 /// Stage-separated network TGS loader & bounded LRU store:
 ///   Stage 0: In-memory compiled [TgsModel] LRU cache (hits are synchronous)
 ///   Stage 1: Raw URL `.tgsbin` disk cache -> bounded HTTP fetch queue
@@ -59,6 +69,11 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
     this.maximumEntries = 180,
     this.maximumSourceBytes = 48 * 1024 * 1024,
     this.sourceCacheDirectory,
+    this.modelCacheObserver,
+    this.maximumCompiledBytes = 0,
+    this.compiledPack,
+    this.directPackPlayback = false,
+    this.deferredPackPlayback = false,
     NetworkUrlByteFetcher? fetcher,
     TgsDecoder? decoder,
     TgsBatchDecoder? batchDecoder,
@@ -72,6 +87,16 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
         batchSize < 1 ||
         maximumEntries < 0 ||
         maximumSourceBytes < 0 ||
+        maximumCompiledBytes < 0 ||
+        (maximumCompiledBytes > 0 &&
+            (decoder != null || batchDecoder != null || kIsWeb)) ||
+        (compiledPack != null &&
+            (maximumCompiledBytes > 0 ||
+                decoder != null ||
+                batchDecoder != null ||
+                kIsWeb)) ||
+        (directPackPlayback && compiledPack == null) ||
+        (deferredPackPlayback && !directPackPlayback) ||
         (decoder != null && batchDecoder != null)) {
       throw ArgumentError('Invalid NetworkTgsStore configuration');
     }
@@ -106,10 +131,58 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
   final int batchSize;
   final int maximumEntries;
   final int maximumSourceBytes;
+  final int maximumCompiledBytes;
+  final CompiledModelPack? compiledPack;
+  final bool directPackPlayback, deferredPackPlayback;
   final bool framePaced;
+  final ModelCacheObserver? modelCacheObserver;
   String? sourceCacheDirectory;
   final NetworkUrlByteFetcher _fetcher;
   final TgsBatchDecoder _decodeBatch;
+  final _snapshots = <(String, bool), (Uint8List source, Uint8List blob)>{};
+  int compiledBytes = 0,
+      snapshotHits = 0,
+      snapshotEncodes = 0,
+      snapshotEncodeUs = 0;
+  int snapshotEvictions = 0;
+  int _snapshotGeneration = 0;
+
+  Uint8List? _snapshot(_NetEntry entry) {
+    final key = (entry.url, entry.reference);
+    final cached = _snapshots.remove(key);
+    if (cached == null) return null;
+    if (!listEquals(cached.$1, entry.bytes)) {
+      compiledBytes -= cached.$1.length + cached.$2.length;
+      return null;
+    }
+    _snapshots[key] = cached;
+    return cached.$2;
+  }
+
+  void _rememberSnapshot(_NetEntry entry, Uint8List source, Uint8List blob) {
+    final bytes = source.length + blob.length;
+    if (bytes > maximumCompiledBytes) return;
+    final key = (entry.url, entry.reference);
+    final old = _snapshots.remove(key);
+    if (old != null) compiledBytes -= old.$1.length + old.$2.length;
+    while (_snapshots.isNotEmpty &&
+        compiledBytes + bytes > maximumCompiledBytes) {
+      final old = _snapshots.remove(_snapshots.keys.first)!;
+      compiledBytes -= old.$1.length + old.$2.length;
+      snapshotEvictions++;
+    }
+    _snapshots[key] = (source, blob);
+    compiledBytes += bytes;
+  }
+
+  /// Drops only the optional compiled snapshots in response to memory pressure.
+  /// Decodes already in flight can publish their models but not cache blobs.
+  void evictCompiledSnapshots() {
+    if (maximumCompiledBytes == 0) return;
+    _snapshotGeneration++;
+    _snapshots.clear();
+    compiledBytes = 0;
+  }
 
   final _entries = <(String, bool), _NetEntry>{};
   final _fetchQueue = LinkedHashSet<_NetEntry>.identity();
@@ -136,6 +209,9 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
   int cancelledFetches = 0;
   int downloadedBytes = 0;
   int decodes = 0;
+  int decodedModels = 0, inflateUs = 0, compileUs = 0, prepareUs = 0;
+  int packHits = 0, packFallbacks = 0, packReadBytes = 0, packReadUs = 0;
+  int directPlaybackModels = 0, deferredPlaybackModels = 0;
   int fetchErrors = 0;
 
   int get cached => _cached;
@@ -207,6 +283,7 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
       }
     }
     entry.users++;
+    modelCacheObserver?.call(ModelCacheEvent.pin, key, 0);
     _scheduleFetchPump();
     _changed();
     return TgsLease.custom(
@@ -219,6 +296,10 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
   void _release(_NetEntry entry) {
     entry.users--;
     if (_disposed || entry.evicted) return;
+    modelCacheObserver?.call(ModelCacheEvent.unpin, (
+      entry.url,
+      entry.reference,
+    ), 0);
     if (entry.users == 0) {
       switch (entry.stage) {
         case _NetStage.queuedFetch:
@@ -365,24 +446,61 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
       }
       if (live.isEmpty) return;
       decodes += live.length;
-      final results = await _decodeBatch([
-        for (final entry in live) (entry.bytes!, entry.reference),
-      ]);
-      for (final entry in live) {
-        entry.bytes = null;
-      }
+      final generation = _snapshotGeneration;
+      final sourceBytes = maximumCompiledBytes == 0
+          ? null
+          : [for (final entry in live) entry.bytes!];
+      final results = compiledPack != null
+          ? await decodeTgsPackedBatch([
+              for (final entry in live)
+                (
+                  entry.bytes!,
+                  entry.reference,
+                  compiledPack!.lookup(entry.url),
+                  directPackPlayback,
+                  deferredPackPlayback,
+                ),
+            ])
+          : maximumCompiledBytes == 0
+          ? await _decodeBatch([
+              for (final entry in live) (entry.bytes!, entry.reference),
+            ])
+          : await decodeTgsSnapshotBatch([
+              for (final entry in live)
+                (entry.bytes!, entry.reference, _snapshot(entry)),
+            ]);
       if (results.length != live.length) {
         throw StateError('TGS decoder returned an incomplete batch');
       }
       for (var i = 0; i < live.length; i++) {
         final entry = live[i];
         final result = results[i];
+        entry.bytes = null;
+        packReadBytes += result.packReadBytes;
+        packReadUs += result.packReadUs;
         if (_disposed) {
           _fail(entry, const TgsLoadCancelled());
         } else if (result.error != null) {
           _fail(entry, result.error!, result.stackTrace);
         } else {
-          entry.decoded = result.model!;
+          final model = result.model!;
+          if (model.directPlayback) directPlaybackModels++;
+          if (model.deferredPlayback) deferredPlaybackModels++;
+          if (result.snapshotHit) snapshotHits++;
+          if (result.packHit) packHits++;
+          if (result.packFallback) packFallbacks++;
+          if (result.compiledSnapshot case final snapshot?) {
+            snapshotEncodes++;
+            snapshotEncodeUs += result.snapshotEncodeUs;
+            if (generation == _snapshotGeneration) {
+              _rememberSnapshot(entry, sourceBytes![i], snapshot);
+            }
+          }
+          decodedModels++;
+          inflateUs += model.inflateUs;
+          compileUs += model.parseUs - model.prepareUs;
+          prepareUs += model.prepareUs;
+          entry.decoded = model;
           if (framePaced && entry.users > 0) {
             entry.stage = _NetStage.pendingPublish;
             _publications.add(entry);
@@ -414,6 +532,10 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
     entry.stage = _NetStage.ready;
     _cached++;
     _sourceBytes += model.sourceBytes;
+    modelCacheObserver?.call(ModelCacheEvent.ready, (
+      entry.url,
+      entry.reference,
+    ), model.sourceBytes);
     if (entry.users <= 0) _unpinned.add(entry);
     if (!entry.completer.isCompleted) {
       entry.completer.complete(model);
@@ -472,6 +594,7 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
   /// Drops cached models and clears the URL raw `.tgsbin` disk cache.
   Future<void> clearMemoryAndUrlDiskCache() async {
     if (_disposed) return;
+    evictCompiledSnapshots();
     for (final entry in _entries.values.toList(growable: false)) {
       if (entry.stage == _NetStage.ready && entry.model != null) {
         entry.evicted = true;
@@ -520,6 +643,7 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
     _publications.clear();
     _unpinned.clear();
     _entries.clear();
+    evictCompiledSnapshots();
     _cached = _sourceBytes = 0;
     super.dispose();
   }

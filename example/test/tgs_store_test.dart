@@ -318,8 +318,8 @@ void main() {
       image.dispose();
       picture.dispose();
     }
-    expect(native, 959);
-    expect(unsupported, 104);
+    expect(native, 1063);
+    expect(unsupported, 0);
   });
   test('priority acquire jumps ahead of normal queue and promotes coalesced entries', () async {
     final order = <String>[];

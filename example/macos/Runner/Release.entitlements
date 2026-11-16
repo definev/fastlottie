@@ -9,5 +9,7 @@
 	<!-- The example serves bundled sticker assets over loopback. -->
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
 </dict>
 </plist>

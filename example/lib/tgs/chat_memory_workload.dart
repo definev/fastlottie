@@ -12,6 +12,12 @@ class ChatMemoryWorkload {
     required this.onError,
     required this.onComplete,
     this.onScroll,
+    this.modelCacheEntries,
+    this.modelCacheObserver,
+    this.compiledCacheBytes = 0,
+    this.compiledPack,
+    this.directPackPlayback = false,
+    this.deferredPackPlayback = false,
   });
 
   final String mode, rasterCachePath, urlCachePath;
@@ -19,7 +25,13 @@ class ChatMemoryWorkload {
   final void Function(Object error) onError;
   final Future<void> Function() onComplete;
   final Future<void> Function(bool active)? onScroll;
+  final int? modelCacheEntries;
+  final int compiledCacheBytes;
+  final CompiledModelPack? compiledPack;
+  final bool directPackPlayback, deferredPackPlayback;
+  final ModelCacheObserver? modelCacheObserver;
   Map<String, Object?> Function()? snapshot;
+  Map<String, int> Function()? modelCounters;
 
   ChatRendererMode get renderer =>
       mode == 'lottie' ? ChatRendererMode.lottie : ChatRendererMode.fastlottie;
@@ -79,6 +91,22 @@ class ChatMemoryWorkload {
         'sticker_players': state._stickerSheet?.activePlayers,
         'emoji_players': state._emojiSheet?.activePlayers,
         'cached_models': store.cached,
+        'model_cache_entries': store.maximumEntries,
+        'model_decodes': store.decodes,
+        'model_hits': store.hits,
+        'model_coalesced': store.coalesced,
+        'compiled_cache_bytes': store.compiledBytes,
+        'compiled_cache_limit': store.maximumCompiledBytes,
+        'snapshot_hits': store.snapshotHits,
+        'snapshot_encodes': store.snapshotEncodes,
+        'snapshot_encode_us': store.snapshotEncodeUs,
+        'snapshot_evictions': store.snapshotEvictions,
+        'pack_hits': store.packHits,
+        'direct_playback_models': store.directPlaybackModels,
+        'deferred_playback_models': store.deferredPlaybackModels,
+        'pack_fallbacks': store.packFallbacks,
+        'pack_read_bytes': store.packReadBytes,
+        'pack_read_us': store.packReadUs,
         'source_bytes': store.sourceBytes,
         'network_downloads': store.networkDownloads,
         'disk_source_hits': store.diskSourceHits,
@@ -90,6 +118,24 @@ class ChatMemoryWorkload {
     }
 
     snapshot = telemetry;
+    modelCounters = () => {
+      'decodes': state._store.decodes,
+      'hits': state._store.hits,
+      'coalesced': state._store.coalesced,
+      'disk_source_hits': state._store.diskSourceHits,
+      'decoded_models': state._store.decodedModels,
+      'inflate_us': state._store.inflateUs,
+      'compile_us': state._store.compileUs,
+      'prepare_us': state._store.prepareUs,
+      'snapshot_hits': state._store.snapshotHits,
+      'snapshot_encodes': state._store.snapshotEncodes,
+      'snapshot_encode_us': state._store.snapshotEncodeUs,
+      'pack_hits': state._store.packHits,
+      'direct_playback_models': state._store.directPlaybackModels,
+      'pack_fallbacks': state._store.packFallbacks,
+      'pack_read_bytes': state._store.packReadBytes,
+      'pack_read_us': state._store.packReadUs,
+    };
     Future<void> mark(String phase) async {
       await Future<void>.delayed(const Duration(seconds: 3));
       await checkpoint(phase);
@@ -148,6 +194,7 @@ class ChatMemoryWorkload {
       state._setReducedMotion(true);
       await mark('reduced_motion');
       snapshot = () => {'mode': mode, 'chat_disposed': true};
+      modelCounters = null;
       runApp(const SizedBox.shrink());
       await mark('disposed');
       await onComplete();
