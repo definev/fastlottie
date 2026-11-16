@@ -12,7 +12,10 @@ class RasterWorkspace {
     bool preferNative = true,
     this.retainCoverage = true,
     this.fuseFillTransforms = defaultFuseFillTransforms,
-  }) : preferNative = preferNative && isSimdSupported;
+    this.borrowGeometry = false,
+    bool nativeStroke = false,
+  }) : preferNative = preferNative && isSimdSupported,
+       _nativeStroke = nativeStroke && preferNative && !_isWeb;
 
   int get retainedCoverageBytes => _coverageBytes;
 
@@ -33,6 +36,8 @@ class RasterWorkspace {
   final bool preferNative;
   final bool retainCoverage;
   final bool fuseFillTransforms;
+  final bool borrowGeometry;
+  int borrowedCoverageDraws = 0, copiedCoverageDraws = 0;
   int fusedFillDraws = 0;
   NativeCoverageWorkspace? _nativeCoverage;
   bool _triedNative = false;
@@ -65,6 +70,7 @@ class RasterWorkspace {
       if (path.vertexCount > 4096 || path.contourCount > 256) {
         _usedLargeNativeGeometry = true;
       }
+      final borrowed = native.borrowedDraws, copied = native.copiedDraws;
       final n = native.raster(
         path.vx,
         path.vy,
@@ -78,7 +84,10 @@ class RasterWorkspace {
         x1,
         y1,
         out._buf,
+        borrowGeometry: borrowGeometry,
       );
+      borrowedCoverageDraws += native.borrowedDraws - borrowed;
+      copiedCoverageDraws += native.copiedDraws - copied;
       if (n >= 0) {
         final bounds = native.bounds;
         out
@@ -160,8 +169,10 @@ class RasterWorkspace {
   final _layerChain = <_Layer?>[];
   final _trimLengthsPool = <Float64List>[];
   final _Float64Scratch _cumLengths = _Float64Scratch();
+  final bool _nativeStroke;
   _StrokeScratch? _strokeScratchState;
-  _StrokeScratch get _strokeScratch => _strokeScratchState ??= _StrokeScratch();
+  _StrokeScratch get _strokeScratch =>
+      _strokeScratchState ??= _StrokeScratch(_nativeStroke);
 
   Float64List _acquireTrimLengths(int depth, int count) {
     while (_trimLengthsPool.length <= depth) {
@@ -282,7 +293,8 @@ class RasterWorkspace {
   /// precompositions. Other scenes keep their warm geometry and paint tables.
   /// Ownership lives on bounded cache entries so eviction leaves no side index.
   void releaseScene(RasterScene scene) {
-    final compiler = scene._compiler;
+    final compiler = scene._compilerState;
+    if (compiler == null) return;
     _coverage.removeWhere((_, entry) {
       if (!identical(entry.scene, compiler)) return false;
       _coverageBytes -= entry.bytes;
@@ -2140,21 +2152,27 @@ abstract final class _SwarBlender {
   }
 }
 
-/// Renders [scene] at [frame] directly into [outBgra8888] (`pixelWidth * pixelHeight`
-/// premultiplied BGRA8888 words). Thread/Isolate-safe: uses zero `dart:ui` native calls.
+/// Renders [scene] into premultiplied BGRA8888. [rowStride] is measured in
+/// pixels, including padding; defaults to [pixelWidth]. No `dart:ui` calls.
 void _renderSceneSoftware(
   _Compiler scene,
   double frame,
   NativePixelBuffer outBgra8888,
   int pixelWidth,
   int pixelHeight,
-  RasterWorkspace ws,
-) {
+  RasterWorkspace ws, {
+  int? rowStride,
+}) {
+  final stride = rowStride ?? pixelWidth;
   final total = pixelWidth * pixelHeight;
+  final allocated = stride * pixelHeight;
+  if (stride < pixelWidth || allocated > outBgra8888.typedList.length) {
+    throw ArgumentError('Raster output is too small');
+  }
   if (ws.preferNative) {
-    simdClearPixels(outBgra8888, total);
+    simdClearPixels(outBgra8888, allocated);
   } else {
-    outBgra8888.typedList.fillRange(0, total, 0);
+    outBgra8888.typedList.fillRange(0, allocated, 0);
   }
   if (pixelWidth <= 0 ||
       pixelHeight <= 0 ||
@@ -2174,7 +2192,7 @@ void _renderSceneSoftware(
       outBgra8888,
       0,
       0,
-      pixelWidth,
+      stride,
       0,
       0,
       pixelWidth,
@@ -4292,6 +4310,28 @@ void _flattenBezier(
     }
   }
   out.beginContour(closed);
+  if (_useNativeBezier) {
+    final start = out.vertexCount;
+    while (true) {
+      final countAfter = flattenBezierNative(
+        pts,
+        count,
+        closingCurve,
+        out.vx,
+        out.vy,
+        start,
+        flatnessSq,
+        transform,
+      );
+      if (countAfter >= 0) {
+        out.vertexCount = countAfter;
+        out.endContour();
+        return;
+      }
+      if (countAfter != -1 || out.vx.length - start >= 8192) break;
+      out._growVertices();
+    }
+  }
   _appendBezierVertex(out, pts[0], pts[1], transform);
   var lx = pts[0], ly = pts[1];
   final limit = closingCurve ? count : count - 1;
@@ -4889,16 +4929,77 @@ void _applyDash(
 /// One growable SoA scratch set per worker. Contours are expanded sequentially,
 /// so neither point buffers nor tangent buffers need to survive the call.
 class _StrokeScratch {
+  _StrokeScratch([this.nativeStroke = false]);
+
+  final bool nativeStroke;
   final _Float64Scratch x = _Float64Scratch();
   final _Float64Scratch y = _Float64Scratch();
   final _Float64Scratch tx = _Float64Scratch();
   final _Float64Scratch ty = _Float64Scratch();
+  _Float64Scratch? _native;
 
   void trimIfOversized() {
     x.trimIfOversized();
     y.trimIfOversized();
     tx.trimIfOversized();
     ty.trimIfOversized();
+    _native?.trimIfOversized();
+  }
+
+  bool expandNative(
+    _PolyPath src,
+    double hw,
+    int cap,
+    int join,
+    double miter,
+    double flatness,
+    _PolyPath dst,
+  ) {
+    // Native builds into empty scratch; it only publishes counts on success.
+    if (dst.vertexCount != 0 ||
+        dst.contourCount != 0 ||
+        dst._inContour ||
+        src.vertexCount == 0 ||
+        src.vertexCount > nativeStrokePointLimit ||
+        src.contourCount == 0 ||
+        src.contourCount > nativeStrokeContourLimit) {
+      return false;
+    }
+    final scratch = (_native ??= _Float64Scratch()).ensure(src.vertexCount * 4);
+    while (dst.contourStart.length < src.contourCount * 2) {
+      dst._growContours();
+    }
+    while (true) {
+      final result = expandStrokeNative(
+        src.vx,
+        src.vy,
+        src.vertexCount,
+        src.contourStart,
+        src.contourEnd,
+        src.contourClosed,
+        src.contourCount,
+        hw,
+        cap,
+        join,
+        miter,
+        flatness,
+        scratch,
+        dst.vx,
+        dst.vy,
+        dst.contourStart,
+        dst.contourEnd,
+      );
+      if (result >= 0) {
+        dst.vertexCount = result & 0xffffffff;
+        dst.contourCount = result >>> 32;
+        dst.contourClosed.fillRange(0, dst.contourCount, 1);
+        return true;
+      }
+      if (result != -1 || dst.vx.length >= nativeStrokeOutputLimit) {
+        return false;
+      }
+      dst._growVertices();
+    }
   }
 }
 
@@ -4913,6 +5014,10 @@ void _expandStroke(
   _StrokeScratch scratch,
 ) {
   if (hw <= 0) return;
+  if (scratch.nativeStroke &&
+      scratch.expandNative(src, hw, cap, join, miterLimit, flatness, dst)) {
+    return;
+  }
   final miterSq = miterLimit * miterLimit;
   final sagittaTol = math.max(0.12, flatness * 0.5);
 
@@ -5173,6 +5278,13 @@ final class _ContentKeyHasher {
   }
 
   static int _mul32(int a, int b) {
+    // Native Dart multiplies integers modulo 2^64. The low 32 bits are
+    // identical, including when the product overflows the signed range.
+    // dart2js numbers cannot represent those products exactly.
+    if (!_isWeb &&
+        !const bool.fromEnvironment('FASTLOTTIE_SPLIT_HASH_MULTIPLY')) {
+      return (a * b) & 0xFFFFFFFF;
+    }
     final lo = (a & 0xFFFF) * b;
     final hi = ((a >>> 16) * b) & 0xFFFF;
     return (lo + (hi << 16)) & 0xFFFFFFFF;

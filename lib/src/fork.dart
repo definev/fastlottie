@@ -8,21 +8,22 @@ class _Fork {
   final _memo = Map<Object, Object>.identity();
   T _copy<T extends Object>(T source, T Function() create) {
     final result = _memo.putIfAbsent(source, create) as T;
-    if (warm) _prime(result);
+    if (warm) _primeSceneNode(result);
     return result;
   }
 
-  bool _prime(Object value) => switch (value) {
-    _Group g => g.isPathStatic == g.isStatic,
-    _PathSource s => s.isPathStatic == s.isStatic,
-    _Draw d => d.isStatic,
-    _Layer l => l.isStatic == l.hasAnySpatialTransform,
-    _Transform t => t.isStatic,
-    _Mask m => m.isStatic,
-    _Compiler c => c.isStatic,
-    _ => false,
-  };
-  _Track track(_Track value) => _copy(value, () => _Track.fork(value));
+  _Track track(_Track value) {
+    // Compilation finishes RGB normalization and the gamma flag before any
+    // fork. Constant tracks have no evaluation state: at() returns their
+    // read-only samples immediately. Animated tracks still own their cursor
+    // and output per player.
+    if (value.isStatic &&
+        !const bool.fromEnvironment('FASTLOTTIE_COPY_CONSTANT_TRACKS')) {
+      return value;
+    }
+    return _copy(value, () => _Track.fork(value));
+  }
+
   _Transform transform(_Transform v) => _copy(
     v,
     () => _Transform(
@@ -204,3 +205,14 @@ class _Fork {
     return result;
   });
 }
+
+bool _primeSceneNode(Object value) => switch (value) {
+  _Group g => g.isPathStatic == g.isStatic,
+  _PathSource s => s.isPathStatic == s.isStatic,
+  _Draw d => d.isStatic,
+  _Layer l => l.isStatic == l.hasAnySpatialTransform,
+  _Transform t => t.isStatic,
+  _Mask m => m.isStatic,
+  _Compiler c => c.isStatic,
+  _ => false,
+};

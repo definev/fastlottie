@@ -10,6 +10,15 @@ mini-strip slots use the same pipeline.
   stepping on long edges. The workspace is capped at 262,144 cells per draw;
   oversized draws or unavailable native code use the Dart scanline. Masks,
   gradients and the final composition order still use the existing renderer.
+- Native Bézier flattening is available for experiments with
+  `--dart-define=FASTLOTTIE_NATIVE_BEZIER=true`. It borrows the sampled track
+  and polygon output for one bounded contour call. The subdivision, affine
+  arithmetic and duplicate-point rule match Dart; output growth happens in
+  Dart, and oversized work or missing native code uses the original path.
+  It leaves the Web renderer unchanged.
+- The experimental software workspace can also expand strokes in one bounded
+  native call, including round caps and joins. It borrows reusable geometry
+  columns and falls back to Dart when limits are exceeded.
 - A style whose path, stroke/dash and transform chain are constant can reuse
   its coverage before applying paint and the clip mask. The cache key includes
   the resolved transform and clip rectangle. Cache limits are 1 MiB and 256

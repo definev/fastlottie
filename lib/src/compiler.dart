@@ -840,8 +840,7 @@ class _Compiler {
     if (value is! List) fail(path, 'Expected shape list');
     final sources = <_PathSource>[];
     final draws = <_Draw>[];
-    var transform = _Transform.identity();
-    var sawTransform = false;
+    _Transform? transform;
     for (var i = 0; i < value.length; i++) {
       final p = path.index(i);
       final m = map(value[i], p);
@@ -853,10 +852,9 @@ class _Compiler {
       final hidden = m['hd'] == true;
       switch (type) {
         case 'tr':
-          if (sawTransform || i != value.length - 1) {
+          if (transform != null || i != value.length - 1) {
             fail(p, 'Transform must be last and unique');
           }
-          sawTransform = true;
           transform = _transform(m, p);
         case 'gr':
           check(m, p, const {
@@ -1131,7 +1129,7 @@ class _Compiler {
           fail(p.field('ty'), 'Shape op $type');
       }
     }
-    return _Group(sources, draws, transform);
+    return _Group(sources, draws, transform ?? _Transform.identity());
   }
 
   _Dash? _dash(dynamic value, _JsonPath path) {

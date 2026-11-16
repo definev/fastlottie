@@ -14,7 +14,12 @@ class _Keyframes {
     this.easing,
     this.tangents,
     bool simd,
-  ) : simdValues = simd && width >= 32 ? values.buffer.asFloat32x4List() : null,
+  ) : simdValues = simd && width >= 32
+          ? values.buffer.asFloat32x4List(
+              values.offsetInBytes,
+              values.length ~/ 4,
+            )
+          : null,
       spatial = tangents == null
           ? null
           : List<_SpatialCurve?>.filled(times.length, null) {

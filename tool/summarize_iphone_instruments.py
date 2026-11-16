@@ -68,6 +68,8 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--skip-export', action='store_true',
                         help='Reuse previously exported XML beside the trace')
+    parser.add_argument('--phase', action='append', metavar='NAME',
+                        help='Select a named signpost interval; repeat to compare phases')
     args = parser.parse_args()
 
     def table(schema):
@@ -79,6 +81,12 @@ def main():
     markers = [r for r in table('OSSignpostIntervals')
                if value(r, 'subsystem') == 'com.example.fastlottie.instruments'
                and value(r, 'name') == 'Chat Scenario']
+    if args.phase:
+        markers = [r for r in markers if r['start-message'].get('fmt') in args.phase]
+        names = [r['start-message'].get('fmt') for r in markers
+                 if int(value(r, 'duration')) > 0]
+        if sorted(names) != sorted(set(args.phase)):
+            parser.error('Expected exactly one complete interval per requested phase')
     if not markers:
         parser.error('No complete scenario signposts in this trace')
     process, = {r['process'].get('fmt') for r in markers}

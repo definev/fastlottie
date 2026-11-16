@@ -113,6 +113,49 @@ void main() {
       player.dispose();
     },
   );
+  test('taking a prepared raster scene leaves later players independent', () {
+    final composition = FastLottieComposition.fromJson(fixture('icon'))
+      ..prepareForPlayback();
+    final scene = debugTakePreparedRasterScene(composition);
+    expect(scene, isNotNull);
+    expect(debugTakePreparedRasterScene(composition), isNull);
+    final player = FastLottiePlayer(composition);
+    expect(player.debugHasScene, isFalse);
+    record(player, .2);
+    expect(player.debugHasScene, isTrue);
+    player.dispose();
+  });
+  test('interleaved raster sessions keep animation tracks independent', () {
+    final composition = FastLottieComposition.fromJson(fixture('morph'))
+      ..prepareForPlayback();
+    final firstScene = debugTakePreparedRasterScene(composition)!;
+    final key = composition.contentKey;
+    expect(firstScene.contentKey, key);
+    final first = FastLottieSoftwareSession(
+      composition,
+      pixelWidth: 96,
+      pixelHeight: 96,
+    );
+    final second = FastLottieSoftwareSession(
+      composition,
+      pixelWidth: 96,
+      pixelHeight: 96,
+    );
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+    for (final (a, b) in [
+      (0.0, 59.0),
+      (28.5, 15.0),
+      (59.0, 0.0),
+      (0.0, 42.0),
+    ]) {
+      final snapshot = first.renderFrame(a).toList();
+      second.renderFrame(b);
+      expect(first.renderFrame(a), snapshot);
+      expect(second.renderFrame(a), snapshot);
+      expect(composition.contentKey, key);
+    }
+  });
   testWidgets('a shared texture hit never constructs a replacement scene', (
     tester,
   ) async {
