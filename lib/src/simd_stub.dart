@@ -114,6 +114,8 @@ abstract class NativeCoverageWorkspace {
   static NativeCoverageWorkspace? acquire() => null;
   Int32List get bounds;
   bool get hasOversizedScratch;
+  int get borrowedDraws => 0;
+  int get copiedDraws => 0;
   void trimIfOversized() {}
   void release() {}
   int raster(
@@ -128,7 +130,8 @@ abstract class NativeCoverageWorkspace {
     int y0,
     int x1,
     int y1,
-    NativeSpansBuffer out,
-  );
+    NativeSpansBuffer out, {
+    bool borrowGeometry = false,
+  });
   void dispose();
 }

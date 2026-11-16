@@ -307,40 +307,43 @@ static inline void fl_span(FLDense *r, int y, int x, int len, int cov) {
     r->maxy = y + 1;
 }
 
-// Negative result: -1 asks the caller to grow the output, -2 falls back to the
-// Dart scanline (unsupported bounds or allocation failure).
-FL_EXPORT int32_t fl_dense_raster(void *state, const double *x, const double *y,
-                                  const int32_t *start, const int32_t *end,
-                                  int32_t contours, int32_t x0, int32_t y0,
-                                  int32_t x1, int32_t y1, int32_t odd,
-                                  int32_t *out, int32_t cap, int32_t *bounds) {
+// Allocation is separate so bounded leaf callers can reserve before borrowing
+// Dart storage. The general raster call keeps its existing growth behavior.
+FL_EXPORT int32_t fl_dense_reserve(void *state, int32_t width, int32_t height) {
   FLDense *r = state;
-  if (!r || x0 < 0 || y0 < 0 || x1 > 65535 || y1 > 65535 || x0 >= x1 ||
-      y0 >= y1)
-    return -2;
-  r->x0 = x0;
-  r->y0 = y0;
-  r->x1 = x1;
-  r->y1 = y1;
-  r->w = x1 - x0;
-  r->words = (r->w + 63) / 64;
-  size_t nc = (size_t)r->w * (y1 - y0), nw = (size_t)r->words * (y1 - y0);
-  if (nc > 262144)
-    return -2;
+  if (!r || width <= 0 || height <= 0 || width > 65535 || height > 65535) return 0;
+  const size_t nc = (size_t)width * height;
+  const size_t nw = (size_t)((width + 63) / 64) * height;
+  if (nc > 262144) return 0;
   if (nc > r->cell_cap) {
     FLCell *p = realloc(r->cells, nc * sizeof(FLCell));
     if (!p)
-      return -2;
+      return 0;
     r->cells = p;
     r->cell_cap = nc;
   }
   if (nw > r->used_cap) {
     uint64_t *p = realloc(r->used, nw * sizeof(uint64_t));
     if (!p)
-      return -2;
+      return 0;
     r->used = p;
     r->used_cap = nw;
   }
+  return 1;
+}
+
+static int32_t fl_dense_run(FLDense *r, const double *x, const double *y,
+                           const int32_t *start, const int32_t *end,
+                           int32_t contours, int32_t x0, int32_t y0,
+                           int32_t x1, int32_t y1, int32_t odd,
+                           int32_t *out, int32_t cap, int32_t *bounds) {
+  r->x0 = x0;
+  r->y0 = y0;
+  r->x1 = x1;
+  r->y1 = y1;
+  r->w = x1 - x0;
+  r->words = (r->w + 63) / 64;
+  const size_t nw = (size_t)r->words * (y1 - y0);
   memset(r->used, 0, nw * sizeof(uint64_t));
   r->ymin = y1;
   r->ymax = y0 - 1;
@@ -389,4 +392,41 @@ FL_EXPORT int32_t fl_dense_raster(void *state, const double *x, const double *y,
   bounds[2] = r->maxx;
   bounds[3] = r->maxy;
   return r->n;
+}
+
+// Negative result: -1 asks the caller to grow the output, -2 falls back to the
+// Dart scanline (unsupported bounds or allocation failure).
+FL_EXPORT int32_t fl_dense_raster(void *state, const double *x, const double *y,
+                                  const int32_t *start, const int32_t *end,
+                                  int32_t contours, int32_t x0, int32_t y0,
+                                  int32_t x1, int32_t y1, int32_t odd,
+                                  int32_t *out, int32_t cap, int32_t *bounds) {
+  if (x0 < 0 || y0 < 0 || x1 > 65535 || y1 > 65535 || x0 >= x1 || y0 >= y1 ||
+      !fl_dense_reserve(state, x1 - x0, y1 - y0)) return -2;
+  return fl_dense_run(state, x, y, start, end, contours,
+                      x0, y0, x1, y1, odd, out, cap, bounds);
+}
+
+// No allocation or retained pointers. Bound contour indexing, clip and estimated
+// edge/sweep work before calling from a VM leaf. Complex draws keep the regular
+// call, which can cooperate with GC while native code runs.
+FL_EXPORT int32_t fl_dense_raster_borrowed(
+    void *state, const double *x, const double *y,
+    const int32_t *start, const int32_t *end, int32_t vertices, int32_t contours,
+    int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t odd,
+    int32_t *out, int32_t cap, int32_t *bounds) {
+  FLDense *r = state;
+  if (!r || vertices < 2 || vertices > 512 || contours < 1 || contours > 64 ||
+      x0 < 0 || y0 < 0 || x1 > 65535 || y1 > 65535 || x0 >= x1 || y0 >= y1 ||
+      x1 - x0 > 128 || y1 - y0 > 128 || cap < 1) return -2;
+  const int w = x1 - x0, h = y1 - y0;
+  if (vertices * (w + h + 4) + w * h > 32768 ||
+      (size_t)w * h > r->cell_cap || (size_t)((w + 63) / 64) * h > r->used_cap) return -2;
+  int previous = 0;
+  for (int i = 0; i < contours; ++i) {
+    if (start[i] < previous || end[i] < start[i] || end[i] > vertices) return -2;
+    previous = end[i];
+  }
+  return fl_dense_run(r, x, y, start, end, contours,
+                      x0, y0, x1, y1, odd, out, cap, bounds);
 }

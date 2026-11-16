@@ -480,6 +480,8 @@ class NativeCoverageWorkspace {
   Int32List get bounds => _heap.asInt32List(_bounds, 4);
 
   int _points = 0, _contours = 0, _peakCells = 0;
+  int get borrowedDraws => 0;
+  int copiedDraws = 0;
   bool get hasOversizedScratch =>
       _peakCells > 256 * 256 || _points > 8192 || _contours > 512;
 
@@ -498,8 +500,10 @@ class NativeCoverageWorkspace {
     int y0,
     int x1,
     int y1,
-    NativeSpansBuffer out,
-  ) {
+    NativeSpansBuffer out, {
+    bool borrowGeometry = false,
+  }) {
+    copiedDraws++;
     final cells = (x1 - x0) * (y1 - y0);
     if (nv < 2 || nc == 0 || out.ptr == null || cells > 262144) {
       return -2;

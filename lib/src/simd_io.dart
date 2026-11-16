@@ -501,6 +501,10 @@ class NativePixelBuffer {
 
   NativePixelBuffer._view(this.ptr, this.typedList) : _owned = false;
 
+  /// Views caller-owned memory. The caller keeps it valid for the entire draw.
+  NativePixelBuffer.borrowed(ffi.Pointer<ffi.Uint32> pixels, int count)
+    : this._view(pixels, pixels.asTypedList(count));
+
   final bool _owned;
   ffi.Pointer<ffi.Uint32>? ptr;
   late Uint32List typedList;
@@ -585,6 +589,53 @@ external void _denseFree(ffi.Pointer<ffi.Void> p);
 )
 external void _denseTrim(ffi.Pointer<ffi.Void> p, int maxCells);
 
+@ffi.Native<ffi.Int32 Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32)>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fl_dense_reserve',
+)
+external int _denseReserve(ffi.Pointer<ffi.Void> state, int width, int height);
+
+@ffi.Native<
+  ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Int32,
+    ffi.Pointer<ffi.Int32>,
+  )
+>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fl_dense_raster_borrowed',
+  isLeaf: true,
+)
+external int _denseBorrowed(
+  ffi.Pointer<ffi.Void> state,
+  ffi.Pointer<ffi.Double> x,
+  ffi.Pointer<ffi.Double> y,
+  ffi.Pointer<ffi.Int32> starts,
+  ffi.Pointer<ffi.Int32> ends,
+  int nv,
+  int nc,
+  int x0,
+  int y0,
+  int x1,
+  int y1,
+  int odd,
+  ffi.Pointer<ffi.Int32> dst,
+  int cap,
+  ffi.Pointer<ffi.Int32> bounds,
+);
+
 @ffi.Native<
   ffi.Int32 Function(
     ffi.Pointer<ffi.Void>,
@@ -657,6 +708,9 @@ class NativeCoverageWorkspace {
   final _bounds = calloc<ffi.Int32>(4);
   late final bounds = _bounds.asTypedList(4);
   int _points = 0, _contours = 0, _peakCells = 0;
+  int borrowedDraws = 0, copiedDraws = 0;
+  bool _borrowedUnavailable = false;
+  int _borrowedCells = 0, _borrowedWords = 0;
   bool get hasOversizedScratch =>
       _peakCells > 256 * 256 || _points > 8192 || _contours > 512;
 
@@ -676,13 +730,61 @@ class NativeCoverageWorkspace {
     int y0,
     int x1,
     int y1,
-    NativeSpansBuffer out,
-  ) {
+    NativeSpansBuffer out, {
+    bool borrowGeometry = false,
+  }) {
     final cells = (x1 - x0) * (y1 - y0);
     if (nv < 2 || nc == 0 || out.ptr == null || cells > 262144) {
       return -2;
     }
     if (cells > _peakCells) _peakCells = cells;
+    if (borrowGeometry &&
+        !_borrowedUnavailable &&
+        nv <= 512 &&
+        nc <= 64 &&
+        x1 - x0 <= 128 &&
+        y1 - y0 <= 128 &&
+        nv * (x1 - x0 + y1 - y0 + 4) + cells <= 32768) {
+      try {
+        final words = ((x1 - x0 + 63) ~/ 64) * (y1 - y0);
+        final reserved = cells <= _borrowedCells && words <= _borrowedWords;
+        if (reserved || _denseReserve(_state, x1 - x0, y1 - y0) != 0) {
+          if (!reserved) {
+            if (cells > _borrowedCells) _borrowedCells = cells;
+            if (words > _borrowedWords) _borrowedWords = words;
+          }
+          int run() => _denseBorrowed(
+            _state,
+            vx.address,
+            vy.address,
+            s.address,
+            e.address,
+            nv,
+            nc,
+            x0,
+            y0,
+            x1,
+            y1,
+            odd ? 1 : 0,
+            out.ptr!,
+            out.typedList.length ~/ 2,
+            _bounds,
+          );
+          var n = run();
+          while (n == -1) {
+            out.reallocate(out.typedList.length * 2, 0);
+            n = run();
+          }
+          if (n >= 0) {
+            borrowedDraws++;
+            return n;
+          }
+        }
+      } on ArgumentError {
+        _borrowedUnavailable = true;
+      }
+    }
+    copiedDraws++;
     if (nv > _points) {
       if (_points > 0) {
         calloc.free(_x);
@@ -738,6 +840,7 @@ class NativeCoverageWorkspace {
     if (_peakCells > softCells) {
       _denseTrim(_state, softCells);
       _peakCells = 0;
+      _borrowedCells = _borrowedWords = 0;
     }
     const softPoints = 8192;
     if (_points > softPoints) {
