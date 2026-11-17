@@ -253,6 +253,21 @@ void main() {
     });
   }
 
+  test('transformed subtract masks match Canvas on checkered flag', () async {
+    final file = File('example/assets/tgs/NotoEmoji/emoji_u1f3c1.tgs');
+    final doc = jsonDecode(
+      utf8.decode(decodeLottieBytes(file.readAsBytesSync())),
+    ) as Map<String, dynamic>;
+    await _compareAgainstVectorCanvas(
+      'emoji u1f3c1',
+      doc,
+      [0, 203],
+      maxMae: 1.0,
+      maxBad: .02,
+      maxInteriorMae: .75,
+    );
+  });
+
   test('identity groups preserve paint order and animated parent opacity', () {
     Map<String, dynamic> wrap(List<Map<String, dynamic>> items) => {
       'ty': 'gr',

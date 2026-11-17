@@ -326,13 +326,7 @@ class _Layer {
     }
     if (_lastWorldBoundsFrame == frame) return _cachedWorldBounds;
     _lastWorldBoundsFrame = frame;
-    var bounds = group?.drawBounds(frame);
-    if (child != null) {
-      final childFrame = timeRemap != null
-          ? timeRemap!.scalar(frame) * child!.fps - child!.start
-          : (frame - offset) / stretch;
-      bounds = _unionRect(bounds, child!.worldBounds(childFrame));
-    }
+    var bounds = _localContentBounds(frame);
     if (bounds == null) return _cachedWorldBounds = null;
     if (masks != null &&
         (masks!.length == 1 && masks!.single.clipsToPathAlone ||
@@ -356,6 +350,17 @@ class _Layer {
       bounds = p.transform.transformRect(bounds!, frame);
     }
     return _cachedWorldBounds = bounds;
+  }
+
+  Rect? _localContentBounds(double frame) {
+    var bounds = group?.drawBounds(frame);
+    if (child != null) {
+      final childFrame = timeRemap != null
+          ? timeRemap!.scalar(frame) * child!.fps - child!.start
+          : (frame - offset) / stretch;
+      bounds = _unionRect(bounds, child!.worldBounds(childFrame));
+    }
+    return bounds;
   }
 
   bool visible(double frame) =>
@@ -493,7 +498,10 @@ class _Layer {
             ? p
             : Path.combine(PathOperation.union, combined, p);
       } else if (m.mode == 's' && !m.inverted) {
-        final b = worldBounds(frame) ?? Rect.largest;
+        // Masks are authored in layer-local coordinates and this method runs
+        // after the layer/parent transforms have been installed on Canvas.
+        // Using worldBounds here applies those transforms a second time.
+        final b = _localContentBounds(frame) ?? Rect.largest;
         final base = combined ?? (Path()..addRect(b));
         combined = Path.combine(PathOperation.difference, base, p);
       } else if (m.mode == 'i' && !m.inverted) {
@@ -505,7 +513,7 @@ class _Layer {
             ? p
             : Path.combine(PathOperation.xor, combined, p);
       } else if (m.inverted) {
-        final b = worldBounds(frame) ?? Rect.largest;
+        final b = _localContentBounds(frame) ?? Rect.largest;
         final invPath = Path.combine(
           PathOperation.difference,
           Path()..addRect(b),
