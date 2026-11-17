@@ -14,6 +14,17 @@ const _variant = String.fromEnvironment(
   'QUEUE_VARIANT',
   defaultValue: 'candidate',
 );
+const _denseOnly = bool.fromEnvironment('DENSE_ONLY');
+const _denseWorkers = int.fromEnvironment('DENSE_WORKERS', defaultValue: 4);
+const _denseInFlight = int.fromEnvironment('DENSE_IN_FLIGHT', defaultValue: 8);
+const _denseStripFrames = int.fromEnvironment(
+  'DENSE_STRIP_FRAMES',
+  defaultValue: 4,
+);
+const _denseProgressive = bool.fromEnvironment(
+  'DENSE_PROGRESSIVE',
+  defaultValue: true,
+);
 const _ids = [
   '1f9cb',
   '1f41c',
@@ -318,10 +329,130 @@ Future<Map<String, Object>> _playback(
   }
 }
 
-Future<void> _run() async {
+// Reproduces a dense sticker sheet without involving widget layout. Sixty
+// independent loops share one worker pool, start in staggered strip phases and
+// request the wall-clock sample at 30 FPS. This records draws into an offscreen
+// PictureRecorder, not physical display presentation timestamps.
+Future<Map<String, Object>> _densePlayback(
+  List<FastLottieComposition> compositions,
+) async {
+  const playerCount = 60, sampleHz = 30, seconds = 6;
+  final cache = FastLottieRasterCache.miniStrip(
+    workerCount: _denseWorkers,
+    maximumInFlight: _denseInFlight,
+    stripFrames: _denseStripFrames,
+    progressiveFirstFrame: _denseProgressive,
+    maximumBytes: 48 * 1024 * 1024,
+    maximumDiskBytes: 0,
+    maximumFrameRate: sampleHz.toDouble(),
+  );
+  final players = [
+    for (var i = 0; i < playerCount; i++)
+      FastLottiePlayer(
+        compositions[i % compositions.length],
+        rasterCache: cache,
+        cache: FastLottieCache.none,
+        maximumFrameRate: sampleHz.toDouble(),
+      ),
+  ];
+  try {
+    for (var i = 0; i < players.length; i++) {
+      final player = players[i];
+      final total = player.composition.frameCount;
+      final sourceStep = math.max(1.0, player.composition.frameRate / sampleHz);
+      _draw(player, (i % _denseStripFrames) * sourceStep / total);
+    }
+    await _drain(cache);
+    final cpuBefore = _cpuTicks();
+    final renderMicrosBefore = cache.workerRenderMicros;
+    final transferBytesBefore = cache.isolateTransferBytes;
+    final watch = Stopwatch()..start();
+    var lateTicks = 0, hits = cache.hits, misses = cache.misses;
+    for (var tick = 1; tick <= sampleHz * seconds; tick++) {
+      final due = tick * 1000000 ~/ sampleHz;
+      final remaining = due - watch.elapsedMicroseconds;
+      if (remaining > 0) {
+        await Future<void>.delayed(Duration(microseconds: remaining));
+      }
+      if (watch.elapsedMicroseconds - due > 16000) lateTicks++;
+      final elapsedSeconds = watch.elapsedMicroseconds / 1000000;
+      for (var i = 0; i < players.length; i++) {
+        final player = players[i];
+        final duration =
+            (player.composition.endFrame - player.composition.startFrame) /
+            player.composition.frameRate;
+        _draw(
+          player,
+          ((elapsedSeconds + (i % _denseStripFrames) / sampleHz) % duration) /
+              duration,
+        );
+      }
+    }
+    hits = cache.hits - hits;
+    misses = cache.misses - misses;
+    await _drain(cache);
+    return {
+      'players': playerCount,
+      'unique_entries': cache.entries,
+      'sample_rate': sampleHz,
+      'workers': _denseWorkers,
+      'maximum_in_flight': _denseInFlight,
+      'strip_frames': _denseStripFrames,
+      'progressive': _denseProgressive,
+      'duration_ms': watch.elapsedMicroseconds / 1000,
+      'lookups': hits + misses,
+      'hits': hits,
+      'misses': misses,
+      'hit_fraction': hits / math.max(1, hits + misses),
+      'dispatches': cache.workerDispatches,
+      'vector_frames': cache.vectorRasterizedFrames,
+      'late_ticks': lateTicks,
+      'worker_render_us': cache.workerRenderMicros - renderMicrosBefore,
+      'isolate_transfer_bytes':
+          cache.isolateTransferBytes - transferBytesBefore,
+      'decode_image_p95_us': cache.decodeImageP95Micros,
+      if (cpuBefore != null) 'cpu_ticks': _cpuTicks()! - cpuBefore,
+    };
+  } finally {
+    for (final player in players) {
+      player.dispose();
+    }
+    cache.dispose();
+  }
+}
+
+Future<List<FastLottieComposition>> _loadDenseCompositions() async {
+  final paths = (await AssetManifest.loadFromAssetBundle(rootBundle))
+      .listAssets()
+      .where(
+        (asset) =>
+            asset.startsWith('assets/tgs/NotoEmoji/') && asset.endsWith('.tgs'),
+      );
   final compositions = <FastLottieComposition>[];
-  for (final id in _ids) {
-    final data = await rootBundle.load('assets/tgs/NotoEmoji/emoji_u$id.tgs');
+  final contentKeys = <String>{};
+  for (final asset in paths) {
+    final data = await rootBundle.load(asset);
+    final composition = FastLottieComposition.fromBytes(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+    );
+    if (!contentKeys.add(composition.contentKey)) continue;
+    compositions.add(composition);
+    if (compositions.length == 60) return compositions;
+  }
+  throw StateError('Dense benchmark needs 60 unique compositions');
+}
+
+Future<void> _run() async {
+  if (_denseOnly) {
+    print(
+      'FASTLOTTIE_QUEUE_SAMPLE:${jsonEncode({'variant': _variant, 'kind': 'dense_playback', ...await _densePlayback(await _loadDenseCompositions())})}',
+    );
+    return;
+  }
+  final compositions = <FastLottieComposition>[];
+  final assetPaths = _ids.map((id) => 'assets/tgs/NotoEmoji/emoji_u$id.tgs');
+  for (final asset in assetPaths) {
+    final data = await rootBundle.load(asset);
     compositions.add(
       FastLottieComposition.fromBytes(
         data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
@@ -346,6 +477,9 @@ Future<void> _run() async {
       'FASTLOTTIE_QUEUE_SAMPLE:${jsonEncode({'variant': _variant, 'kind': 'playback', ...await _playback(compositions, progressive: progressive)})}',
     );
   }
+  print(
+    'FASTLOTTIE_QUEUE_SAMPLE:${jsonEncode({'variant': _variant, 'kind': 'dense_playback', ...await _densePlayback(await _loadDenseCompositions())})}',
+  );
   print(
     'FASTLOTTIE_QUEUE_DONE:${jsonEncode({'variant': _variant, 'release': kReleaseMode, 'native': isSimdSupported})}',
   );

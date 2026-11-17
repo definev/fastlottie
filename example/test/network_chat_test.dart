@@ -300,6 +300,32 @@ void main() {
       expect(find.byType(InlineNetworkSticker), findsWidgets);
       expect(find.byType(HeroNetworkSticker), findsWidgets);
 
+      // The stress history is reachable immediately and uses actual chat
+      // sticker widgets, including twelve distinct emoji in one message.
+      final stressEmoji = find.byWidgetPredicate((widget) {
+        final key = widget.key;
+        return key is ValueKey<String> && key.value.startsWith('stress_emoji_');
+      }).first;
+      final stressIcons = tester.widgetList<InlineNetworkSticker>(
+        find.descendant(
+          of: stressEmoji,
+          matching: find.byType(InlineNetworkSticker),
+        ),
+      );
+      expect(
+        stressIcons.map((icon) => icon.item.urlString).toSet(),
+        hasLength(12),
+      );
+      expect(
+        find.byWidgetPredicate((widget) {
+          final key = widget.key;
+          return widget is HeroNetworkSticker &&
+              key is ValueKey<String> &&
+              key.value.startsWith('sent-sticker-stress_sticker_');
+        }),
+        findsWidgets,
+      );
+
       // Wait briefly for initial seed hero sticker to decode over HTTP + isolate.
       for (var i = 0; i < 80; i++) {
         final heroes = tester.widgetList<FastLottie>(

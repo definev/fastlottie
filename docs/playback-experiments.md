@@ -5,6 +5,20 @@ default. Playback gating applies when the owner supplies a scope. The paths
 have regression coverage; device-wide CPU, battery, and latency gains have
 yet to be established.
 
+## Timeline sampling for dense grids
+
+The raster cache always requests the sample for the caller's current progress.
+When a worker is late, the front image remains visible and the next completed
+request can jump over intermediate samples. Flutter's own frame rate can remain
+stable while the animation therefore appears jerky.
+
+The cache does not slow the timeline to replay missed samples. Dense grids can
+spread initial phases across the Mini-Strip width to distribute worker requests.
+The example sticker sheet uses one shared clock and preserves its configured
+30 FPS regardless of visible asset count. `StickerPlaybackBudget.qualityScale`
+can lower the rate only as an explicit application choice; density alone never
+changes the sampling rate.
+
 ## Progressive first image
 
 ```dart
@@ -91,6 +105,43 @@ using a raster image on the Flutter canvas, not GPU presentation. Each tile is
 trial, four pairs in one process, no disk. It also compares six seconds of
 continuous playback with 16 entries, 30 sample ticks/s, in false/true/true/false
 order. CPU ticks are reported on Android/Linux only.
+
+The same executable finishes with a six-second dense-sheet workload: 60
+distinct compositions, staggered Mini-Strip phases and 30 sample ticks/s.
+Each draw requests the sample at the actual elapsed wall time. It reports
+exact-target hit rate, queue work, late host ticks, worker render time, transfer
+bytes and image decode p95. These offscreen draws do not measure display
+presentation or guarantee that every requested sample becomes visible.
+
+On the Pixel 7a quality-first profile, the benchmark uses eight workers, 16
+in-flight jobs, three-frame strips and full-strip startup. The same profile is
+selected by the Android example picker. It preserves 30 FPS sampling; it does
+not invoke `qualityScale` automatically.
+
+```sh
+cd example
+flutter run --release -d <android-device> -t lib/worker_queue_benchmark.dart \
+  --dart-define=DENSE_ONLY=true --dart-define=DENSE_WORKERS=8 \
+  --dart-define=DENSE_IN_FLIGHT=16 --dart-define=DENSE_STRIP_FRAMES=3 \
+  --dart-define=DENSE_PROGRESSIVE=false
+```
+
+Three process starts on a Pixel 7a running Android 17 on 17 November 2026,
+after removing sequential playback, each requested 10,800 samples across
+60 distinct 128×128 raster entries. Thermal status was 2 before measurement
+and reached 3 after the final run:
+
+| Run | Exact-target hit rate | Late host ticks | Image decode p95 |
+| --- | ---: | ---: | ---: |
+| 1 | 3.80% | 70 | 68.992 ms |
+| 2 | 97.73% | 0 | 6.809 ms |
+| 3 | 11.31% | 71 | 72.448 ms |
+
+The variability prevents a stable 30 FPS claim from these runs. The middle
+sample establishes that high exact-target availability is possible, not that it
+is sustained. These hit rates are not display FPS and are not directly comparable
+to the sequential-presentation fractions previously measured with a slowing
+timeline.
 
 ```sh
 cd example

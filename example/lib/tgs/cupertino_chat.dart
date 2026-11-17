@@ -46,6 +46,8 @@ class HeroStickerCacheScope extends InheritedWidget {
 final _compactChat = const bool.hasEnvironment('CHAT_COMPACT')
     ? const bool.fromEnvironment('CHAT_COMPACT')
     : !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+final _androidQualityPicker =
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 final _opaqueChatHeader = const bool.hasEnvironment('CHAT_OPAQUE_HEADER')
     ? const bool.fromEnvironment('CHAT_OPAQUE_HEADER')
     : _compactChat;
@@ -508,22 +510,21 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   bool _useCompiledPack = false;
   late NetworkTgsStore _store;
 
-  NetworkTgsStore _createStore({CompiledModelPack? pack}) =>
-      NetworkTgsStore(
-        httpConcurrency: 6,
-        decodeConcurrency: 2,
-        batchSize: 2,
-        framePaced: true,
-        // Visible cells stay pinned. This only bounds models that have
-        // already scrolled off; compiling them again reads the disk cache.
-        maximumEntries:
-            widget.memoryWorkload?.modelCacheEntries ?? (_compactChat ? 8 : 48),
-        modelCacheObserver: widget.memoryWorkload?.modelCacheObserver,
-        maximumCompiledBytes: widget.memoryWorkload?.compiledCacheBytes ?? 0,
-        compiledPack: pack,
-        directPackPlayback: pack != null,
-        deferredPackPlayback: pack != null,
-      );
+  NetworkTgsStore _createStore({CompiledModelPack? pack}) => NetworkTgsStore(
+    httpConcurrency: 6,
+    decodeConcurrency: 2,
+    batchSize: 2,
+    framePaced: true,
+    // Visible cells stay pinned. This only bounds models that have
+    // already scrolled off; compiling them again reads the disk cache.
+    maximumEntries:
+        widget.memoryWorkload?.modelCacheEntries ?? (_compactChat ? 8 : 48),
+    modelCacheObserver: widget.memoryWorkload?.modelCacheObserver,
+    maximumCompiledBytes: widget.memoryWorkload?.compiledCacheBytes ?? 0,
+    compiledPack: pack,
+    directPackPlayback: pack != null,
+    deferredPackPlayback: pack != null,
+  );
 
   late FastLottieRasterStrategy _rasterStrategy =
       widget.memoryWorkload?.strategy ?? widget.rasterStrategy;
@@ -533,24 +534,46 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       switch (strategy) {
         FastLottieRasterStrategy.miniStrip => FastLottieRasterCache.miniStrip(
           maximumBytes: (_compactChat ? 6 : 48) * 1024 * 1024,
-          maximumInFlight: _compactChat ? 2 : 8,
+          maximumInFlight: _compactChat
+              ? 2
+              : _androidQualityPicker
+              ? 16
+              : 8,
           maximumCompressedMemoryBytes: (_compactChat ? 2 : 16) * 1024 * 1024,
           maximumDiskBytes: 128 * 1024 * 1024,
           maximumFrameRate: stickerThumbnailFrameRate,
-          stripFrames: widget.stripFrames,
-          workerCount: widget.rasterWorkerCount ?? (_compactChat ? 1 : null),
+          stripFrames: widget.stripFrames ?? (_androidQualityPicker ? 3 : null),
+          progressiveFirstFrame: !_androidQualityPicker,
+          workerCount:
+              widget.rasterWorkerCount ??
+              (_compactChat
+                  ? 1
+                  : _androidQualityPicker
+                  ? 8
+                  : null),
         ),
         FastLottieRasterStrategy.pingPong => FastLottieRasterCache.pingPong(
           maximumBytes: (_compactChat ? 6 : 48) * 1024 * 1024,
-          maximumInFlight: _compactChat ? 2 : 8,
+          maximumInFlight: _compactChat
+              ? 2
+              : _androidQualityPicker
+              ? 16
+              : 8,
           maximumCompressedMemoryBytes: (_compactChat ? 2 : 16) * 1024 * 1024,
           maximumDiskBytes: 128 * 1024 * 1024,
           maximumFrameRate: stickerThumbnailFrameRate,
-          workerCount: widget.rasterWorkerCount ?? (_compactChat ? 1 : null),
+          workerCount:
+              widget.rasterWorkerCount ??
+              (_compactChat
+                  ? 1
+                  : _androidQualityPicker
+                  ? 8
+                  : null),
         ),
       };
 
   final StickerClock _clock = StickerClock();
+  final StickerPlaybackBudget _playbackBudget = StickerPlaybackBudget();
   late final StickerPressure _pressure = StickerPressure()
     ..addListener(_onPressureChanged);
 
@@ -599,8 +622,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     WidgetsBinding.instance.addObserver(this);
     _useCompiledPack = widget.memoryWorkload?.compiledPack != null;
     _store =
-        widget.store ??
-        _createStore(pack: widget.memoryWorkload?.compiledPack);
+        widget.store ?? _createStore(pack: widget.memoryWorkload?.compiledPack);
     final life = WidgetsBinding.instance.lifecycleState;
     _foreground =
         life == null ||
@@ -757,7 +779,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
       rasterStrategy: _rasterStrategy,
-      stripFrames: widget.stripFrames,
+      stripFrames: widget.stripFrames ?? (_androidQualityPicker ? 3 : null),
+      playbackBudget: _playbackBudget,
     )..constrained = _pressure.constrained;
 
     _emojiSheet = StickerSheet(
@@ -767,7 +790,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
       rasterStrategy: _rasterStrategy,
-      stripFrames: widget.stripFrames,
+      stripFrames: widget.stripFrames ?? (_androidQualityPicker ? 3 : null),
+      playbackBudget: _playbackBudget,
     )..constrained = _pressure.constrained;
 
     _composerController.catalog = catalog;
@@ -877,6 +901,10 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       );
     }
 
+    if (widget.memoryWorkload == null) {
+      _seedStressMessages(catalog, now);
+    }
+
     // Place the initial Hero `.tgs` sticker directly in the visible chat viewport.
     if (catalog.stickers.isNotEmpty) {
       _messages.add(
@@ -899,6 +927,42 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         timestamp: now.subtract(const Duration(minutes: 1)),
       ),
     );
+  }
+
+  void _seedStressMessages(TgsRemoteCatalog catalog, DateTime now) {
+    const batches = 20, emojisPerMessage = 12;
+    for (var batch = 0; batch < batches; batch++) {
+      final outgoing = batch.isOdd;
+      final timestamp = now.subtract(Duration(seconds: 180 - batch * 2));
+      if (catalog.stickers.isNotEmpty) {
+        // Spread the samples across packs rather than loading one pack only.
+        final index = batch * catalog.stickers.length ~/ batches;
+        _messages.add(
+          ChatMessage.sticker(
+            id: 'stress_sticker_${_messageSeq++}',
+            sticker: catalog.stickers[index],
+            isOutgoing: outgoing,
+            timestamp: timestamp,
+            senderName: outgoing ? null : 'Stress Test',
+          ),
+        );
+      }
+      if (catalog.emojis.isEmpty) continue;
+      // Use the chat's emoji tokens so aliases cannot collapse distinct assets.
+      final tokens = List.generate(emojisPerMessage, (slot) {
+        final index = (batch * emojisPerMessage + slot) % catalog.emojis.length;
+        return String.fromCharCode(EmojiComposerController.puaBase + index);
+      });
+      _messages.add(
+        ChatMessage.text(
+          id: 'stress_emoji_${_messageSeq++}',
+          text: tokens.join(' '),
+          isOutgoing: !outgoing,
+          timestamp: timestamp.add(const Duration(seconds: 1)),
+          senderName: outgoing ? 'Stress Test' : null,
+        ),
+      );
+    }
   }
 
   void _onPressureChanged() {
@@ -1326,8 +1390,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               _useCompiledPack
                   ? 'Data Source: FastLottie Pack (.flp) ✓ — Switch to Standard TGS'
                   : (_availablePack != null
-                      ? 'Data Source: Standard TGS (.tgs) — Switch to FastLottie Pack (.flp)'
-                      : 'Data Source: Standard TGS (.tgs) (No .flp pack available)'),
+                        ? 'Data Source: Standard TGS (.tgs) — Switch to FastLottie Pack (.flp)'
+                        : 'Data Source: Standard TGS (.tgs) (No .flp pack available)'),
             ),
           ),
           CupertinoActionSheetAction(
@@ -1562,6 +1626,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       stale.dispose();
     }
     _disposingCaches.clear();
+    _playbackBudget.dispose();
     _clock.dispose();
     if (widget.store == null) {
       _store.dispose();
@@ -2743,7 +2808,6 @@ class _NetworkInlinePainter extends CustomPainter {
       _drawPlaceholder(canvas, size);
       return;
     }
-    final c = player.composition;
     final maxEdge = math.max(size.width, size.height);
     // Lock raster key size to `sheet.pixelSize` across all inline sizes
     // (header avatar, chat bubbles, 5-column picker) so consumers share one
@@ -2755,14 +2819,7 @@ class _NetworkInlinePainter extends CustomPainter {
     final filterQuality = (targetPixels - sheet.pixelSize).abs() > 1
         ? FilterQuality.low
         : null;
-    final span = c.endFrame - c.startFrame;
-    final frame = still || span <= 0
-        ? 0.0
-        : (((clock.microseconds + 1) / 1000000 * c.frameRate) % span).clamp(
-            0.0,
-            span > 1 ? span - 1 : 0.0,
-          );
-    final progress = c.isStatic || span <= 0 || still ? 0.0 : frame / span;
+    final progress = sheet.progressFor(url, clock, still: still);
     player.draw(
       canvas,
       Offset.zero & size,

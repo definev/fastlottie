@@ -6,6 +6,12 @@ embedded loopback HTTP server from the bundled stickers and Topics/Noto emoji
 on native platforms. The options menu switches between `fastlottie` and
 `lottie`, displays telemetry, and clears caches.
 
+The chat history includes a stress section with 20 full-size sticker messages
+interleaved with 20 emoji-only messages (12 animated emoji each, 240 total).
+Scroll up past the welcome message to browse it. Open the picker at the same
+time to stress the shared thumbnail cache alongside the chat's vector stickers.
+The memory benchmark keeps its original seed conversation.
+
 Run from `example/`:
 
 ```sh

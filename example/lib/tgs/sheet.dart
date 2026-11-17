@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:fastlottie/fastlottie.dart';
 import 'package:flutter/foundation.dart';
@@ -10,6 +11,61 @@ import 'store.dart';
 const stickerThumbnailPixels = 112;
 const stickerThumbnailFrameRate = 30.0;
 const stickerSheetBytes = 64 * 1024 * 1024;
+
+/// Shares the requested playback quality across sheets backed by the same
+/// raster pipeline. Density is exposed for telemetry; it never silently lowers
+/// frame rate. Applications that prefer power savings can set [qualityScale].
+class StickerPlaybackBudget extends ChangeNotifier {
+  StickerPlaybackBudget({
+    this.maximumFrameRate = stickerThumbnailFrameRate,
+    double qualityScale = 1,
+  }) : _qualityScale = qualityScale {
+    if (!qualityScale.isFinite || qualityScale <= 0 || qualityScale > 1) {
+      throw ArgumentError.value(qualityScale, 'qualityScale');
+    }
+  }
+
+  final double maximumFrameRate;
+  final _pins = <Object, int>{};
+  double _qualityScale;
+  bool _disposed = false;
+
+  int get activeAssets => _pins.length;
+  double get frameRate => maximumFrameRate * _qualityScale;
+  double get qualityScale => _qualityScale;
+  set qualityScale(double value) {
+    if (!value.isFinite || value <= 0 || value > 1) {
+      throw ArgumentError.value(value, 'qualityScale');
+    }
+    if (_qualityScale == value) return;
+    _qualityScale = value;
+    notifyListeners();
+  }
+
+  void acquire(Object asset) {
+    if (_disposed) return;
+    _pins[asset] = (_pins[asset] ?? 0) + 1;
+  }
+
+  void release(Object asset) {
+    if (_disposed) return;
+    final count = _pins[asset];
+    if (count == null) return;
+    if (count <= 1) {
+      _pins.remove(asset);
+    } else {
+      _pins[asset] = count - 1;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _pins.clear();
+    super.dispose();
+  }
+}
 
 /// Coordinates ping-pong / Mini-Strip players and lazy TGS model acquisition
 /// per unique asset. All animations sharing the same asset/size deduplicate to
@@ -25,6 +81,7 @@ class StickerSheet extends ChangeNotifier {
     this.frameRate = stickerThumbnailFrameRate,
     this.rasterStrategy = FastLottieRasterStrategy.miniStrip,
     this.stripFrames,
+    StickerPlaybackBudget? playbackBudget,
   }) : store =
            store ??
            TgsStore(concurrency: 1, maximumEntries: 64, framePaced: true),
@@ -44,7 +101,12 @@ class StickerSheet extends ChangeNotifier {
                  maximumFrameRate: frameRate,
                ),
            },
-       _ownsCache = rasterCache == null;
+       _ownsCache = rasterCache == null,
+       playbackBudget =
+           playbackBudget ?? StickerPlaybackBudget(maximumFrameRate: frameRate),
+       _ownsPlaybackBudget = playbackBudget == null {
+    this.playbackBudget.addListener(_onPlaybackBudgetChanged);
+  }
 
   final List<String> assets;
   final int pixelSize, maximumBytes;
@@ -55,12 +117,51 @@ class StickerSheet extends ChangeNotifier {
   final bool _ownsStore;
   final FastLottieRasterCache rasterCache;
   final bool _ownsCache;
+  final StickerPlaybackBudget playbackBudget;
+  final bool _ownsPlaybackBudget;
 
   final _entries = <String, _SheetAsset>{};
   final _pendingNotifyAssets = <_SheetAsset>{};
   final errors = <String, Object>{};
   bool constrained = false;
   bool _disposed = false, _active = true, _notifyScheduled = false;
+
+  late final Map<String, int> _assetOrdinals = {
+    for (var i = 0; i < assets.length; i++) assets[i]: i,
+  };
+
+  _SheetAsset _entryFor(String asset) => _entries.putIfAbsent(
+    asset,
+    () => _SheetAsset(
+      asset,
+      playbackRate: frameRate,
+      phaseSample: _phaseSampleFor(asset),
+    ),
+  );
+
+  int _phaseSampleFor(String asset) {
+    final width = rasterStrategy == FastLottieRasterStrategy.miniStrip
+        ? math.max(1, stripFrames ?? 4)
+        : 1;
+    return (_assetOrdinals[asset] ?? asset.hashCode).abs() % width;
+  }
+
+  void _onPlaybackBudgetChanged() {
+    if (_disposed) return;
+    final rate = playbackBudget.frameRate;
+    var changed = false;
+    for (final entry in _entries.values) {
+      if (entry.pins == 0 || entry.playbackRate == rate) continue;
+      entry.configurePlayback(rate, entry.phaseSample);
+      if (entry.player != null) {
+        entry.detachPlayer();
+        _attachPlayer(entry);
+      }
+      entry.notifyAssetChanged();
+      changed = true;
+    }
+    if (changed) notifyListeners();
+  }
 
   bool get active => _active;
   set active(bool value) {
@@ -88,7 +189,7 @@ class StickerSheet extends ChangeNotifier {
   Object? errorFor(String asset) => _entries[asset]?.error;
 
   ValueListenable<Object?> errorListenableFor(String asset) =>
-      _entries.putIfAbsent(asset, () => _SheetAsset(asset)).errorNotifier;
+      _entryFor(asset).errorNotifier;
 
   void retryAsset(String asset) {
     if (_disposed) return;
@@ -127,13 +228,41 @@ class StickerSheet extends ChangeNotifier {
   /// Returns a merged listenable for [asset] + [clock] so only widgets showing
   /// [asset] repaint when its model or ping-pong frame arrives.
   Listenable listenableFor(String asset, StickerClock clock) => _entries
-      .putIfAbsent(asset, () => _SheetAsset(asset))
+      .putIfAbsent(
+        asset,
+        () => _SheetAsset(
+          asset,
+          playbackRate: frameRate,
+          phaseSample: _phaseSampleFor(asset),
+        ),
+      )
       .listenableWith(clock);
+
+  /// Returns the phased, density-budgeted timeline position for one thumbnail.
+  double progressFor(String asset, StickerClock clock, {bool still = false}) {
+    if (still) return 0;
+    final entry = _entries[asset];
+    final player = entry?.player;
+    if (entry == null || player == null) return 0;
+    final c = player.composition;
+    final span = c.endFrame - c.startFrame;
+    if (c.isStatic || span <= 0) return 0;
+    final rate = math.min(c.frameRate, entry.playbackRate);
+    final sourceStep = math.max(1.0, c.frameRate / rate);
+    final phaseFrames = entry.phaseSample * sourceStep;
+    final frame =
+        (((clock.microseconds + 1) / 1000000 * c.frameRate + phaseFrames) %
+                span)
+            .clamp(0.0, span > 1 ? span - 1 : 0.0)
+            .toDouble();
+    return frame / span;
+  }
 
   void acquirePin(String asset) {
     if (_disposed) return;
-    final entry = _entries.putIfAbsent(asset, () => _SheetAsset(asset));
+    final entry = _entryFor(asset);
     entry.pins++;
+    if (entry.pins == 1) playbackBudget.acquire((asset, pixelSize));
     if (entry.pins == 1 && entry.composition != null && entry.player == null) {
       _attachPlayer(entry);
     } else if (entry.composition == null &&
@@ -151,6 +280,7 @@ class StickerSheet extends ChangeNotifier {
     if (entry == null) return;
     if (entry.pins == 0 || --entry.pins != 0) return;
     entry.detachPlayer();
+    playbackBudget.release((asset, pixelSize));
     // Only the bounded store should retain an offscreen model.
     entry.composition = null;
     final lease = entry.lease;
@@ -253,11 +383,12 @@ class StickerSheet extends ChangeNotifier {
   void _attachPlayer(_SheetAsset entry) {
     final comp = entry.composition;
     if (comp == null || _disposed) return;
+    entry.configurePlayback(playbackBudget.frameRate, entry.phaseSample);
     final player = FastLottiePlayer(
       comp,
       cache: FastLottieCache.none,
       rasterCache: rasterCache,
-      maximumFrameRate: frameRate,
+      maximumFrameRate: entry.playbackRate,
     );
     entry.attachPlayer(player);
   }
@@ -266,19 +397,26 @@ class StickerSheet extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    playbackBudget.removeListener(_onPlaybackBudgetChanged);
     _pendingNotifyAssets.clear();
     for (final entry in _entries.values) {
+      if (entry.pins > 0) playbackBudget.release((entry.asset, pixelSize));
       entry.dispose();
     }
     _entries.clear();
     if (_ownsCache) rasterCache.dispose();
     if (_ownsStore && store is TgsStore) (store as TgsStore).dispose();
+    if (_ownsPlaybackBudget) playbackBudget.dispose();
     super.dispose();
   }
 }
 
 final class _SheetAsset {
-  _SheetAsset(this.asset);
+  _SheetAsset(
+    this.asset, {
+    required this.playbackRate,
+    required this.phaseSample,
+  });
   final String asset;
   final ChangeNotifier notifier = ChangeNotifier();
   final ValueNotifier<Object?> errorNotifier = ValueNotifier<Object?>(null);
@@ -289,7 +427,18 @@ final class _SheetAsset {
   FastLottiePlayer? player;
   Object? error;
   int pins = 0;
+  double playbackRate;
+  int phaseSample;
   bool disposed = false;
+
+  void configurePlayback(double rate, int phase) {
+    if (playbackRate == rate && phaseSample == phase) return;
+    playbackRate = rate;
+    phaseSample = phase;
+    for (final merge in _clockMerges.values) {
+      merge.resetClockBucket();
+    }
+  }
 
   void _onPlayerFrame() => notifyAssetChanged();
 
@@ -314,8 +463,10 @@ final class _SheetAsset {
     p.dispose();
   }
 
-  Listenable listenableWith(StickerClock clock) =>
-      _clockMerges.putIfAbsent(clock, () => _MergedAssetClock(notifier, clock));
+  Listenable listenableWith(StickerClock clock) => _clockMerges.putIfAbsent(
+    clock,
+    () => _MergedAssetClock(notifier, clock, this),
+  );
 
   void dispose() {
     if (disposed) return;
@@ -335,21 +486,34 @@ final class _SheetAsset {
 }
 
 class _MergedAssetClock extends ChangeNotifier {
-  _MergedAssetClock(this.assetNotifier, this.clock);
+  _MergedAssetClock(this.assetNotifier, this.clock, this.asset);
   final ChangeNotifier assetNotifier;
   final StickerClock clock;
+  final _SheetAsset asset;
   bool _subscribed = false;
   bool _disposed = false;
+  int _clockBucket = -1;
 
-  void _forward() {
+  void _forwardAsset() {
     if (!_disposed) notifyListeners();
   }
+
+  void _forwardClock() {
+    if (_disposed) return;
+    final bucket = ((clock.microseconds + 1) * asset.playbackRate / 1000000)
+        .floor();
+    if (bucket == _clockBucket) return;
+    _clockBucket = bucket;
+    notifyListeners();
+  }
+
+  void resetClockBucket() => _clockBucket = -1;
 
   void _unsubscribe() {
     if (!_subscribed) return;
     _subscribed = false;
-    assetNotifier.removeListener(_forward);
-    clock.removeListener(_forward);
+    assetNotifier.removeListener(_forwardAsset);
+    clock.removeListener(_forwardClock);
   }
 
   @override
@@ -358,8 +522,8 @@ class _MergedAssetClock extends ChangeNotifier {
     super.addListener(listener);
     if (!_subscribed && hasListeners) {
       _subscribed = true;
-      assetNotifier.addListener(_forward);
-      clock.addListener(_forward);
+      assetNotifier.addListener(_forwardAsset);
+      clock.addListener(_forwardClock);
     }
   }
 
