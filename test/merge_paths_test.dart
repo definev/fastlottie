@@ -376,7 +376,7 @@ void main() {
       if (!file.existsSync()) return;
       final comp = FastLottieComposition.fromBytes(file.readAsBytesSync());
 
-      final cache = FastLottieRasterCache.miniStrip(
+      final cache = FastLottieRasterCache(
         maximumBytes: 16 * 1024 * 1024,
         maximumFrameRate: 30.0,
         workerCount: 1,

@@ -59,8 +59,7 @@ class TgsGallery extends StatefulWidget {
     this.initialRenderer = TgsRenderer.fastlottie,
     this.scrollController,
     this.initialWorkload,
-    this.initialStrategy = FastLottieRasterStrategy.miniStrip,
-    this.stripFrames,
+    this.framesPerStrip,
     this.onRasterCacheCreated,
   });
   final TgsStore? store;
@@ -68,8 +67,7 @@ class TgsGallery extends StatefulWidget {
   final TgsRenderer initialRenderer;
   final ScrollController? scrollController;
   final TgsWorkload? initialWorkload;
-  final FastLottieRasterStrategy initialStrategy;
-  final int? stripFrames;
+  final int? framesPerStrip;
   final ValueChanged<FastLottieRasterCache>? onRasterCacheCreated;
   @override
   State<TgsGallery> createState() => _TgsGalleryState();
@@ -87,7 +85,7 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
       defaultTargetPlatform == TargetPlatform.android ||
       defaultTargetPlatform == TargetPlatform.iOS;
   late TgsWorkload workload = widget.initialWorkload ?? TgsWorkload.lod;
-  late FastLottieRasterStrategy strategy = widget.initialStrategy;
+  late int? framesPerStrip = widget.framesPerStrip;
   late FastLottieRasterCache rasterCache;
   final List<FastLottieRasterCache> _disposingCaches = [];
   late final ScrollController scroll =
@@ -115,27 +113,21 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
   }
 
   void _createRasterCache() {
-    rasterCache = switch (strategy) {
-      FastLottieRasterStrategy.miniStrip => FastLottieRasterCache.miniStrip(
-        maximumFrameRate: tgsRasterFrameRate,
-        resolutionScale: lod ? tgsLodScale : 1,
-        stripFrames: widget.stripFrames,
-      ),
-      FastLottieRasterStrategy.pingPong => FastLottieRasterCache.pingPong(
-        maximumFrameRate: tgsRasterFrameRate,
-        resolutionScale: lod ? tgsLodScale : 1,
-      ),
-    };
+    rasterCache = FastLottieRasterCache(
+      maximumFrameRate: tgsRasterFrameRate,
+      resolutionScale: lod ? tgsLodScale : 1,
+      framesPerStrip: framesPerStrip,
+    );
     unawaited(attachExampleDiskCache(rasterCache));
     widget.onRasterCacheCreated?.call(rasterCache);
   }
 
-  void _switchStrategy(FastLottieRasterStrategy next) {
-    if (strategy == next) return;
+  void _setFramesPerStrip(int? next) {
+    if (framesPerStrip == next) return;
     final previous = rasterCache;
     previous.enabled = false;
     setState(() {
-      strategy = next;
+      framesPerStrip = next;
       _createRasterCache();
       _syncPlayback();
     });
@@ -215,23 +207,43 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
                 if (renderer == TgsRenderer.fastlottie &&
                     workload != TgsWorkload.full) ...[
                   const SizedBox(width: 12),
-                  DropdownButtonHideUnderline(
-                    child: DropdownButton<FastLottieRasterStrategy>(
-                      key: const ValueKey('gallery-strategy-dropdown'),
-                      value: strategy,
-                      items: const [
-                        DropdownMenuItem(
-                          value: FastLottieRasterStrategy.miniStrip,
-                          child: Text('Mini-Strip'),
-                        ),
-                        DropdownMenuItem(
-                          value: FastLottieRasterStrategy.pingPong,
-                          child: Text('Ping-Pong'),
-                        ),
-                      ],
-                      onChanged: (next) {
-                        if (next != null) _switchStrategy(next);
-                      },
+                  Flexible(
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        key: const ValueKey('gallery-strip-size-dropdown'),
+                        isExpanded: true,
+                        value: framesPerStrip ?? 0,
+                        items: [
+                          const DropdownMenuItem(
+                            value: 0,
+                            child: Text(
+                              'Adaptive',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const DropdownMenuItem(
+                            value: 1,
+                            child: Text(
+                              '1 frame',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (widget.framesPerStrip case final int count
+                              when count > 1)
+                            DropdownMenuItem(
+                              value: count,
+                              child: Text(
+                                '$count frames',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (next) {
+                          if (next != null) {
+                            _setFramesPerStrip(next == 0 ? null : next);
+                          }
+                        },
+                      ),
                     ),
                   ),
                 ],

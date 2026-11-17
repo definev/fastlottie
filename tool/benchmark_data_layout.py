@@ -159,15 +159,37 @@ def extract(root, kernel):
         source = (root / 'lib/src/track.dart').read_text().split('\n', 1)[1]
         driver = (KEY_OBJECT_DRIVER if 'class _Key {' in source else PACKED_TRACK_DRIVER) + TRACK_DRIVER
     else:
-        source = (root / 'lib/src/rle_rasterizer.dart').read_text()
-        poly = source[source.index('class _PolyPath {'):source.index('class _RleSpans {')]
-        scratch = source[source.index('class _Float64Scratch {'):source.index('class _StaticTrimMetrics {')]
-        start = source.find('class _StrokeScratch {')
-        packed = start >= 0
-        if not packed:
-            start = source.index('void _expandStroke(')
-        stroke = source[start:source.index('/// Deterministic content key')]
+        src = root / 'lib/src'
+        geometry_path = src / 'raster_geometry.dart'
+        if geometry_path.exists():
+            geometry = geometry_path.read_text()
+            paths = (src / 'path_flattening.dart').read_text()
+            poly = geometry[geometry.index('class _PolyPath {'):]
+            scratch = geometry[geometry.index('class _Float64Scratch {'):
+                               geometry.index('/// Struct-of-arrays polyline')]
+            stroke = paths[paths.index('class _StrokeScratch {'):]
+        else:
+            geometry = (src / 'rle_rasterizer.dart').read_text()
+            poly_end = geometry.find('typedef _CoverageKey')
+            if poly_end < 0:
+                poly_end = geometry.index('class _RleSpans {')
+            poly = geometry[geometry.index('class _PolyPath {'):poly_end]
+            scratch_start = geometry.find('class _Float64Scratch {')
+            scratch = ''
+            if scratch_start >= 0:
+                scratch_end = geometry.find('class _StaticTrimMetrics {')
+                if scratch_end < 0:
+                    scratch_end = geometry.index('/// Struct-of-arrays polyline')
+                scratch = geometry[scratch_start:scratch_end]
+            stroke_start = geometry.find('class _StrokeScratch {')
+            if stroke_start < 0:
+                stroke_start = geometry.index('void _expandStroke(')
+            stroke = geometry[stroke_start:geometry.index('/// Deterministic content key')]
+        packed = 'class _StrokeScratch {' in stroke
         source = poly + scratch + stroke + '\ndouble _hypot(double x, double y) => math.sqrt(x*x+y*y);\n'
+        if 'expandStrokeNative(' in stroke:
+            stub = (src / 'geometry_kernel_stub.dart').read_text()
+            source += stub[stub.index('const nativeStrokePointLimit'):]
         driver = STROKE_DRIVER.replace(' STROKE_PARAMETER', ', _StrokeScratch scratch' if packed else '')
         driver = driver.replace(' STROKE_ARGUMENT', ', scratch' if packed else '')
         driver = driver.replace('STROKE_LOCAL', 'final scratch = _StrokeScratch();' if packed else '')

@@ -3,8 +3,8 @@ import 'dart:typed_data';
 
 import 'cache_codec_stub.dart' if (dart.library.ffi) 'cache_codec_io.dart';
 import 'lz4.dart';
-import 'tile_playback.dart';
 import 'platform_stub.dart' if (dart.library.io) 'platform_io.dart';
+import 'tile_playback.dart';
 
 /// Deterministic filename-safe cache key for `(contentKey, pixelSize, sourceFrameCount)`.
 ///

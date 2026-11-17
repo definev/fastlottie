@@ -79,8 +79,7 @@ class StickerSheet extends ChangeNotifier {
     FastLottieRasterCache? rasterCache,
     this.maximumBytes = stickerSheetBytes,
     this.frameRate = stickerThumbnailFrameRate,
-    this.rasterStrategy = FastLottieRasterStrategy.miniStrip,
-    this.stripFrames,
+    this.framesPerStrip,
     StickerPlaybackBudget? playbackBudget,
   }) : store =
            store ??
@@ -88,19 +87,11 @@ class StickerSheet extends ChangeNotifier {
        _ownsStore = store == null,
        rasterCache =
            rasterCache ??
-           switch (rasterStrategy) {
-             FastLottieRasterStrategy.miniStrip =>
-               FastLottieRasterCache.miniStrip(
-                 maximumBytes: maximumBytes,
-                 maximumFrameRate: frameRate,
-                 stripFrames: stripFrames,
-               ),
-             FastLottieRasterStrategy.pingPong =>
-               FastLottieRasterCache.pingPong(
-                 maximumBytes: maximumBytes,
-                 maximumFrameRate: frameRate,
-               ),
-           },
+           FastLottieRasterCache(
+             maximumBytes: maximumBytes,
+             maximumFrameRate: frameRate,
+             framesPerStrip: framesPerStrip,
+           ),
        _ownsCache = rasterCache == null,
        playbackBudget =
            playbackBudget ?? StickerPlaybackBudget(maximumFrameRate: frameRate),
@@ -111,8 +102,7 @@ class StickerSheet extends ChangeNotifier {
   final List<String> assets;
   final int pixelSize, maximumBytes;
   final double frameRate;
-  final FastLottieRasterStrategy rasterStrategy;
-  final int? stripFrames;
+  final int? framesPerStrip;
   final TgsStoreBase store;
   final bool _ownsStore;
   final FastLottieRasterCache rasterCache;
@@ -140,9 +130,7 @@ class StickerSheet extends ChangeNotifier {
   );
 
   int _phaseSampleFor(String asset) {
-    final width = rasterStrategy == FastLottieRasterStrategy.miniStrip
-        ? math.max(1, stripFrames ?? 4)
-        : 1;
+    final width = math.max(1, rasterCache.framesPerStrip ?? 4);
     return (_assetOrdinals[asset] ?? asset.hashCode).abs() % width;
   }
 

@@ -1,18 +1,13 @@
 import 'dart:ffi';
 
+import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie/src/raster_core.dart';
 import 'package:fastlottie/src/simd_stub.dart'
     if (dart.library.ffi) 'package:fastlottie/src/simd_io.dart';
-import 'package:fastlottie/fastlottie.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show fixture;
-
-// Analyzer resolves the conditional stub. The tests run on the native VM.
-dynamic _borrow(Pointer<Uint32> address, int count) =>
-    // ignore: undefined_static_member_read
-    NativePixelBuffer.borrowed(address, count);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -24,7 +19,7 @@ void main() {
       final pointer = calloc<Uint32>(stride * height + 1);
       final words = pointer.asTypedList(stride * height + 1);
       final packed = NativePixelBuffer(width * height);
-      final NativePixelBuffer borrowed = _borrow(pointer, stride * height);
+      final borrowed = NativePixelBuffer.borrowed(pointer, stride * height);
       try {
         for (final native in [false, true]) {
           final ws = RasterWorkspace(preferNative: native);

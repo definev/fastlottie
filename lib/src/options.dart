@@ -12,4 +12,14 @@ class UnsupportedLottieException extends FormatException {
 class FastLottieOptions {
   const FastLottieOptions({this.useSimd = true});
   final bool useSimd;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FastLottieOptions &&
+          other.runtimeType == runtimeType &&
+          other.useSimd == useSimd;
+
+  @override
+  int get hashCode => Object.hash(runtimeType, useSimd);
 }

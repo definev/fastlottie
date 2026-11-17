@@ -1,10 +1,15 @@
 part of '../fastlottie.dart';
 
-enum FastLottieRasterMode { animation, poster }
+/// Determines which frames a raster cache supplies to a player.
+enum FastLottieRasterMode {
+  /// Samples frames throughout the animation.
+  animation,
 
-enum FastLottieRasterStrategy { pingPong, miniStrip }
+  /// Holds the first source frame.
+  poster,
+}
 
-/// Shared ping-pong software raster cache for looping animations.
+/// Shared double-buffered raster cache for looping animations.
 ///
 /// Renders frames on persistent native isolates or browser workers using a
 /// FreeType-style analytic scanline RLE rasterizer, maintains double-buffered
@@ -12,129 +17,80 @@ enum FastLottieRasterStrategy { pingPong, miniStrip }
 /// and stores LZ4-compressed BGRA8888 bitstreams in bounded RAM and `.flcache`
 /// disk files. [maximumBytes] bounds retained GPU RGBA payload/reservations.
 class FastLottieRasterCache {
+  /// Creates a shared raster cache with adaptive frames per strip by default.
+  /// Set [framesPerStrip] to 1 for one frame per buffer, or a larger value for
+  /// strips of up to that many frames. Null adapts to resolution and budget.
   FastLottieRasterCache({
     this.maximumBytes = 32 * 1024 * 1024,
     this.maximumFrameRate,
     this.maximumPendingFrames = 64,
     this.reservedPosterBytes = 0,
     this.resolutionScale = 1,
-    this.strategy = FastLottieRasterStrategy.pingPong,
     this.maximumInFlight = 8,
     this.disposalBatchSize = 8,
     this.maximumCompressedMemoryBytes = 16 * 1024 * 1024,
     this.maximumDiskBytes = 128 * 1024 * 1024,
-    this.stripFrames = 1,
+    this.framesPerStrip,
     this.progressiveFirstFrame = true,
     this.maximumDuplicateFrameBytes = 1024 * 1024,
     String? diskCacheDirectory,
     int? workerCount,
-  }) : assert(maximumCompressedMemoryBytes >= 0),
-       assert(maximumDiskBytes >= 0) {
-    if (!resolutionScale.isFinite ||
-        resolutionScale <= 0 ||
-        resolutionScale > 1 ||
-        maximumBytes < 0 ||
-        maximumDuplicateFrameBytes < 0 ||
-        reservedPosterBytes < 0 ||
-        reservedPosterBytes > maximumBytes ||
-        maximumPendingFrames < 1 ||
-        maximumInFlight < 1 ||
-        disposalBatchSize < 1 ||
-        (stripFrames != null && stripFrames! < 1) ||
-        maximumCompressedMemoryBytes < 0 ||
-        maximumDiskBytes < 0 ||
-        (workerCount != null && workerCount < 1) ||
-        (maximumFrameRate != null &&
-            (!maximumFrameRate!.isFinite || maximumFrameRate! <= 0))) {
-      throw ArgumentError('Invalid raster cache limits');
+  }) {
+    _checkResolutionScale(resolutionScale);
+    if (maximumFrameRate case final rate?) {
+      _checkPositiveFinite(rate, 'maximumFrameRate');
     }
-    _pingPong = _PingPongCoordinator(
+    RangeError.checkNotNegative(maximumBytes, 'maximumBytes');
+    RangeError.checkNotNegative(
+      maximumDuplicateFrameBytes,
+      'maximumDuplicateFrameBytes',
+    );
+    RangeError.checkNotNegative(
+      maximumCompressedMemoryBytes,
+      'maximumCompressedMemoryBytes',
+    );
+    RangeError.checkNotNegative(maximumDiskBytes, 'maximumDiskBytes');
+    RangeError.checkValueInInterval(
+      reservedPosterBytes,
+      0,
+      maximumBytes,
+      'reservedPosterBytes',
+    );
+    _checkPositiveFinite(maximumPendingFrames, 'maximumPendingFrames');
+    _checkPositiveFinite(maximumInFlight, 'maximumInFlight');
+    _checkPositiveFinite(disposalBatchSize, 'disposalBatchSize');
+    if (framesPerStrip case final frames?) {
+      _checkPositiveFinite(frames, 'framesPerStrip');
+    }
+    if (workerCount != null) _checkPositiveFinite(workerCount, 'workerCount');
+    _coordinator = _RasterCoordinator(
       this,
       diskCacheDirectory: diskCacheDirectory,
       workerCount: workerCount,
     );
   }
 
-  /// Creates a Telegram-style double-buffered ping-pong software raster cache
-  /// backed by worker Isolates, LZ4 compressed RAM, and append-only `.flcache`
-  /// disk storage.
-  factory FastLottieRasterCache.pingPong({
-    int maximumBytes = 32 * 1024 * 1024,
-    double? maximumFrameRate,
-    int maximumPendingFrames = 64,
-    int reservedPosterBytes = 0,
-    double resolutionScale = 1,
-    int maximumInFlight = 8,
-    int disposalBatchSize = 8,
-    int maximumCompressedMemoryBytes = 16 * 1024 * 1024,
-    int maximumDiskBytes = 128 * 1024 * 1024,
-    int stripFrames = 1,
-    int maximumDuplicateFrameBytes = 1024 * 1024,
-    String? diskCacheDirectory,
-    int? workerCount,
-  }) => FastLottieRasterCache(
-    maximumBytes: maximumBytes,
-    maximumFrameRate: maximumFrameRate,
-    maximumPendingFrames: maximumPendingFrames,
-    reservedPosterBytes: reservedPosterBytes,
-    resolutionScale: resolutionScale,
-    maximumInFlight: maximumInFlight,
-    disposalBatchSize: disposalBatchSize,
-    maximumCompressedMemoryBytes: maximumCompressedMemoryBytes,
-    maximumDiskBytes: maximumDiskBytes,
-    stripFrames: stripFrames,
-    maximumDuplicateFrameBytes: maximumDuplicateFrameBytes,
-    diskCacheDirectory: diskCacheDirectory,
-    workerCount: workerCount,
-  );
+  /// Budget for retained raster bytes and reserved buffer space.
+  final int maximumBytes;
 
-  /// Creates a Mini-Strip raster cache where each ping-pong buffer holds a
-  /// vertical strip of [stripFrames] frames (or chooses K adaptively by frame
-  /// byte size when omitted) separated by 1px transparent gutters, reducing IPC,
-  /// GPU texture allocations, and lookahead stalls.
-  factory FastLottieRasterCache.miniStrip({
-    int maximumBytes = 32 * 1024 * 1024,
-    double? maximumFrameRate,
-    int maximumPendingFrames = 64,
-    int reservedPosterBytes = 0,
-    double resolutionScale = 1,
-    int maximumInFlight = 8,
-    int disposalBatchSize = 8,
-    int maximumCompressedMemoryBytes = 16 * 1024 * 1024,
-    int maximumDiskBytes = 128 * 1024 * 1024,
-    int? stripFrames,
-    bool progressiveFirstFrame = true,
-    int maximumDuplicateFrameBytes = 1024 * 1024,
-    String? diskCacheDirectory,
-    int? workerCount,
-  }) => FastLottieRasterCache(
-    maximumBytes: maximumBytes,
-    maximumFrameRate: maximumFrameRate,
-    maximumPendingFrames: maximumPendingFrames,
-    reservedPosterBytes: reservedPosterBytes,
-    resolutionScale: resolutionScale,
-    strategy: FastLottieRasterStrategy.miniStrip,
-    maximumInFlight: maximumInFlight,
-    disposalBatchSize: disposalBatchSize,
-    maximumCompressedMemoryBytes: maximumCompressedMemoryBytes,
-    maximumDiskBytes: maximumDiskBytes,
-    stripFrames: stripFrames,
-    progressiveFirstFrame: progressiveFirstFrame,
-    maximumDuplicateFrameBytes: maximumDuplicateFrameBytes,
-    diskCacheDirectory: diskCacheDirectory,
-    workerCount: workerCount,
-  );
+  /// Maximum number of raster requests waiting in the queue.
+  final int maximumPendingFrames;
 
-  final int maximumBytes,
-      maximumPendingFrames,
-      maximumInFlight,
-      disposalBatchSize,
-      maximumCompressedMemoryBytes,
-      maximumDiskBytes;
+  /// Maximum number of outstanding render and image decode jobs.
+  final int maximumInFlight;
 
-  /// Frames packed vertically per strip buffer (`1` = classic single-frame
-  /// ping-pong; `null` = adaptive sizing based on resolution and budget).
-  final int? stripFrames;
+  /// Base number of retired images disposed in one batch.
+  final int disposalBatchSize;
+
+  /// Total compressed frame memory budget across worker shards.
+  final int maximumCompressedMemoryBytes;
+
+  /// Maximum retained disk cache size in bytes; zero disables disk storage.
+  final int maximumDiskBytes;
+
+  /// Maximum frames packed vertically into each buffer.
+  /// One uses a single frame; null adapts to resolution and memory budget.
+  final int? framesPerStrip;
 
   /// Render only the requested sample before starting normal strip playback.
   /// Enabled by default. Set false for full-strip startup. Clips fitting in a
@@ -146,15 +102,18 @@ class FastLottieRasterCache {
   /// from GPU and compressed cache budgets.
   /// Only the last result per entry is retained; oversized results bypass it.
   final int maximumDuplicateFrameBytes;
-  int get duplicateFrameBytes => _pingPong.duplicateFrameBytes;
-  int get skippedImageUploads => _pingPong.skippedImageUploads;
+
+  /// Host bytes retained for duplicate upload detection.
+  int get duplicateFrameBytes => _coordinator.duplicateFrameBytes;
+
+  /// Number of image uploads avoided by reusing an identical buffer.
+  int get skippedImageUploads => _coordinator.skippedImageUploads;
 
   /// Keeps space available for one-frame posters while animated clips are pinned.
   final int reservedPosterBytes;
 
   /// Fixed scale relative to the fitted physical size, including DPR.
   final double resolutionScale;
-  final FastLottieRasterStrategy strategy;
 
   static final Paint _paintNone = Paint()..filterQuality = FilterQuality.none;
   static final Paint _paintLow = Paint()..filterQuality = FilterQuality.low;
@@ -172,7 +131,7 @@ class FastLottieRasterCache {
     return effectiveScale < 1 ? _paintLow : _paintNone;
   }
 
-  late final _PingPongCoordinator _pingPong;
+  late final _RasterCoordinator _coordinator;
 
   /// Optional temporal quality limit. Null preserves source FPS.
   final double? maximumFrameRate;
@@ -185,30 +144,43 @@ class FastLottieRasterCache {
   bool _disposed = false, _disposalScheduled = false;
   int _touchSeq = 0;
   bool _enabled = true;
+
+  /// Whether the cache accepts raster requests.
   bool get enabled => _enabled;
+
+  /// Enables request handling or drops pending work when disabled.
   set enabled(bool value) {
     _enabled = value;
     if (!value) {
-      _pingPong.clearPending();
+      _coordinator.clearPending();
     }
   }
 
-  /// Attaches or replaces the `.flcache` directory for ping-pong disk caching.
+  /// Attaches or replaces the `.flcache` directory for raster disk caching.
   void attachDiskDirectory(String? directoryPath) {
-    _pingPong.workerPool.attachDiskDirectory(directoryPath);
+    _coordinator.workerPool.attachDiskDirectory(directoryPath);
   }
 
   static String? _defaultDiskDirectory;
 
-  /// Optional directory for widgets using the default shared ping-pong pipeline.
+  /// Optional directory for widgets using the default shared raster pipeline.
   static String? get defaultDiskDirectory => _defaultDiskDirectory;
   static set defaultDiskDirectory(String? value) {
     _defaultDiskDirectory = value;
-    _DefaultPingPongScope._shared?.attachDiskDirectory(value);
+    _DefaultRasterCacheScope._shared?.attachDiskDirectory(value);
   }
 
-  int _reserved = 0, _bytes = 0, hits = 0, misses = 0, renderedFrames = 0;
-  int _vectorRasterizedFrames = 0, _compressedCacheHits = 0, _pingPongSwaps = 0;
+  int _reserved = 0, _bytes = 0;
+
+  /// Number of lookups that found the requested raster sample.
+  int hits = 0;
+
+  /// Number of lookups without the requested sample, including admission misses.
+  int misses = 0;
+
+  /// Number of frames installed in the retained image buffers.
+  int renderedFrames = 0;
+  int _vectorRasterizedFrames = 0, _compressedCacheHits = 0, _bufferSwaps = 0;
   int _workerRenderMicros = 0,
       _nativeKernelCalls = 0,
       _geometryCopyBytes = 0,
@@ -221,39 +193,65 @@ class FastLottieRasterCache {
       _unpinnedAnimDemotableBytes = 0;
   int _admissionGeneration = 0, _admissionAttempts = 0;
   @visibleForTesting
+  /// Number of attempts to admit new or existing entries.
   int get debugAdmissionAttempts => _admissionAttempts;
   @visibleForTesting
+  /// Number of retired images waiting for disposal.
   int get debugPendingDisposals => _disposalQueue.length - _disposalHead;
   @visibleForTesting
-  int get debugInFlightCaptures => _pingPong.activeJobCount;
+  /// Number of currently active raster jobs.
+  int get debugInFlightCaptures => _coordinator.activeJobCount;
   @visibleForTesting
+  /// Number of requests dispatched to workers.
   int get debugWorkerDispatches => workerDispatches;
   @visibleForTesting
+  /// Number of scene registrations tracked across workers.
   int get debugRegisteredWorkerScenes =>
-      _pingPong.workerPool.registeredSceneCount;
+      _coordinator.workerPool.registeredSceneCount;
   @visibleForTesting
-  int? debugEntryStripFrames(FastLottiePlayer player) =>
-      player._rasterEntry?.stripFrames;
+  /// Current strip size for the player's raster entry, if admitted.
+  int? debugEntryFramesPerStrip(FastLottiePlayer player) =>
+      player._rasterEntry?.framesPerStrip;
   @visibleForTesting
+  /// The currently shared default widget cache, if acquired.
   static FastLottieRasterCache? get debugSharedDefaultCache =>
-      _DefaultPingPongScope._shared;
+      _DefaultRasterCacheScope._shared;
+
+  /// The most recent raster pipeline error, if any.
   Object? lastError;
+
+  /// Total raster buffer bytes reserved for admitted entries.
   int get reservedBytes => _reserved;
+
+  /// Estimated bytes of raster pixel payload retained by live entries.
   int get bytes => _bytes;
+
+  /// Alias for [bytes]; engine and GPU overhead are excluded.
   int get gpuBytes => _bytes;
-  int get compressedRamBytes => _pingPong.workerPool.compressedRamBytes;
-  int get diskBytes => _pingPong.workerPool.diskBytes;
+
+  /// Reported compressed frame bytes retained by the workers.
+  int get compressedRamBytes => _coordinator.workerPool.compressedRamBytes;
+
+  /// Bytes tracked in the disk raster cache.
+  int get diskBytes => _coordinator.workerPool.diskBytes;
 
   /// Number of browser workers handling raster jobs for this cache.
-  int get browserWorkers => _pingPong.workerPool.browserWorkers;
+  int get browserWorkers => _coordinator.workerPool.browserWorkers;
 
   /// Browser workers that loaded the standalone C Wasm kernels.
-  int get browserWasmWorkers => _pingPong.workerPool.browserWasmWorkers;
+  int get browserWasmWorkers => _coordinator.workerPool.browserWasmWorkers;
 
-  int get workerDispatches => _pingPong.workerPool.debugDispatchCount;
+  /// Total raster requests dispatched to worker shards.
+  int get workerDispatches => _coordinator.workerPool.debugDispatchCount;
+
+  /// Frames rasterized by workers from their scene geometry.
   int get vectorRasterizedFrames => _vectorRasterizedFrames;
+
+  /// Frames served from the worker frame cache.
   int get compressedCacheHits => _compressedCacheHits;
-  int get pingPongSwaps => _pingPongSwaps;
+
+  /// Number of front buffer replacements or swaps.
+  int get bufferSwaps => _bufferSwaps;
 
   /// Cumulative software scene-render time measured inside worker isolates.
   int get workerRenderMicros => _workerRenderMicros;
@@ -282,9 +280,11 @@ class FastLottieRasterCache {
     _decodeMicros.add(micros);
   }
 
+  /// Number of admitted raster cache entries.
   int get entries => _entries.length;
-  int get pendingFrames => _pingPong.pendingCount;
-  bool get isPingPong => true;
+
+  /// Number of queued and active raster jobs.
+  int get pendingFrames => _coordinator.pendingCount;
 
   double _step(FastLottieComposition c, [double? playerMaxFrameRate]) {
     final limit = playerMaxFrameRate ?? maximumFrameRate;
@@ -305,7 +305,7 @@ class FastLottieRasterCache {
     return _stripBufferBytes(pw, ph, k) * buffers;
   }
 
-  static int _stepDownStripFrames(int pw, int ph, int count, int currentK) {
+  static int _stepDownFramesPerStrip(int pw, int ph, int count, int currentK) {
     if (currentK <= 1) return 1;
     final currentWeight = _entryWeightForStrip(pw, ph, count, currentK);
     var next = math.max(1, currentK ~/ 2);
@@ -319,10 +319,10 @@ class FastLottieRasterCache {
     return next;
   }
 
-  int _resolveStripFrames(int pw, int ph, int count, {int? entryBudget}) {
+  int _resolveFramesPerStrip(int pw, int ph, int count, {int? entryBudget}) {
     if (count <= 1) return 1;
     final maxByHeight = ph > 0 ? math.max(1, (4096 + 1) ~/ (ph + 1)) : 1;
-    final configured = stripFrames;
+    final configured = framesPerStrip;
     if (configured != null) {
       return math.min(configured, math.min(count, maxByHeight));
     }
@@ -341,7 +341,7 @@ class FastLottieRasterCache {
         : maximumBytes;
     while (targetK > 1) {
       if (_entryWeightForStrip(pw, ph, count, targetK) <= budget) break;
-      targetK = _stepDownStripFrames(pw, ph, count, targetK);
+      targetK = _stepDownFramesPerStrip(pw, ph, count, targetK);
     }
     return targetK;
   }
@@ -406,7 +406,7 @@ class FastLottieRasterCache {
 
     final effectiveStrip = c.isStatic || poster || count <= 1
         ? 1
-        : _resolveStripFrames(
+        : _resolveFramesPerStrip(
             pw,
             ph,
             count,
@@ -456,7 +456,7 @@ class FastLottieRasterCache {
     if (!fits()) return null;
     final sourceFrames = c.isStatic ? 1 : math.max(1, c.frameCount);
     final entryMinWeight =
-        stripFrames != null || c.isStatic || poster || effectiveStrip <= 1
+        framesPerStrip != null || c.isStatic || poster || effectiveStrip <= 1
         ? weight
         : minWeight;
     entry = _RasterEntry(
@@ -466,7 +466,7 @@ class FastLottieRasterCache {
       poster,
       totalFrames: count,
       sourceFrames: sourceFrames,
-      stripFrames: effectiveStrip,
+      framesPerStrip: effectiveStrip,
       frameStep: step,
       entryKey: formatBitstreamEntryKey(c.contentKey, pw, ph, sourceFrames),
     )..lastTouched = ++_touchSeq;
@@ -485,8 +485,8 @@ class FastLottieRasterCache {
   void _demoteEntry(_RasterEntry entry) {
     final pw = entry.key.$2.width.toInt();
     final ph = entry.key.$2.height.toInt();
-    final oldK = entry.stripFrames;
-    final newK = _stepDownStripFrames(pw, ph, entry.totalFrames, oldK);
+    final oldK = entry.framesPerStrip;
+    final newK = _stepDownFramesPerStrip(pw, ph, entry.totalFrames, oldK);
     final newWeight = newK == 1
         ? entry.minWeight
         : _entryWeightForStrip(pw, ph, entry.totalFrames, newK);
@@ -500,7 +500,7 @@ class FastLottieRasterCache {
 
     entry.stripGeneration++;
     entry.weight = newWeight;
-    entry.stripFrames = newK;
+    entry.framesPerStrip = newK;
     _reserved -= diffWeight;
     _totalDemotableBytes -= diffDemotable;
     if (entry.users.isEmpty && !entry.poster) {
@@ -537,7 +537,7 @@ class FastLottieRasterCache {
       }
     }
 
-    _pingPong.onEntryDemoted(entry);
+    _coordinator.onEntryDemoted(entry);
   }
 
   void _release(FastLottiePlayer player) {
@@ -555,7 +555,7 @@ class FastLottieRasterCache {
           _unpinnedAnimDemotableBytes += entry.demotableBytes;
         }
       }
-      _pingPong.onEntryReleased(entry);
+      _coordinator.onEntryReleased(entry);
     }
     player._rasterEntry = null;
   }
@@ -564,7 +564,7 @@ class FastLottieRasterCache {
     FastLottiePlayer player,
     Size size,
     double relative,
-  ) => _pingPong.lookup(player, size, relative);
+  ) => _coordinator.lookup(player, size, relative);
 
   void _failed(Object error) {
     lastError = error;
@@ -658,7 +658,7 @@ class FastLottieRasterCache {
         }
       }
     }
-    _pingPong.onEntryReleased(entry);
+    _coordinator.onEntryReleased(entry);
 
     void disposeImage(ui.Image? img) {
       if (img == null) return;
@@ -699,7 +699,7 @@ class FastLottieRasterCache {
       _evict(entry, immediateDispose: true);
     }
     _flushAllDisposals();
-    _pingPong.clear(clearWorkerMemory: true);
+    _coordinator.clear(clearWorkerMemory: true);
     _unpinnedAnims.clear();
     _unpinnedPosters.clear();
     _demotableEntries.clear();
@@ -709,11 +709,12 @@ class FastLottieRasterCache {
     _unpinnedAnimDemotableBytes = 0;
   }
 
+  /// Releases all retained images and stops this cache's workers.
   void dispose() {
     if (_disposed) return;
     _disposed = true;
     clear();
-    _pingPong.dispose();
+    _coordinator.dispose();
   }
 }
 
@@ -725,7 +726,7 @@ class _RasterEntry {
     this.poster, {
     required this.totalFrames,
     required this.sourceFrames,
-    required this.stripFrames,
+    required this.framesPerStrip,
     required this.frameStep,
     required this.entryKey,
   });
@@ -736,10 +737,10 @@ class _RasterEntry {
   final bool poster;
   final int totalFrames;
   final int sourceFrames;
-  int stripFrames;
+  int framesPerStrip;
   int stripGeneration = 0;
   int get demotableBytes =>
-      stripFrames > 1 ? math.max(0, weight - minWeight) : 0;
+      framesPerStrip > 1 ? math.max(0, weight - minWeight) : 0;
   final double frameStep;
   final String entryKey;
   int? workerShard;
@@ -762,38 +763,6 @@ class _RasterEntry {
   int pendingStripStart = -1;
   int pendingStripCount = 0;
   bool hasPlayedAdvance = false;
-  bool queuedForPingPong = false;
+  bool queuedForRaster = false;
   bool queuedHighPriority = false;
-
-  int get renderingFrameIndex => renderingStripStart;
-  set renderingFrameIndex(int val) {
-    renderingStripStart = val;
-    renderingStripCount = val >= 0
-        ? (renderingStripCount > 0 ? renderingStripCount : 1)
-        : 0;
-  }
-
-  int get backgroundFrameIndex => backgroundStripStart;
-  set backgroundFrameIndex(int val) {
-    backgroundStripStart = val;
-    backgroundStripCount = val >= 0
-        ? (backgroundStripCount > 0 ? backgroundStripCount : 1)
-        : 0;
-  }
-
-  int get inFlightFrameIndex => inFlightStripStart;
-  set inFlightFrameIndex(int val) {
-    inFlightStripStart = val;
-    inFlightStripCount = val >= 0
-        ? (inFlightStripCount > 0 ? inFlightStripCount : 1)
-        : 0;
-  }
-
-  int get pendingFrameIndex => pendingStripStart;
-  set pendingFrameIndex(int val) {
-    pendingStripStart = val;
-    pendingStripCount = val >= 0
-        ? (pendingStripCount > 0 ? pendingStripCount : 1)
-        : 0;
-  }
 }

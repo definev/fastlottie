@@ -474,14 +474,12 @@ void main() {
         );
       }
 
-      // Open CupertinoActionSheet options & verify Mini-Strip -> Ping-Pong toggle & telemetry.
+      // Check the strip size toggle and telemetry.
       await tester.tap(find.byKey(const ValueKey('chat-options-button')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(find.byType(CupertinoActionSheet), findsOneWidget);
-      await tester.tap(
-        find.byKey(const ValueKey('toggle-raster-strategy-action')),
-      );
+      await tester.tap(find.byKey(const ValueKey('toggle-strip-size-action')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(tester.takeException(), isNull);
@@ -490,12 +488,12 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
       expect(
-        find.text('Raster Strategy: Ping-Pong K=1 (Switch to Mini-Strip)'),
+        find.textContaining(
+          RegExp(r'Use (adaptive strips|3 frames per strip)'),
+        ),
         findsOneWidget,
       );
-      await tester.tap(
-        find.byKey(const ValueKey('toggle-raster-strategy-action')),
-      );
+      await tester.tap(find.byKey(const ValueKey('toggle-strip-size-action')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
 
@@ -508,7 +506,9 @@ void main() {
       expect(
         find.descendant(
           of: find.byType(CupertinoAlertDialog),
-          matching: find.textContaining('Strategy: Mini-Strip (Adaptive K)'),
+          matching: find.textContaining(
+            RegExp(r'Buffering: (Adaptive strips|Frames per strip: 3)'),
+          ),
         ),
         findsOneWidget,
       );
@@ -589,7 +589,7 @@ void main() {
       });
 
       final store = NetworkTgsStore(framePaced: false);
-      final rasterCache = FastLottieRasterCache.miniStrip(
+      final rasterCache = FastLottieRasterCache(
         maximumBytes: 16 * 1024 * 1024,
         maximumFrameRate: 30,
       );
@@ -657,7 +657,7 @@ void main() {
       }
 
       expect(sheet.activePlayers, 1);
-      expect(rasterCache.strategy, FastLottieRasterStrategy.miniStrip);
+      expect(rasterCache.framesPerStrip, isNull);
       expect(rasterCache.entries, 1);
       expect(rasterCache.debugAdmissionAttempts, 1);
       expect(rasterCache.renderedFrames, greaterThan(0));
@@ -678,7 +678,8 @@ void main() {
 
       final catalog = server.catalog;
       final store = NetworkTgsStore(framePaced: false);
-      final rasterCache = FastLottieRasterCache.pingPong(
+      final rasterCache = FastLottieRasterCache(
+        framesPerStrip: 1,
         maximumBytes: 8 * 1024 * 1024,
       );
       final sheet = StickerSheet(
@@ -969,7 +970,8 @@ void main() {
 
         final catalog = server.catalog;
         final store = NetworkTgsStore(framePaced: false);
-        final rasterCache = FastLottieRasterCache.pingPong(
+        final rasterCache = FastLottieRasterCache(
+          framesPerStrip: 1,
           maximumBytes: 16 * 1024 * 1024,
           maximumFrameRate: 30,
         );

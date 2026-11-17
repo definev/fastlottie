@@ -84,7 +84,7 @@ Dưới mức tối thiểu, một số entry bị từ chối. Widget thường
 vector; painter inline của example có thể hiện placeholder khi chưa có ảnh.
 Cache quá nhỏ vì thế có thể tăng CPU hoặc làm chất lượng hiển thị xấu đi.
 
-Để `stripFrames` không truyền (`null`) cho Mini-Strip tự chọn K và giảm K khi
+Để `framesPerStrip` không truyền (`null`) cho Mini-Strip tự chọn K và giảm K khi
 cần. Hiện code thường chọn K=4 cho frame ≤256 KiB, K=2 cho frame ≤1 MiB,
 K=1 cho frame lớn hơn; clip rất ngắn và giới hạn chiều cao strip có ngoại lệ.
 **Ép K cố định làm mất khả năng giảm K tự động**, nên chỉ ép khi cần A/B hoặc
@@ -223,14 +223,14 @@ Cấu hình cache đã được đo trong chat Mac (kết quả còn phụ thu�
 
 ```dart
 // Thuộc owner của cả nhóm thumbnail; tạo một lần, dispose khi nhóm kết thúc.
-final thumbnails = FastLottieRasterCache.miniStrip(
+final thumbnails = FastLottieRasterCache(
   maximumBytes: 6 * 1024 * 1024,
   maximumCompressedMemoryBytes: 2 * 1024 * 1024,
   maximumDiskBytes: 128 * 1024 * 1024,
   workerCount: 1,
   maximumInFlight: 2,
   maximumFrameRate: 30,
-  // Không truyền stripFrames: cho phép chọn và giảm K tự động.
+  // Không truyền framesPerStrip: cho phép chọn và giảm K tự động.
   // Gắn thư mục disk cache bằng diskCacheDirectory hoặc attachDiskDirectory.
 );
 ```

@@ -53,7 +53,7 @@ void main() {
     'pingPong bounds GPU memory to 2 buffers, swaps lookahead in O(1), and matches vector output',
     (tester) async {
       final comp = FastLottieComposition.fromJson(fixture('icon'));
-      final cache = FastLottieRasterCache.pingPong(workerCount: 2);
+      final cache = FastLottieRasterCache(framesPerStrip: 1, workerCount: 2);
       final player = FastLottiePlayer(
         comp,
         rasterCache: cache,
@@ -81,11 +81,11 @@ void main() {
       // Wait an extra tick for lookahead (frame 2) to populate back buffer.
       expect(cache.gpuBytes, lessThanOrEqualTo(64 * 64 * 4 * 2));
 
-      final swapsBefore = cache.pingPongSwaps;
+      final swapsBefore = cache.bufferSwaps;
       final hitsBefore = cache.hits;
       // Advancing to frame 2 should hit the lookahead back buffer via pointer swap.
       _record(player, 2 / total, size: 64);
-      expect(cache.pingPongSwaps, greaterThan(swapsBefore));
+      expect(cache.bufferSwaps, greaterThan(swapsBefore));
       expect(cache.hits, greaterThan(hitsBefore));
       expect(cache.gpuBytes, lessThanOrEqualTo(64 * 64 * 4 * 2));
 
@@ -120,7 +120,7 @@ void main() {
       expect(identical(compA, compB), isFalse);
       expect(compA.contentKey, compB.contentKey);
 
-      final cache = FastLottieRasterCache.pingPong(workerCount: 2);
+      final cache = FastLottieRasterCache(framesPerStrip: 1, workerCount: 2);
       final pa = FastLottiePlayer(compA, rasterCache: cache);
       final pb = FastLottiePlayer(compB, rasterCache: cache);
       addTearDown(() {
@@ -168,7 +168,8 @@ void main() {
       final comp1 = FastLottieComposition.fromJson(json);
       final total = comp1.frameCount;
 
-      final cache1 = FastLottieRasterCache.pingPong(
+      final cache1 = FastLottieRasterCache(
+        framesPerStrip: 1,
         diskCacheDirectory: tempDir.path,
         workerCount: 2,
       );
@@ -201,7 +202,8 @@ void main() {
 
       // Session 2: fresh composition + fresh cache pointing to the same disk dir.
       final comp2 = FastLottieComposition.fromJson(json);
-      final cache2 = FastLottieRasterCache.pingPong(
+      final cache2 = FastLottieRasterCache(
+        framesPerStrip: 1,
         diskCacheDirectory: tempDir.path,
         workerCount: 2,
       );
@@ -231,7 +233,8 @@ void main() {
 
     final json = fixture('static');
     final comp1 = FastLottieComposition.fromJson(json);
-    final cache1 = FastLottieRasterCache.pingPong(
+    final cache1 = FastLottieRasterCache(
+      framesPerStrip: 1,
       diskCacheDirectory: tempDir.path,
       workerCount: 1,
     );
@@ -253,7 +256,8 @@ void main() {
     flFile.writeAsBytesSync(corrupted, flush: true);
 
     final comp2 = FastLottieComposition.fromJson(json);
-    final cache2 = FastLottieRasterCache.pingPong(
+    final cache2 = FastLottieRasterCache(
+      framesPerStrip: 1,
       diskCacheDirectory: tempDir.path,
       workerCount: 1,
     );
@@ -301,7 +305,8 @@ void main() {
       final compC = FastLottieComposition.fromJson(jsonC);
 
       // Measure first entry's disk size then tighten maximumDiskBytes for 1.5 entries.
-      final probeCache = FastLottieRasterCache.pingPong(
+      final probeCache = FastLottieRasterCache(
+        framesPerStrip: 1,
         diskCacheDirectory: tempDir.path,
         maximumDiskBytes: 64 * 1024 * 1024,
         maximumCompressedMemoryBytes: 64 * 1024,
@@ -319,7 +324,8 @@ void main() {
 
       // Re-open with tight budgets (~1.5x single file disk budget, 4 KiB RAM).
       final budgetDisk = (singleDiskSize * 3) ~/ 2;
-      final tightCache = FastLottieRasterCache.pingPong(
+      final tightCache = FastLottieRasterCache(
+        framesPerStrip: 1,
         diskCacheDirectory: tempDir.path,
         maximumDiskBytes: budgetDisk,
         maximumCompressedMemoryBytes: 4 * 1024,
@@ -395,7 +401,8 @@ void main() {
         ..['op'] = 12;
       final comp = FastLottieComposition.fromJson(json);
 
-      final cache = FastLottieRasterCache.pingPong(
+      final cache = FastLottieRasterCache(
+        framesPerStrip: 1,
         diskCacheDirectory: tempDir.path,
         workerCount: 1,
       );
@@ -443,8 +450,8 @@ void main() {
   testWidgets('speculative lookahead cannot evict a queued first image', (
     tester,
   ) async {
-    final cache = FastLottieRasterCache.miniStrip(
-      stripFrames: 4,
+    final cache = FastLottieRasterCache(
+      framesPerStrip: 4,
       progressiveFirstFrame: false,
       workerCount: 1,
       maximumInFlight: 8,
@@ -487,7 +494,8 @@ void main() {
         fixture('many_shapes')..['op'] = 10,
       );
 
-      final cache = FastLottieRasterCache.pingPong(
+      final cache = FastLottieRasterCache(
+        framesPerStrip: 1,
         maximumPendingFrames: 1,
         workerCount: 1,
       );

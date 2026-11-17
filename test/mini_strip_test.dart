@@ -51,7 +51,8 @@ void main() {
     (tester) async {
       final composition = FastLottieComposition.fromJson(fixture('icon'));
       for (final budget in [1, 128 * 1024]) {
-        final cache = FastLottieRasterCache.pingPong(
+        final cache = FastLottieRasterCache(
+          framesPerStrip: 1,
           maximumDuplicateFrameBytes: budget,
           workerCount: 1,
         );
@@ -74,7 +75,7 @@ void main() {
   testWidgets(
     'progressive in-flight seeks settle on the latest frame and resize',
     (tester) async {
-      final cache = FastLottieRasterCache.miniStrip(
+      final cache = FastLottieRasterCache(
         progressiveFirstFrame: true,
         workerCount: 1,
         maximumInFlight: 1,
@@ -121,10 +122,7 @@ void main() {
       };
       final composition = FastLottieComposition.fromJson(json);
       expect(composition.isStatic, isFalse);
-      final cache = FastLottieRasterCache.miniStrip(
-        stripFrames: 4,
-        workerCount: 1,
-      );
+      final cache = FastLottieRasterCache(framesPerStrip: 4, workerCount: 1);
       final player = FastLottiePlayer(composition, rasterCache: cache);
       addTearDown(() {
         player.dispose();
@@ -180,11 +178,7 @@ void main() {
     'progressive startup renders one sample then resumes regular strips',
     (tester) async {
       final comp = FastLottieComposition.fromJson(fixture('icon')..['op'] = 10);
-      final cache = FastLottieRasterCache.miniStrip(
-        stripFrames: 4,
-
-        workerCount: 1,
-      );
+      final cache = FastLottieRasterCache(framesPerStrip: 4, workerCount: 1);
       final player = FastLottiePlayer(comp, rasterCache: cache);
       addTearDown(() {
         player.dispose();
@@ -230,12 +224,12 @@ void main() {
       final total = comp.frameCount;
       expect(total, 10);
 
-      final cache = FastLottieRasterCache.miniStrip(
-        stripFrames: 4,
+      final cache = FastLottieRasterCache(
+        framesPerStrip: 4,
         progressiveFirstFrame: false,
         workerCount: 2,
       );
-      expect(cache.strategy, FastLottieRasterStrategy.miniStrip);
+      expect(cache.framesPerStrip, 4);
       final player = FastLottiePlayer(
         comp,
         rasterCache: cache,
@@ -252,7 +246,7 @@ void main() {
       _record(player, 0 / total, size: 64);
       expect(cache.debugWorkerDispatches, 1);
       await _drain(tester, cache);
-      expect(cache.debugEntryStripFrames(player), 4);
+      expect(cache.debugEntryFramesPerStrip(player), 4);
       // 1 strip height = 4 * 64 + 3 (1px gutters between 4 slots) = 259px.
       expect(cache.gpuBytes, 64 * 259 * 4);
       expect(cache.vectorRasterizedFrames, 4);
@@ -290,9 +284,9 @@ void main() {
       }
 
       // Frame 4 crosses strip boundary -> O(1) swap promotes Strip 1, prefetches Strip 2 (8..9).
-      final swapsBefore = cache.pingPongSwaps;
+      final swapsBefore = cache.bufferSwaps;
       _record(player, 4 / total, size: 64);
-      expect(cache.pingPongSwaps, swapsBefore + 1);
+      expect(cache.bufferSwaps, swapsBefore + 1);
       await _drain(tester, cache);
       expect(cache.debugWorkerDispatches, 3); // Strip 2 prefetched
 
@@ -347,8 +341,8 @@ void main() {
       final comp = FastLottieComposition.fromJson(json);
       final total = comp.frameCount;
 
-      final cache = FastLottieRasterCache.miniStrip(
-        stripFrames: 4,
+      final cache = FastLottieRasterCache(
+        framesPerStrip: 4,
         progressiveFirstFrame: false,
         resolutionScale: .5,
         workerCount: 1,
@@ -409,12 +403,9 @@ void main() {
   testWidgets(
     'short animation fitting within 1 strip uses 1 VRAM buffer and 0 swaps/IPC across loops',
     (tester) async {
-      final json = fixture('icon')..['op'] = 4; // 4 frames <= stripFrames 4
+      final json = fixture('icon')..['op'] = 4; // 4 frames <= framesPerStrip 4
       final comp = FastLottieComposition.fromJson(json);
-      final cache = FastLottieRasterCache.miniStrip(
-        stripFrames: 4,
-        workerCount: 1,
-      );
+      final cache = FastLottieRasterCache(framesPerStrip: 4, workerCount: 1);
       final player = FastLottiePlayer(comp, rasterCache: cache);
       addTearDown(() {
         player.dispose();
@@ -437,7 +428,7 @@ void main() {
         }
       }
       expect(cache.debugWorkerDispatches, dispatchesAfterWarm);
-      expect(cache.pingPongSwaps, 0);
+      expect(cache.bufferSwaps, 0);
     },
   );
 
@@ -448,10 +439,10 @@ void main() {
       final comp = FastLottieComposition.fromJson(json);
 
       // Generous budget at 64x64 -> picks adaptive K = 4.
-      final generous = FastLottieRasterCache.miniStrip(workerCount: 1);
+      final generous = FastLottieRasterCache(workerCount: 1);
       final p1 = FastLottiePlayer(comp, rasterCache: generous);
       _record(p1, 0, size: 64);
-      expect(generous.debugEntryStripFrames(p1), 4);
+      expect(generous.debugEntryFramesPerStrip(p1), 4);
       await _drain(tester, generous);
       p1.dispose();
       generous.dispose();
@@ -459,13 +450,13 @@ void main() {
       // Tight budget (enough for 2 strips of K=2, not K=4) -> scales down to K = 2 instead of rejecting.
       const single64 = 64 * 64 * 4;
       const twoStrip2Bytes = 64 * (2 * 64 + 1) * 4 * 2;
-      final tight = FastLottieRasterCache.miniStrip(
+      final tight = FastLottieRasterCache(
         maximumBytes: twoStrip2Bytes + single64,
         workerCount: 1,
       );
       final p2 = FastLottiePlayer(comp, rasterCache: tight);
       _record(p2, 0, size: 64);
-      expect(tight.debugEntryStripFrames(p2), 2);
+      expect(tight.debugEntryFramesPerStrip(p2), 2);
       await _drain(tester, tight);
       p2.dispose();
       tight.dispose();
@@ -486,8 +477,8 @@ void main() {
       final comp1 = FastLottieComposition.fromJson(json);
 
       // Session 1: Mini-Strip renders all 8 frames in 2 strips -> writes 8 slots to .flcache.
-      final cache1 = FastLottieRasterCache.miniStrip(
-        stripFrames: 4,
+      final cache1 = FastLottieRasterCache(
+        framesPerStrip: 4,
         diskCacheDirectory: tempDir.path,
         workerCount: 1,
       );
@@ -502,7 +493,8 @@ void main() {
 
       // Session 2: classic pingPong (K=1) reads from the same .flcache with 0 vector renders.
       final comp2 = FastLottieComposition.fromJson(json);
-      final cache2 = FastLottieRasterCache.pingPong(
+      final cache2 = FastLottieRasterCache(
+        framesPerStrip: 1,
         diskCacheDirectory: tempDir.path,
         workerCount: 1,
       );
@@ -550,7 +542,7 @@ void main() {
       ];
 
       // Scenario A: Warm first 3 at K=4, then 9 more pinned players force warm demotion.
-      final warmCache = FastLottieRasterCache.miniStrip(
+      final warmCache = FastLottieRasterCache(
         maximumBytes: budget,
         workerCount: 2,
       );
@@ -567,7 +559,7 @@ void main() {
       }
       await _drain(tester, warmCache);
       for (var i = 0; i < 3; i++) {
-        expect(warmCache.debugEntryStripFrames(warmPlayers[i]), 4);
+        expect(warmCache.debugEntryFramesPerStrip(warmPlayers[i]), 4);
       }
       expect(warmCache.gpuBytes, lessThanOrEqualTo(warmCache.reservedBytes));
       expect(warmCache.reservedBytes, lessThanOrEqualTo(budget));
@@ -610,7 +602,7 @@ void main() {
       }
 
       // Scenario B: All 12 players burst synchronously in Frame 0 while strips are still in flight.
-      final burstCache = FastLottieRasterCache.miniStrip(
+      final burstCache = FastLottieRasterCache(
         maximumBytes: budget,
         workerCount: 2,
       );
@@ -644,10 +636,7 @@ void main() {
     // One K=4 entry fits initially. Three pinned entries can fit only after
     // the first entry drops to K=2 and the others use K=1.
     const budget = 32 * (4 * 32 + 3) * 4 * 2;
-    final cache = FastLottieRasterCache.miniStrip(
-      maximumBytes: budget,
-      workerCount: 1,
-    );
+    final cache = FastLottieRasterCache(maximumBytes: budget, workerCount: 1);
     final players = [
       for (final frames in [11, 12, 13])
         FastLottiePlayer(
@@ -666,14 +655,14 @@ void main() {
     // Warm the three-frame tail (8–10) before admitting the other clips.
     _record(first, 8 / 11, size: 32);
     await _drain(tester, cache);
-    expect(cache.debugEntryStripFrames(first), 4);
+    expect(cache.debugEntryFramesPerStrip(first), 4);
 
     for (final player in players.skip(1)) {
       _record(player, 0, size: 32);
     }
     await _drain(tester, cache);
     expect(cache.entries, 3);
-    expect(cache.debugEntryStripFrames(first), 2);
+    expect(cache.debugEntryFramesPerStrip(first), 2);
 
     // Advance each clip so both buffers are used.
     _record(first, 9 / 11, size: 32);
@@ -685,7 +674,7 @@ void main() {
     expect(cache.reservedBytes, lessThanOrEqualTo(budget));
   });
 
-  testWidgets('FastLottie default pipeline uses adaptive miniStrip strategy', (
+  testWidgets('FastLottie default pipeline uses adaptive strips', (
     tester,
   ) async {
     final comp = FastLottieComposition.fromJson(fixture('icon'));
@@ -698,7 +687,7 @@ void main() {
 
     final shared = FastLottieRasterCache.debugSharedDefaultCache;
     expect(shared, isNotNull);
-    expect(shared!.strategy, FastLottieRasterStrategy.miniStrip);
+    expect(shared!.framesPerStrip, isNull);
 
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pumpWidget(const SizedBox());
@@ -715,7 +704,7 @@ void main() {
       // Render one large animation with dynamic gradient + trim/matte paths ('features' at 512x512),
       // then drive >64 distinct compositions on 1 worker so maxWorkerScenes (64) evicts and
       // re-registers cleanly via _repSceneMissing, plus >16 small 48x48 dispatches to exercise trimming.
-      final cache = FastLottieRasterCache.miniStrip(
+      final cache = FastLottieRasterCache(
         maximumBytes: 64 * 1024 * 1024,
         workerCount: 1,
       );

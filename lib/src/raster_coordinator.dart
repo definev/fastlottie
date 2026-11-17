@@ -1,9 +1,8 @@
 part of '../fastlottie.dart';
 
-/// Coordinates Telegram-style Double-Buffered Ping-Pong GPU textures (`ui.Image`),
-/// persistent worker Isolate decoding, LZ4 disk/RAM caching, and UI repaint hints.
-final class _PingPongCoordinator implements _RasterWorkerListener {
-  _PingPongCoordinator(
+/// Coordinates double-buffered textures, raster workers, and repaint hints.
+final class _RasterCoordinator implements _RasterWorkerListener {
+  _RasterCoordinator(
     this.cache, {
     String? diskCacheDirectory,
     int? workerCount,
@@ -87,13 +86,13 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
 
   void clearPending() {
     for (final entry in _highPriorityQueue) {
-      entry.queuedForPingPong = false;
+      entry.queuedForRaster = false;
       entry.queuedHighPriority = false;
       entry.pendingStripStart = -1;
       entry.pendingStripCount = 0;
     }
     for (final entry in _lowPriorityQueue) {
-      entry.queuedForPingPong = false;
+      entry.queuedForRaster = false;
       entry.queuedHighPriority = false;
       entry.pendingStripStart = -1;
       entry.pendingStripCount = 0;
@@ -104,10 +103,10 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
 
   void onEntryReleased(_RasterEntry entry) {
     _forgetDuplicate(entry);
-    if (entry.queuedForPingPong) {
+    if (entry.queuedForRaster) {
       _highPriorityQueue.remove(entry);
       _lowPriorityQueue.remove(entry);
-      entry.queuedForPingPong = false;
+      entry.queuedForRaster = false;
     }
     entry.queuedHighPriority = false;
     entry.pendingStripStart = -1;
@@ -126,7 +125,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
           start,
           entry.totalFrames,
         );
-        if (entry.queuedForPingPong && !entry.queuedHighPriority) {
+        if (entry.queuedForRaster && !entry.queuedHighPriority) {
           _lowPriorityQueue.remove(entry);
           entry.queuedHighPriority = true;
           _highPriorityQueue.add(entry);
@@ -143,7 +142,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     }
     if (entry.renderingImage == null &&
         entry.inFlightStripStart < 0 &&
-        !entry.queuedForPingPong &&
+        !entry.queuedForRaster &&
         entry.desiredFrameIndex >= 0 &&
         cache._enabled &&
         cache.lastError == null &&
@@ -163,8 +162,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   bool _needsFirstFrame(_RasterEntry entry) =>
       cache.progressiveFirstFrame &&
       entry.renderingImage == null &&
-      entry.stripFrames > 1 &&
-      entry.totalFrames > entry.stripFrames;
+      entry.framesPerStrip > 1 &&
+      entry.totalFrames > entry.framesPerStrip;
 
   // A bootstrap frame can overlap a requested strip without satisfying it.
   static bool _coversStrip(int start, int count, int wanted, int wantedCount) =>
@@ -172,18 +171,18 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
 
   int _stripStartFor(_RasterEntry entry, int frameIndex) {
     if (_needsFirstFrame(entry)) return frameIndex;
-    if (entry.stripFrames <= 1 || entry.poster || entry.totalFrames <= 1) {
+    if (entry.framesPerStrip <= 1 || entry.poster || entry.totalFrames <= 1) {
       return frameIndex;
     }
-    return (frameIndex ~/ entry.stripFrames) * entry.stripFrames;
+    return (frameIndex ~/ entry.framesPerStrip) * entry.framesPerStrip;
   }
 
   int _stripCountFor(_RasterEntry entry, int stripStart, int total) {
     if (_needsFirstFrame(entry)) return 1;
-    if (entry.stripFrames <= 1 || entry.poster || total <= 1) {
+    if (entry.framesPerStrip <= 1 || entry.poster || total <= 1) {
       return 1;
     }
-    return math.min(entry.stripFrames, total - stripStart);
+    return math.min(entry.framesPerStrip, total - stripStart);
   }
 
   int _nextStripStart(
@@ -192,7 +191,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     int currentCount,
     int total,
   ) {
-    if (entry.stripFrames <= 1 || entry.poster || total <= 1) {
+    if (entry.framesPerStrip <= 1 || entry.poster || total <= 1) {
       return (currentStart + 1) % total;
     }
     final next = (currentStart + currentCount) % total;
@@ -249,7 +248,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     workerPool.touchDiskEntry(entry.entryKey);
 
     int offsetYForSlot(int slot) =>
-        entry!.stripFrames <= 1 ? 0 : slot * (ph + 1);
+        entry!.framesPerStrip <= 1 ? 0 : slot * (ph + 1);
 
     // 1. Exact front-buffer hit.
     if (entry.renderingImage != null &&
@@ -298,7 +297,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       final slot = index - entry.renderingStripStart;
       entry.lastRenderingSlot = slot;
       entry.hasPlayedAdvance = true;
-      cache._pingPongSwaps++;
+      cache._bufferSwaps++;
       cache.hits++;
 
       if (displaced != null) {
@@ -404,10 +403,10 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     }
     final canDispatch = _canDispatch(entry);
     if (!canDispatch ||
-        entry.queuedForPingPong ||
+        entry.queuedForRaster ||
         _highPriorityQueue.isNotEmpty ||
         (!highPriority && _lowPriorityQueue.isNotEmpty)) {
-      if (!entry.queuedForPingPong) {
+      if (!entry.queuedForRaster) {
         final totalQueued =
             _highPriorityQueue.length + _lowPriorityQueue.length;
         if (totalQueued >= cache.maximumPendingFrames) {
@@ -418,7 +417,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
               : _highPriorityQueue;
           onEntryReleased(victimQueue.first);
         }
-        entry.queuedForPingPong = true;
+        entry.queuedForRaster = true;
         entry.queuedHighPriority = highPriority;
         (highPriority ? _highPriorityQueue : _lowPriorityQueue).add(entry);
       } else if (highPriority && !entry.queuedHighPriority) {
@@ -750,7 +749,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       cache._bytes += imgBytes;
       cache.renderedFrames += stripCount;
       if (displaced != null) {
-        cache._pingPongSwaps++;
+        cache._bufferSwaps++;
         final dBytes = displaced.width * displaced.height * 4;
         cache._bytes -= dBytes;
         cache._enqueueDisposal(displaced, dBytes);
@@ -794,7 +793,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
       cache._bytes += imgBytes;
       cache.renderedFrames += stripCount;
       if (displaced != null) {
-        cache._pingPongSwaps++;
+        cache._bufferSwaps++;
         final dBytes = displaced.width * displaced.height * 4;
         cache._bytes -= dBytes;
         cache._enqueueDisposal(displaced, dBytes);
@@ -893,7 +892,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         final entry = high ?? _firstDispatchable(_lowPriorityQueue);
         if (entry == null) break;
         queue.remove(entry);
-        entry.queuedForPingPong = false;
+        entry.queuedForRaster = false;
         entry.queuedHighPriority = false;
         if (entry.retired || entry.users.isEmpty) continue;
         final idx = entry.pendingStripStart >= 0

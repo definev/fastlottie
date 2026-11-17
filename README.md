@@ -6,8 +6,24 @@ players can share the model and keep their own playback state. Unsupported
 features throw `UnsupportedLottieException` with a JSON path. See the
 [supported features](docs/supported-ops.md).
 
-Load the composition once outside `build()`. Declare the file in your app's
-`pubspec.yaml` assets.
+For a single animation, use the loading widgets directly. Declare asset files
+in your app's `pubspec.yaml`:
+
+```dart
+FastLottie.asset('assets/sticker.tgs', width: 128, height: 128);
+FastLottie.bytes(stickerBytes, width: 128, height: 128);
+```
+
+Asset, bytes, and network widgets accept the same playback and layout options,
+plus `placeholderBuilder` and `errorBuilder`. The error builder receives
+`(context, error, retry)`. Assets use the nearest `DefaultAssetBundle` unless
+`bundle` is supplied. Keep byte lists immutable; supply a new list to reload.
+Compilation runs off the UI isolate on native platforms. Loading results that
+arrive after a source change or removal are ignored; network requests are also
+cancelled.
+
+When multiple players share an animation, load the composition once outside
+`build()` and pass it to each player:
 
 ```dart
 import 'package:fastlottie/fastlottie.dart';
@@ -23,14 +39,14 @@ on a worker isolate on native platforms. For HTTP(S) on native, use
 removed or the URI changes. Use `FastLottieComposition.loadNetwork(uri)` when
 you need to reuse the compiled result.
 
-The widget uses a shared Mini-Strip raster cache by default. Long animations
+The widget uses a shared double-buffered raster cache by default. Long animations
 start with one sampled frame and switch to strips as playback advances. The
 cache retains up to two images per animated entry. To control the budget,
 thumbnail resolution, or sampling rate, pass a shared cache of your own:
 
 ```dart
 // Create once in the owner and dispose the cache when no players use it.
-final thumbnails = FastLottieRasterCache.pingPong(
+final thumbnails = FastLottieRasterCache(
   maximumBytes: 32 * 1024 * 1024,
   resolutionScale: 0.5,
   maximumFrameRate: 30,
@@ -42,6 +58,11 @@ final thumbnail = FastLottie(
   rasterCache: thumbnails,
 );
 ```
+
+`framesPerStrip` controls the shared double-buffered pipeline: omit it (or use
+`null`) for adaptive strips, set it to `1` for one frame per buffer, or set it to
+`4` for strips of up to four frames. Each choice shares the same worker and
+compressed-cache implementation.
 
 Raster caches default to a 1 MiB host budget for skipping uploads of identical
 frames or strips. See [playback tuning](docs/playback-experiments.md) for the

@@ -17,7 +17,7 @@ const _variant = String.fromEnvironment(
 const _denseOnly = bool.fromEnvironment('DENSE_ONLY');
 const _denseWorkers = int.fromEnvironment('DENSE_WORKERS', defaultValue: 4);
 const _denseInFlight = int.fromEnvironment('DENSE_IN_FLIGHT', defaultValue: 8);
-const _denseStripFrames = int.fromEnvironment(
+const _denseFramesPerStrip = int.fromEnvironment(
   'DENSE_STRIP_FRAMES',
   defaultValue: 4,
 );
@@ -90,10 +90,10 @@ double _percentile(List<int> samples, double percentile) {
 Future<Map<String, Object>> _burst(
   List<FastLottieComposition> compositions,
 ) async {
-  final cache = FastLottieRasterCache.miniStrip(
+  final cache = FastLottieRasterCache(
     workerCount: 4,
     maximumInFlight: 8,
-    stripFrames: 4,
+    framesPerStrip: 4,
     progressiveFirstFrame: const bool.fromEnvironment(
       'PROGRESSIVE_FIRST_FRAME',
     ),
@@ -163,8 +163,8 @@ Future<Map<String, Object>> _visibleBurst(
   List<FastLottieComposition> scenes,
   bool progressive,
 ) async {
-  final cache = FastLottieRasterCache.miniStrip(
-    stripFrames: 4,
+  final cache = FastLottieRasterCache(
+    framesPerStrip: 4,
     workerCount: 4,
     maximumDiskBytes: 0,
     progressiveFirstFrame: progressive,
@@ -265,10 +265,10 @@ Future<Map<String, Object>> _playback(
   List<FastLottieComposition> compositions, {
   required bool progressive,
 }) async {
-  final cache = FastLottieRasterCache.miniStrip(
+  final cache = FastLottieRasterCache(
     workerCount: 4,
     maximumInFlight: 8,
-    stripFrames: 4,
+    framesPerStrip: 4,
     progressiveFirstFrame: progressive,
     maximumBytes: 48 * 1024 * 1024,
     maximumDiskBytes: 0,
@@ -337,10 +337,10 @@ Future<Map<String, Object>> _densePlayback(
   List<FastLottieComposition> compositions,
 ) async {
   const playerCount = 60, sampleHz = 30, seconds = 6;
-  final cache = FastLottieRasterCache.miniStrip(
+  final cache = FastLottieRasterCache(
     workerCount: _denseWorkers,
     maximumInFlight: _denseInFlight,
-    stripFrames: _denseStripFrames,
+    framesPerStrip: _denseFramesPerStrip,
     progressiveFirstFrame: _denseProgressive,
     maximumBytes: 48 * 1024 * 1024,
     maximumDiskBytes: 0,
@@ -360,7 +360,7 @@ Future<Map<String, Object>> _densePlayback(
       final player = players[i];
       final total = player.composition.frameCount;
       final sourceStep = math.max(1.0, player.composition.frameRate / sampleHz);
-      _draw(player, (i % _denseStripFrames) * sourceStep / total);
+      _draw(player, (i % _denseFramesPerStrip) * sourceStep / total);
     }
     await _drain(cache);
     final cpuBefore = _cpuTicks();
@@ -383,7 +383,8 @@ Future<Map<String, Object>> _densePlayback(
             player.composition.frameRate;
         _draw(
           player,
-          ((elapsedSeconds + (i % _denseStripFrames) / sampleHz) % duration) /
+          ((elapsedSeconds + (i % _denseFramesPerStrip) / sampleHz) %
+                  duration) /
               duration,
         );
       }
@@ -397,7 +398,7 @@ Future<Map<String, Object>> _densePlayback(
       'sample_rate': sampleHz,
       'workers': _denseWorkers,
       'maximum_in_flight': _denseInFlight,
-      'strip_frames': _denseStripFrames,
+      'strip_frames': _denseFramesPerStrip,
       'progressive': _denseProgressive,
       'duration_ms': watch.elapsedMicroseconds / 1000,
       'lookups': hits + misses,

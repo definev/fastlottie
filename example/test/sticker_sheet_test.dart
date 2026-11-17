@@ -61,7 +61,7 @@ void main() {
         store.dispose();
       });
 
-      expect(sheet.rasterCache.strategy, FastLottieRasterStrategy.miniStrip);
+      expect(sheet.rasterCache.framesPerStrip, isNull);
 
       sheet.acquirePin(asset);
       sheet.acquirePin(asset);
@@ -99,7 +99,7 @@ void main() {
         pixelSize: 56,
         store: store,
         frameRate: 30,
-        stripFrames: 4,
+        framesPerStrip: 4,
       );
       final clock = StickerClock();
       addTearDown(() {

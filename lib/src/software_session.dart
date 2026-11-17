@@ -63,6 +63,7 @@ RasterScene? debugTakePreparedRasterScene(FastLottieComposition composition) {
 /// across frames without per-frame allocations.
 @visibleForTesting
 class FastLottieSoftwareSession {
+  /// Creates a reusable software raster workspace for the given dimensions.
   FastLottieSoftwareSession(
     FastLottieComposition composition, {
     required this.pixelWidth,
@@ -86,7 +87,10 @@ class FastLottieSoftwareSession {
            : composition._template.fork(),
        _pixelBuffer = NativePixelBuffer(pixelWidth * pixelHeight);
 
+  /// Width of the output buffer in pixels.
   final int pixelWidth;
+
+  /// Height of the output buffer in pixels.
   final int pixelHeight;
   final RasterWorkspace _ws;
   final RasterScene _scene;
@@ -98,19 +102,31 @@ class FastLottieSoftwareSession {
   /// Allocated temporary pixel planes, excluding the output and span buffers.
   int get scratchPixelBytes => _ws.scratchPixelBytes;
 
+  /// Number of fills using device-space path flattening.
   int get fusedFillDraws => _ws.fusedFillDraws;
+
+  /// Number of native coverage calls borrowing geometry buffers.
   int get borrowedCoverageDraws => _ws.borrowedCoverageDraws;
+
+  /// Number of native coverage calls copying geometry into scratch buffers.
   int get copiedCoverageDraws => _ws.copiedCoverageDraws;
+
+  /// Number of solid draws fused into native rasterization.
   int get fusedNativeSolidDraws => _ws.fusedNativeSolidDraws;
+
+  /// Number of mattes composited by a native kernel.
   int get nativeMatteComposites => _ws.nativeMatteComposites;
 
+  /// Borrowed output buffer, valid until the session is disposed.
   Uint32List get pixels => _pixelBuffer.typedList;
 
+  /// Releases the output buffer and raster workspace.
   void dispose() {
     _ws.dispose();
     _pixelBuffer.dispose();
   }
 
+  /// Renders the source frame into [pixels], overwriting the previous result.
   Uint32List renderFrame(double frame) {
     renderSceneSoftware(
       _scene,

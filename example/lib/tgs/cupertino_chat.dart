@@ -472,7 +472,7 @@ class _Palette {
 /// Complete pure-Cupertino chat screen powered by HTTP `.tgs` delivery:
 /// - Auto-starts an embedded local HTTP `.tgs` server (or connects to `--dart-define=TGS_SERVER_URL`).
 /// - Uses [NetworkTgsStore] (bounded HTTP queue + socket abort on scroll + raw `.tgsbin` disk cache
-///   + isolate compile) feeding [FastLottieRasterCache.miniStrip] (or [FastLottieRasterCache.pingPong])
+///   + isolate compile) feeding [FastLottieRasterCache]
 ///   for the 5-column picker & inline emojis.
 /// - Renders sent/received large sticker messages at zero trade-off direct vector quality (`usePipeline: false`,
 ///   [FastLottieCache.unbounded]).
@@ -484,8 +484,7 @@ class CupertinoChatScreen extends StatefulWidget {
     this.store,
     this.isDark = true,
     this.onBrightnessChanged,
-    this.rasterStrategy = FastLottieRasterStrategy.miniStrip,
-    this.stripFrames,
+    this.framesPerStrip,
     this.rasterWorkerCount,
     this.memoryWorkload,
   });
@@ -495,8 +494,7 @@ class CupertinoChatScreen extends StatefulWidget {
   final NetworkTgsStore? store;
   final bool isDark;
   final ValueChanged<bool>? onBrightnessChanged;
-  final FastLottieRasterStrategy rasterStrategy;
-  final int? stripFrames;
+  final int? framesPerStrip;
   final int? rasterWorkerCount;
   final ChatMemoryWorkload? memoryWorkload;
 
@@ -526,51 +524,33 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     deferredPackPlayback: pack != null,
   );
 
-  late FastLottieRasterStrategy _rasterStrategy =
-      widget.memoryWorkload?.strategy ?? widget.rasterStrategy;
-  late FastLottieRasterCache _rasterCache = _createRasterCache(_rasterStrategy);
+  int? get _preferredStripSize =>
+      widget.framesPerStrip ?? (_androidQualityPicker ? 3 : null);
+  late int? _framesPerStrip =
+      widget.memoryWorkload?.framesPerStrip ?? _preferredStripSize;
+  late FastLottieRasterCache _rasterCache = _createRasterCache(_framesPerStrip);
 
-  FastLottieRasterCache _createRasterCache(FastLottieRasterStrategy strategy) =>
-      switch (strategy) {
-        FastLottieRasterStrategy.miniStrip => FastLottieRasterCache.miniStrip(
-          maximumBytes: (_compactChat ? 6 : 48) * 1024 * 1024,
-          maximumInFlight: _compactChat
-              ? 2
-              : _androidQualityPicker
-              ? 16
-              : 8,
-          maximumCompressedMemoryBytes: (_compactChat ? 2 : 16) * 1024 * 1024,
-          maximumDiskBytes: 128 * 1024 * 1024,
-          maximumFrameRate: stickerThumbnailFrameRate,
-          stripFrames: widget.stripFrames ?? (_androidQualityPicker ? 3 : null),
-          progressiveFirstFrame: !_androidQualityPicker,
-          workerCount:
-              widget.rasterWorkerCount ??
-              (_compactChat
-                  ? 1
-                  : _androidQualityPicker
-                  ? 8
-                  : null),
-        ),
-        FastLottieRasterStrategy.pingPong => FastLottieRasterCache.pingPong(
-          maximumBytes: (_compactChat ? 6 : 48) * 1024 * 1024,
-          maximumInFlight: _compactChat
-              ? 2
-              : _androidQualityPicker
-              ? 16
-              : 8,
-          maximumCompressedMemoryBytes: (_compactChat ? 2 : 16) * 1024 * 1024,
-          maximumDiskBytes: 128 * 1024 * 1024,
-          maximumFrameRate: stickerThumbnailFrameRate,
-          workerCount:
-              widget.rasterWorkerCount ??
-              (_compactChat
-                  ? 1
-                  : _androidQualityPicker
-                  ? 8
-                  : null),
-        ),
-      };
+  FastLottieRasterCache _createRasterCache(int? framesPerStrip) =>
+      FastLottieRasterCache(
+        maximumBytes: (_compactChat ? 6 : 48) * 1024 * 1024,
+        maximumInFlight: _compactChat
+            ? 2
+            : _androidQualityPicker
+            ? 16
+            : 8,
+        maximumCompressedMemoryBytes: (_compactChat ? 2 : 16) * 1024 * 1024,
+        maximumDiskBytes: 128 * 1024 * 1024,
+        maximumFrameRate: stickerThumbnailFrameRate,
+        framesPerStrip: framesPerStrip,
+        progressiveFirstFrame: !_androidQualityPicker,
+        workerCount:
+            widget.rasterWorkerCount ??
+            (_compactChat
+                ? 1
+                : _androidQualityPicker
+                ? 8
+                : null),
+      );
 
   final StickerClock _clock = StickerClock();
   final StickerPlaybackBudget _playbackBudget = StickerPlaybackBudget();
@@ -778,8 +758,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       store: _store,
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
-      rasterStrategy: _rasterStrategy,
-      stripFrames: widget.stripFrames ?? (_androidQualityPicker ? 3 : null),
+      framesPerStrip: _framesPerStrip,
       playbackBudget: _playbackBudget,
     )..constrained = _pressure.constrained;
 
@@ -789,8 +768,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       store: _store,
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
-      rasterStrategy: _rasterStrategy,
-      stripFrames: widget.stripFrames ?? (_androidQualityPicker ? 3 : null),
+      framesPerStrip: _framesPerStrip,
       playbackBudget: _playbackBudget,
     )..constrained = _pressure.constrained;
 
@@ -855,7 +833,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       ),
       (
         true,
-        'Grid thumbnails and inline emoji ${sc(':bulb:', 4)} ${sc(':heart_on_fire:', 0)} ${sc(':sparkles:', 0)} use Mini-Strip Ping-Pong RLE + LZ4 `.flcache` at 30 FPS.',
+        'Grid thumbnails and inline emoji ${sc(':bulb:', 4)} ${sc(':heart_on_fire:', 0)} ${sc(':sparkles:', 0)} use double-buffered strip rasterization + LZ4 `.flcache` at 30 FPS.',
       ),
       (
         false,
@@ -1113,31 +1091,31 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     if (oldWidget.isDark != widget.isDark) {
       _isDark = widget.isDark;
     }
-    if (oldWidget.rasterStrategy != widget.rasterStrategy ||
-        oldWidget.stripFrames != widget.stripFrames ||
+    if (oldWidget.framesPerStrip != widget.framesPerStrip ||
         oldWidget.rasterWorkerCount != widget.rasterWorkerCount) {
-      final nextStrategy = widget.rasterStrategy;
+      final nextFrames =
+          widget.framesPerStrip ?? (_androidQualityPicker ? 3 : null);
       final force =
-          oldWidget.stripFrames != widget.stripFrames ||
+          oldWidget.framesPerStrip != widget.framesPerStrip ||
           oldWidget.rasterWorkerCount != widget.rasterWorkerCount;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          unawaited(_setRasterStrategy(nextStrategy, forceRebuild: force));
+          unawaited(_setFramesPerStrip(nextFrames, forceRebuild: force));
         }
       });
     }
   }
 
-  Future<void> _setRasterStrategy(
-    FastLottieRasterStrategy next, {
+  Future<void> _setFramesPerStrip(
+    int? next, {
     bool forceRebuild = false,
   }) async {
     if (!mounted) return;
-    if (!forceRebuild && _rasterStrategy == next) return;
+    if (!forceRebuild && _framesPerStrip == next) return;
     final oldCache = _rasterCache;
     final nextCache = _createRasterCache(next);
     oldCache.enabled = false;
-    _rasterStrategy = next;
+    _framesPerStrip = next;
     _rasterCache = nextCache;
     final cat = _catalog;
     if (cat != null) {
@@ -1285,13 +1263,16 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _emojiSheet?.resumePreparation();
   }
 
-  String get _strategyLabel => switch (_rasterStrategy) {
-    FastLottieRasterStrategy.miniStrip =>
-      widget.stripFrames != null
-          ? 'Mini-Strip (K=${widget.stripFrames})'
-          : 'Mini-Strip (Adaptive K)',
-    FastLottieRasterStrategy.pingPong => 'Ping-Pong (K=1)',
-  };
+  String get _multiFrameActionLabel {
+    final count = _preferredStripSize;
+    return count != null && count > 1
+        ? 'Use $count frames per strip'
+        : 'Use adaptive strips';
+  }
+
+  String get _stripLabel => _framesPerStrip == null
+      ? 'Adaptive strips'
+      : 'Frames per strip: $_framesPerStrip';
 
   Future<void> _showOptionsSheet() async {
     final server = _embeddedServer;
@@ -1301,7 +1282,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         title: const Text('Server & Cache Options'),
         message: Text(
           'Endpoint: ${_catalog?.baseUri ?? '-'}\n'
-          'Cache: $_strategyLabel · IPC: ${_rasterCache.workerDispatches} | '
+          'Cache: $_stripLabel · IPC: ${_rasterCache.workerDispatches} | '
           'GPU: ${(_rasterCache.gpuBytes / (1024 * 1024)).toStringAsFixed(1)} MiB\n'
           'Net DL: ${_store.networkDownloads} | URL Disk Hits: ${_store.diskSourceHits} | '
           'Aborted: ${_store.cancelledFetches}',
@@ -1360,24 +1341,23 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               _syncPlayback();
             },
             child: Text(
-              'Renderer: ${_renderer == ChatRendererMode.fastlottie ? 'FastLottie (Hero Vector + ${_rasterStrategy == FastLottieRasterStrategy.miniStrip ? 'Mini-Strip' : 'PingPong'})' : 'Lottie Reference'}',
+              'Renderer: ${_renderer == ChatRendererMode.fastlottie ? 'FastLottie (Hero Vector + Raster Cache)' : 'Lottie Reference'}',
             ),
           ),
           if (_renderer == ChatRendererMode.fastlottie)
             CupertinoActionSheetAction(
-              key: const ValueKey('toggle-raster-strategy-action'),
+              key: const ValueKey('toggle-strip-size-action'),
               onPressed: () {
-                final next =
-                    _rasterStrategy == FastLottieRasterStrategy.miniStrip
-                    ? FastLottieRasterStrategy.pingPong
-                    : FastLottieRasterStrategy.miniStrip;
+                final next = _framesPerStrip == 1
+                    ? (_preferredStripSize == 1 ? null : _preferredStripSize)
+                    : 1;
                 Navigator.of(ctx).pop();
-                unawaited(_setRasterStrategy(next));
+                unawaited(_setFramesPerStrip(next));
               },
               child: Text(
-                _rasterStrategy == FastLottieRasterStrategy.miniStrip
-                    ? 'Raster Strategy: Mini-Strip (Switch to Ping-Pong K=1)'
-                    : 'Raster Strategy: Ping-Pong K=1 (Switch to Mini-Strip)',
+                _framesPerStrip == 1
+                    ? _multiFrameActionLabel
+                    : 'Use one frame per strip',
               ),
             ),
           CupertinoActionSheetAction(
@@ -1458,11 +1438,11 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
             'URL Disk Cache Hits: ${_store.diskSourceHits}\n'
             'RAM Model Hits: ${_store.hits}\n'
             'Aborted Sockets: ${_store.cancelledFetches}\n'
-            'Strategy: $_strategyLabel\n'
+            'Buffering: $_stripLabel\n'
             'GPU VRAM: ${(_rasterCache.gpuBytes / (1024 * 1024)).toStringAsFixed(2)} MiB '
             '(Resv ${(_rasterCache.reservedBytes / (1024 * 1024)).toStringAsFixed(2)})\n'
             'Worker Dispatches (IPC): ${_rasterCache.workerDispatches}\n'
-            'Strip/Buffer Swaps: ${_rasterCache.pingPongSwaps}\n'
+            'Strip/Buffer Swaps: ${_rasterCache.bufferSwaps}\n'
             'Cache Hits / Misses: ${_rasterCache.hits} / ${_rasterCache.misses}\n'
             'LZ4 .flcache Hits: ${_rasterCache.compressedCacheHits}\n'
             'Vector RLE Frames: ${_rasterCache.vectorRasterizedFrames}',
@@ -2635,7 +2615,7 @@ class _ChatMessageRow extends StatelessWidget {
 }
 
 /// Inline emoji and sticker-grid thumbnail backed by [StickerSheet] +
-/// [FastLottieRasterCache.miniStrip] + [NetworkTgsStore].
+/// [FastLottieRasterCache] + [NetworkTgsStore].
 class InlineNetworkSticker extends StatefulWidget {
   const InlineNetworkSticker({
     super.key,

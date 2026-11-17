@@ -1,5 +1,29 @@
 ## Unreleased
 
+- Add `FastLottie.asset` and `FastLottie.bytes` loading widgets with placeholder,
+  error and retry builders. Share playback configuration and source lifecycle
+  with the network widget; asset loading follows `DefaultAssetBundle`.
+- Report invalid raster settings by parameter name, reject oversized prepared
+  images before allocation, and remove unused frame-index aliases.
+
+- Unify ping-pong and mini-strip configuration as `FastLottieRasterCache` with
+  `framesPerStrip`: null selects adaptive strips, 1 selects single frames, and
+  larger values select fixed strip sizes. Replace the strategy enum and named
+  factories with this setting, and rename `pingPongSwaps` to `bufferSwaps`.
+  Migrate `.pingPong(...)` to `(framesPerStrip: 1, ...)`, `.miniStrip(...)` to
+  `(...)`, and `stripFrames` to `framesPerStrip`. The unnamed constructor now
+  defaults to adaptive strips, matching the widget's existing default pipeline.
+
+- Compare vector cache limits and compile options by value so equivalent widget
+  settings retain their player state.
+- Retain and dispose the FastLottieView repaint notifier with its widget state;
+  reload network compositions when the response byte limit changes.
+
+- Split software rasterization into focused parts and use named payload fields
+  for Dart worker messages while preserving the version 3 browser wire format.
+- Enforce import ordering and unawaited-future checks, with documentation checks
+  on the public library entry points and their parts.
+
 - Cupertino chat is the default Flutter example. It loads stickers and
   animated emoji over HTTP, with a separate asset gallery for benchmarks.
 - Shared raster playback uses double-buffered ping-pong caching, worker

@@ -1,12 +1,12 @@
 part of '../fastlottie.dart';
 
-final class _DefaultPingPongScope {
+final class _DefaultRasterCacheScope {
   static FastLottieRasterCache? _shared;
   static int _refCount = 0;
 
   static FastLottieRasterCache acquire() {
     _refCount++;
-    return _shared ??= FastLottieRasterCache.miniStrip(
+    return _shared ??= FastLottieRasterCache(
       diskCacheDirectory: FastLottieRasterCache.defaultDiskDirectory,
     );
   }
@@ -21,7 +21,16 @@ final class _DefaultPingPongScope {
 }
 
 /// Playback policy supplied by the owning viewport or screen.
-enum FastLottiePlayback { active, prewarm, hidden }
+enum FastLottiePlayback {
+  /// Plays normally according to the widget's controller and playback settings.
+  active,
+
+  /// Prepares and displays a poster frame.
+  prewarm,
+
+  /// Keeps the layout while suspending painting and releasing the cache lease.
+  hidden,
+}
 
 /// Controls descendants without polling layout on every animation tick.
 ///
@@ -30,14 +39,17 @@ enum FastLottiePlayback { active, prewarm, hidden }
 /// detaches animation listeners and releases the widget's cache lease. External
 /// controllers remain owned by their callers and are never stopped by this scope.
 class FastLottiePlaybackScope extends InheritedWidget {
+  /// Supplies a playback policy to descendant [FastLottie] widgets.
   const FastLottiePlaybackScope({
     super.key,
     required this.playback,
     required super.child,
   });
 
+  /// Policy applied to descendants.
   final FastLottiePlayback playback;
 
+  /// Returns the nearest scope policy, defaulting to active playback.
   static FastLottiePlayback of(BuildContext context) =>
       context
           .dependOnInheritedWidgetOfExactType<FastLottiePlaybackScope>()
@@ -49,11 +61,10 @@ class FastLottiePlaybackScope extends InheritedWidget {
       playback != oldWidget.playback;
 }
 
-/// Plays a compiled composition. Animation ticks only repaint the canvas.
-class FastLottie extends StatefulWidget {
-  const FastLottie({
+/// Shared playback and layout configuration for compiled and loading widgets.
+abstract class _FastLottieWidget extends StatefulWidget {
+  const _FastLottieWidget({
     super.key,
-    required this.composition,
     this.controller,
     this.width,
     this.height,
@@ -69,21 +80,83 @@ class FastLottie extends StatefulWidget {
     this.maximumFrameRate,
     this.usePipeline = true,
   });
-  final FastLottieComposition composition;
+
+  /// Optional caller-owned animation supplying progress from zero to one.
   final Animation<double>? controller;
-  final double? width, height;
+
+  /// Requested width in logical pixels, subject to parent constraints.
+  final double? width;
+
+  /// Requested height in logical pixels, subject to parent constraints.
+  final double? height;
+
+  /// How to fit the composition inside the available space.
   final BoxFit fit;
+
+  /// How to align the fitted composition inside the widget.
   final Alignment alignment;
-  final bool repeat, animate, useFrameRate;
+
+  /// Whether internally driven playback loops.
+  final bool repeat;
+
+  /// Whether to start the internal controller automatically.
+  final bool animate;
+
+  /// Whether to sample authored frames; false allows vector subframes.
+  final bool useFrameRate;
+
+  /// Limits for retained vector pictures.
   final FastLottieCache cache;
+
+  /// Optional caller-owned raster cache to use for this widget.
   final FastLottieRasterCache? rasterCache;
+
+  /// Whether the shared raster cache supplies an animation or a poster.
   final FastLottieRasterMode rasterMode;
+
+  /// Overrides the shared cache's raster resolution scale when provided.
   final double? resolutionScale;
+
+  /// Overrides the shared cache's frame rate cap when provided.
   final double? maximumFrameRate;
 
-  /// Enables the shared Telegram-style worker + double-buffered ping-pong pipeline
+  /// Enables the shared worker and double-buffered raster pipeline
   /// when [rasterCache] is omitted and [cache] allows caching.
   final bool usePipeline;
+}
+
+/// Plays a compiled composition. Animation ticks only repaint the canvas.
+class FastLottie extends _FastLottieWidget {
+  /// Creates a widget that plays a compiled composition.
+  const FastLottie({
+    super.key,
+    required this.composition,
+    super.controller,
+    super.width,
+    super.height,
+    super.fit,
+    super.alignment,
+    super.repeat,
+    super.animate,
+    super.useFrameRate,
+    super.cache,
+    super.rasterCache,
+    super.rasterMode,
+    super.resolutionScale,
+    super.maximumFrameRate,
+    super.usePipeline,
+  });
+
+  /// Compiled animation to play.
+  final FastLottieComposition composition;
+
+  /// Loads a declared Flutter asset and plays it with loading/error builders.
+  /// Uses the nearest [DefaultAssetBundle] unless a bundle is supplied.
+  static const asset = FastLottieAsset.new;
+
+  /// Decodes JSON or gzip/TGS bytes and plays the resulting composition.
+  /// Treat the supplied bytes as immutable; pass a new list to change source.
+  static const bytes = FastLottieBytes.new;
 
   /// Loads and plays a remote `.tgs` or Lottie `.json` resource with automatic
   /// in-flight request cancellation on disposal or URI change.
@@ -110,8 +183,7 @@ class FastLottie extends StatefulWidget {
     double? maximumFrameRate,
     bool usePipeline = true,
     WidgetBuilder? placeholderBuilder,
-    Widget Function(BuildContext context, Object error, VoidCallback retry)?
-    errorBuilder,
+    FastLottieErrorBuilder? errorBuilder,
   }) => FastLottieNetwork(
     key: key,
     uri: uri,
@@ -165,20 +237,20 @@ class _FastLottieState extends State<FastLottie>
     if (widget.rasterCache != null) {
       if (_usesDefaultPipeline) {
         _usesDefaultPipeline = false;
-        _DefaultPingPongScope.release();
+        _DefaultRasterCacheScope.release();
       }
       return widget.rasterCache;
     }
     if (widget.usePipeline && widget.cache.maximumFrames > 0) {
       if (!_usesDefaultPipeline) {
         _usesDefaultPipeline = true;
-        return _DefaultPingPongScope.acquire();
+        return _DefaultRasterCacheScope.acquire();
       }
-      return _DefaultPingPongScope._shared;
+      return _DefaultRasterCacheScope._shared;
     }
     if (_usesDefaultPipeline) {
       _usesDefaultPipeline = false;
-      _DefaultPingPongScope.release();
+      _DefaultRasterCacheScope.release();
     }
     return null;
   }
@@ -271,8 +343,8 @@ class _FastLottieState extends State<FastLottie>
         _usesDefaultPipeline = false;
       } else if (wantsDefault) {
         nextRaster = wasUsingDefault
-            ? _DefaultPingPongScope._shared
-            : _DefaultPingPongScope.acquire();
+            ? _DefaultRasterCacheScope._shared
+            : _DefaultRasterCacheScope.acquire();
         _usesDefaultPipeline = true;
       } else {
         nextRaster = null;
@@ -296,7 +368,7 @@ class _FastLottieState extends State<FastLottie>
       );
       previousPlayer.dispose();
       if (wasUsingDefault && !_usesDefaultPipeline) {
-        _DefaultPingPongScope.release();
+        _DefaultRasterCacheScope.release();
       }
       if (oldWidget.composition != widget.composition) {
         _controller.stop();
@@ -316,12 +388,12 @@ class _FastLottieState extends State<FastLottie>
 
   @override
   void dispose() {
-    _repaint.detachListeners();
+    _repaint.dispose();
     _player.dispose();
     _controller.dispose();
     if (_usesDefaultPipeline) {
       _usesDefaultPipeline = false;
-      _DefaultPingPongScope.release();
+      _DefaultRasterCacheScope.release();
     }
     super.dispose();
   }
@@ -361,15 +433,17 @@ class _FastPainter extends CustomPainter {
     this.useFrameRate,
     this.reducedMotion,
     this.devicePixelRatio, {
-    _FrameRepaint? repaint,
-  }) : super(
-         repaint:
-             repaint ??
-             _FrameRepaint(player, animation, useFrameRate, reducedMotion),
-       );
+    required _FrameRepaint repaint,
+  }) : super(repaint: repaint);
+
+  /// Player owned and disposed by the caller.
   final FastLottiePlayer player;
   final Animation<double> animation;
+
+  /// How to fit the composition inside the available space.
   final BoxFit fit;
+
+  /// How to align the fitted composition inside the widget.
   final Alignment alignment;
   final bool useFrameRate, reducedMotion;
   final double devicePixelRatio;
@@ -462,6 +536,12 @@ class _FrameRepaint extends ChangeNotifier {
   }
 
   @override
+  void dispose() {
+    detachListeners();
+    super.dispose();
+  }
+
+  @override
   void addListener(VoidCallback listener) {
     final attach = !hasListeners;
     super.addListener(listener);
@@ -484,7 +564,8 @@ class _FrameRepaint extends ChangeNotifier {
 
 /// Paints a caller-owned player, including a prepared raster cache.
 /// The caller must dispose [player] and own the animation's lifecycle.
-class FastLottieView extends StatelessWidget {
+class FastLottieView extends StatefulWidget {
+  /// Displays an existing player at the supplied progress.
   const FastLottieView({
     super.key,
     required this.player,
@@ -495,197 +576,74 @@ class FastLottieView extends StatelessWidget {
     this.alignment = Alignment.center,
     this.useFrameRate = true,
   });
+
+  /// Player owned and disposed by the caller.
   final FastLottiePlayer player;
+
+  /// Caller-owned animation supplying progress from zero to one.
   final Animation<double> progress;
-  final double? width, height;
+
+  /// Requested width in logical pixels, subject to parent constraints.
+  final double? width;
+
+  /// Requested height in logical pixels, subject to parent constraints.
+  final double? height;
+
+  /// How to fit the composition inside the available space.
   final BoxFit fit;
+
+  /// How to align the fitted composition inside the widget.
   final Alignment alignment;
+
+  /// Whether to sample authored frames; false allows vector subframes.
   final bool useFrameRate;
   @override
-  Widget build(BuildContext context) => RepaintBoundary(
-    child: CustomPaint(
-      size: Size(
-        width ?? player.composition.width,
-        height ?? player.composition.height,
-      ),
-      painter: _FastPainter(
-        player,
-        progress,
-        fit,
-        alignment,
-        useFrameRate,
-        false,
-        MediaQuery.devicePixelRatioOf(context),
-      ),
-    ),
-  );
+  State<FastLottieView> createState() => _FastLottieViewState();
 }
 
-/// Fetches, compiles off-isolate, and plays a remote `.tgs` / Lottie asset.
-/// Cancels any active HTTP request cleanly if unmounted or if [uri] changes.
-class FastLottieNetwork extends StatefulWidget {
-  const FastLottieNetwork({
-    super.key,
-    required this.uri,
-    this.headers,
-    this.options = const FastLottieOptions(),
-    this.sourceCacheDirectory,
-    this.maximumNetworkBytes = 16 * 1024 * 1024,
-    this.loader,
-    this.controller,
-    this.width,
-    this.height,
-    this.fit = BoxFit.contain,
-    this.alignment = Alignment.center,
-    this.repeat = true,
-    this.animate = true,
-    this.useFrameRate = true,
-    this.cache = const FastLottieCache(),
-    this.rasterCache,
-    this.rasterMode = FastLottieRasterMode.animation,
-    this.resolutionScale,
-    this.maximumFrameRate,
-    this.usePipeline = true,
-    this.placeholderBuilder,
-    this.errorBuilder,
-  });
-
-  final Uri uri;
-  final Map<String, String>? headers;
-  final FastLottieOptions options;
-  final String? sourceCacheDirectory;
-  final int maximumNetworkBytes;
-  final FastLottieNetworkByteLoader? loader;
-  final Animation<double>? controller;
-  final double? width, height;
-  final BoxFit fit;
-  final Alignment alignment;
-  final bool repeat, animate, useFrameRate;
-  final FastLottieCache cache;
-  final FastLottieRasterCache? rasterCache;
-  final FastLottieRasterMode rasterMode;
-  final double? resolutionScale;
-  final double? maximumFrameRate;
-  final bool usePipeline;
-  final WidgetBuilder? placeholderBuilder;
-  final Widget Function(BuildContext context, Object error, VoidCallback retry)?
-  errorBuilder;
-
-  @override
-  State<FastLottieNetwork> createState() => _FastLottieNetworkState();
-}
-
-class _FastLottieNetworkState extends State<FastLottieNetwork> {
-  FastLottieCancelToken? _cancelToken;
-  FastLottieComposition? _composition;
-  Object? _error;
-  int _generation = 0;
+class _FastLottieViewState extends State<FastLottieView> {
+  late final _FrameRepaint _repaint;
 
   @override
   void initState() {
     super.initState();
-    _startLoad();
-  }
-
-  @override
-  void didUpdateWidget(FastLottieNetwork oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.uri != widget.uri ||
-        !mapEquals(oldWidget.headers, widget.headers) ||
-        oldWidget.options.useSimd != widget.options.useSimd ||
-        oldWidget.sourceCacheDirectory != widget.sourceCacheDirectory ||
-        oldWidget.loader != widget.loader) {
-      _startLoad();
-    }
-  }
-
-  void _startLoad() {
-    _cancelToken?.cancel();
-    final token = FastLottieCancelToken();
-    _cancelToken = token;
-    final gen = ++_generation;
-    _composition = null;
-    _error = null;
-
-    unawaited(
-      FastLottieComposition.loadNetwork(
-        widget.uri,
-        headers: widget.headers,
-        options: widget.options,
-        cancelToken: token,
-        sourceCacheDirectory: widget.sourceCacheDirectory,
-        maximumBytes: widget.maximumNetworkBytes,
-        loader: widget.loader,
-      ).then<void>(
-        (comp) {
-          if (!mounted || gen != _generation || token.isCancelled) return;
-          setState(() {
-            _composition = comp;
-            _error = null;
-          });
-        },
-        onError: (Object error, StackTrace _) {
-          if (!mounted || gen != _generation || token.isCancelled) return;
-          if (error is FastLottieNetworkCancelledException) return;
-          setState(() {
-            _error = error;
-          });
-        },
-      ),
+    _repaint = _FrameRepaint(
+      widget.player,
+      widget.progress,
+      widget.useFrameRate,
+      false,
     );
   }
 
-  void _retry() {
-    if (!mounted) return;
-    setState(_startLoad);
+  @override
+  void didUpdateWidget(FastLottieView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _repaint.update(widget.player, widget.progress, widget.useFrameRate, false);
   }
 
   @override
   void dispose() {
-    _cancelToken?.cancel();
-    _cancelToken = null;
+    _repaint.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    final comp = _composition;
-    if (comp != null) {
-      return FastLottie(
-        composition: comp,
-        controller: widget.controller,
-        width: widget.width,
-        height: widget.height,
-        fit: widget.fit,
-        alignment: widget.alignment,
-        repeat: widget.repeat,
-        animate: widget.animate,
-        useFrameRate: widget.useFrameRate,
-        cache: widget.cache,
-        rasterCache: widget.rasterCache,
-        rasterMode: widget.rasterMode,
-        resolutionScale: widget.resolutionScale,
-        maximumFrameRate: widget.maximumFrameRate,
-        usePipeline: widget.usePipeline,
-      );
-    }
-    final err = _error;
-    if (err != null) {
-      final errBuilder = widget.errorBuilder;
-      if (errBuilder != null) {
-        return SizedBox(
-          width: widget.width,
-          height: widget.height,
-          child: errBuilder(context, err, _retry),
-        );
-      }
-      return SizedBox(width: widget.width, height: widget.height);
-    }
-    final placeholder = widget.placeholderBuilder;
-    return SizedBox(
-      width: widget.width,
-      height: widget.height,
-      child: placeholder?.call(context),
-    );
-  }
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(
+      size: Size(
+        widget.width ?? widget.player.composition.width,
+        widget.height ?? widget.player.composition.height,
+      ),
+      painter: _FastPainter(
+        widget.player,
+        widget.progress,
+        widget.fit,
+        widget.alignment,
+        widget.useFrameRate,
+        false,
+        MediaQuery.devicePixelRatioOf(context),
+        repaint: _repaint,
+      ),
+    ),
+  );
 }

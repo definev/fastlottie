@@ -1,8 +1,8 @@
 import 'package:fastlottie/fastlottie.dart';
 // ignore: implementation_imports
-import 'package:fastlottie/src/lz4.dart';
-// ignore: implementation_imports
 import 'package:fastlottie/src/bitstream_cache.dart';
+// ignore: implementation_imports
+import 'package:fastlottie/src/lz4.dart';
 // ignore: implementation_imports
 import 'package:fastlottie/src/snapshot_envelope.dart';
 import 'package:flutter/foundation.dart';

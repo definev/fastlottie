@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'dart:js_interop';
 
-import 'package:web/web.dart' as web;
-
 import 'package:fastlottie/src/isolate_stub.dart';
 import 'package:fastlottie/src/raster_core.dart';
 import 'package:fastlottie/src/raster_web_protocol.dart';
 import 'package:fastlottie/src/simd_wasm.dart';
+import 'package:web/web.dart' as web;
 
 @JS('self')
 external web.DedicatedWorkerGlobalScope get _scope;

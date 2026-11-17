@@ -8,7 +8,7 @@ void main() {
   testWidgets(
     'hiding a pending raster consumer releases its lease and can remount',
     (tester) async {
-      final cache = FastLottieRasterCache.miniStrip(
+      final cache = FastLottieRasterCache(
         workerCount: 1,
         maximumInFlight: 1,
         progressiveFirstFrame: true,

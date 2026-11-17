@@ -5,11 +5,11 @@ import 'package:fastlottie/fastlottie.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'compiled_pack.dart';
+import 'store.dart';
 import 'web_support_stub.dart'
     if (dart.library.js_interop) 'web_support.dart'
     as web_support;
-import 'store.dart';
-import 'compiled_pack.dart';
 
 enum _NetStage {
   queuedFetch,

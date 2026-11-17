@@ -11,7 +11,11 @@ void main() {
     tester,
   ) async {
     final comp = FastLottieComposition.fromJson(fixture('icon')..['fr'] = 60);
-    final cache = FastLottieRasterCache(maximumFrameRate: 30, workerCount: 2);
+    final cache = FastLottieRasterCache(
+      framesPerStrip: 1,
+      maximumFrameRate: 30,
+      workerCount: 2,
+    );
     final player = FastLottiePlayer(
       comp,
       rasterCache: cache,
@@ -162,7 +166,7 @@ void main() {
     final c = await tester.runAsync(
       () => FastLottieComposition.fromBytesAsync(bytes(fixture('icon'))),
     );
-    final cache = FastLottieRasterCache(workerCount: 2);
+    final cache = FastLottieRasterCache(framesPerStrip: 1, workerCount: 2);
     final first = FastLottiePlayer(
       c!,
       rasterCache: cache,
@@ -192,7 +196,7 @@ void main() {
       final c = await tester.runAsync(
         () => FastLottieComposition.fromBytesAsync(bytes(fixture('icon'))),
       );
-      final cache = FastLottieRasterCache.miniStrip(workerCount: 2);
+      final cache = FastLottieRasterCache(workerCount: 2);
       final player = FastLottiePlayer(
         c!,
         rasterCache: cache,

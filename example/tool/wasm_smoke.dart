@@ -41,7 +41,7 @@ void _check(bool condition, String message) {
 }
 
 Future<void> _checkWorkerPool(FastLottieComposition composition) async {
-  final cache = FastLottieRasterCache.miniStrip(stripFrames: 2, workerCount: 2);
+  final cache = FastLottieRasterCache(framesPerStrip: 2, workerCount: 2);
   final players = [
     for (var i = 0; i < 8; i++)
       FastLottiePlayer(
@@ -229,7 +229,7 @@ Future<FastLottieComposition> _gradientIcon() async {
 }
 
 Future<void> _checkMiniStrip(FastLottieComposition composition) async {
-  final cache = FastLottieRasterCache.miniStrip(stripFrames: 4, workerCount: 1);
+  final cache = FastLottieRasterCache(framesPerStrip: 4, workerCount: 1);
   final player = FastLottiePlayer(
     composition,
     rasterCache: cache,

@@ -1,18 +1,5 @@
 part of 'raster_core.dart';
 
-const int opConfigure = 0;
-const int opRegisterScene = 1;
-const int opRenderFrame = 2;
-const int opDeleteDisk = 3;
-const int opClearMem = 4;
-const int opRenderStrip = 5;
-
-const int repFrameReady = 0;
-const int repFrameError = 1;
-const int repDeleted = 2;
-const int repSceneMissing = 3;
-const int repStripReady = 4;
-
 // A scene is only needed while a vector miss is in flight. Eight covers the
 // jobs one worker can overlap; a finished entry is dropped once every frame
 // is in the compressed cache.
@@ -113,7 +100,9 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
   void reportMissing(int id, String key) {
     final error = failedScenes[key];
     endpoint.send(
-      error == null ? (repSceneMissing, id, key) : (repFrameError, id, error),
+      error == null
+          ? (repSceneMissing, requestId: id, contentKey: key)
+          : (repFrameError, requestId: id, message: error),
     );
   }
 
@@ -126,16 +115,24 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         pixels.dispose();
         endpoint.close();
         return;
-      case (opConfigure, final String? diskDir, final int ramLimit):
+      case (
+        opConfigure,
+        diskDirectory: final String? diskDir,
+        maximumRamBytes: final int ramLimit,
+      ):
         store.maximumRamBytes = ramLimit;
         store.setDiskDirectory(diskDir);
-      case (opRegisterScene, final String contentKey, final RasterScene scene):
+      case (
+        opRegisterScene,
+        contentKey: final String contentKey,
+        scene: final RasterScene scene,
+      ):
         register(contentKey, scene);
       case (
         opRegisterScene,
-        final String contentKey,
-        final Uint8List bytes,
-        final bool simd,
+        contentKey: final String contentKey,
+        bytes: final Uint8List bytes,
+        useSimd: final bool simd,
       ):
         try {
           final document = jsonDecode(
@@ -153,15 +150,15 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         }
       case (
         opRenderFrame,
-        final int reqId,
-        final String entryKey,
-        final String contentKey,
-        final double frame,
-        final int frameIndex,
-        final int width,
-        final int height,
-        final int totalFrames,
-        final bool poster,
+        requestId: final int reqId,
+        entryKey: final String entryKey,
+        contentKey: final String contentKey,
+        frame: final double frame,
+        frameIndex: final int frameIndex,
+        width: final int width,
+        height: final int height,
+        totalFrames: final int totalFrames,
+        poster: final bool poster,
       ):
         try {
           final pxCount = width * height;
@@ -184,16 +181,16 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             final packed = packBytesForIsolate(dstBytes);
             endpoint.send((
               repFrameReady,
-              reqId,
-              entryKey,
-              packed,
-              false, // vectorRendered
-              -1, // unchanged diskBytes
-              store.ramBytes,
-              0, // renderMicros
-              0, // kernelCalls
-              0, // geometryCopyBytes
-              dstBytes.lengthInBytes,
+              requestId: reqId,
+              entryKey: entryKey,
+              pixels: packed,
+              vectorRendered: false,
+              entryDiskBytes: -1,
+              workerRamBytes: store.ramBytes,
+              renderMicros: 0,
+              kernelCalls: 0,
+              geometryCopyBytes: 0,
+              transferBytes: dstBytes.lengthInBytes,
             ));
             recordPixelUse(pxCount);
             if (!poster) {
@@ -239,35 +236,39 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           final packed = packBytesForIsolate(renderedBytes);
           endpoint.send((
             repFrameReady,
-            reqId,
-            entryKey,
-            packed,
-            true, // vectorRendered
-            stored.entryDiskBytes,
-            store.ramBytes,
-            telemetry.$1,
-            telemetry.$2,
-            telemetry.$3,
-            renderedBytes.lengthInBytes,
+            requestId: reqId,
+            entryKey: entryKey,
+            pixels: packed,
+            vectorRendered: true,
+            entryDiskBytes: stored.entryDiskBytes,
+            workerRamBytes: store.ramBytes,
+            renderMicros: telemetry.$1,
+            kernelCalls: telemetry.$2,
+            geometryCopyBytes: telemetry.$3,
+            transferBytes: renderedBytes.lengthInBytes,
           ));
           recordPixelUse(pxCount);
           releaseSceneIfCached(contentKey, entryKey, totalFrames);
         } catch (error) {
-          endpoint.send((repFrameError, reqId, error.toString()));
+          endpoint.send((
+            repFrameError,
+            requestId: reqId,
+            message: error.toString(),
+          ));
         }
       case (
         opRenderStrip,
-        final int reqId,
-        final String entryKey,
-        final String contentKey,
-        final int stripStart,
-        final int stripCount,
-        final double startFrame,
-        final double frameStep,
-        final int width,
-        final int height,
-        final int totalFrames,
-        final bool poster,
+        requestId: final int reqId,
+        entryKey: final String entryKey,
+        contentKey: final String contentKey,
+        stripStart: final int stripStart,
+        stripCount: final int stripCount,
+        startFrame: final double startFrame,
+        frameStep: final double frameStep,
+        width: final int width,
+        height: final int height,
+        totalFrames: final int totalFrames,
+        poster: final bool poster,
       ):
         try {
           playback
@@ -357,21 +358,21 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           final packed = packBytesForIsolate(pixelBytes(pxCount));
           endpoint.send((
             repStripReady,
-            reqId,
-            entryKey,
-            stripStart,
-            stripCount,
-            packed,
-            vectorRenderedCount,
-            compressedHitCount,
-            latestDiskBytes,
-            store.ramBytes,
-            width,
-            stripHeight,
-            renderMicros,
-            kernelCalls,
-            geometryCopyBytes,
-            pxCount * 4,
+            requestId: reqId,
+            entryKey: entryKey,
+            stripStart: stripStart,
+            stripCount: stripCount,
+            pixels: packed,
+            vectorCount: vectorRenderedCount,
+            compressedCount: compressedHitCount,
+            entryDiskBytes: latestDiskBytes,
+            workerRamBytes: store.ramBytes,
+            stripWidth: width,
+            stripHeight: stripHeight,
+            renderMicros: renderMicros,
+            kernelCalls: kernelCalls,
+            geometryCopyBytes: geometryCopyBytes,
+            transferBytes: pxCount * 4,
           ));
           recordPixelUse(pxCount);
           releaseSceneIfCached(contentKey, entryKey, totalFrames);
@@ -385,12 +386,20 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             );
           }
         } catch (error) {
-          endpoint.send((repFrameError, reqId, error.toString()));
+          endpoint.send((
+            repFrameError,
+            requestId: reqId,
+            message: error.toString(),
+          ));
         }
-      case (opDeleteDisk, final String entryKey):
+      case (opDeleteDisk, entryKey: final String entryKey):
         store.deleteDiskEntry(entryKey);
         store.evictEntryRam(entryKey);
-        endpoint.send((repDeleted, entryKey, store.ramBytes));
+        endpoint.send((
+          repDeleted,
+          entryKey: entryKey,
+          workerRamBytes: store.ramBytes,
+        ));
       case (opClearMem,):
         playback.invalidate();
         store.clearRam();
@@ -405,7 +414,11 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         if (pixels.typedList.length > defaultPixelCap) {
           pixels.reallocate(defaultPixelCap, 0);
         }
-        endpoint.send((repDeleted, '', store.ramBytes));
+        endpoint.send((
+          repDeleted,
+          entryKey: '',
+          workerRamBytes: store.ramBytes,
+        ));
     }
   });
 }

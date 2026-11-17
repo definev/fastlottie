@@ -1,16 +1,16 @@
 /// A deliberately small Lottie renderer with compiled geometry and bounded caches.
 library;
 
-import 'dart:convert';
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'decoding.dart';
@@ -18,11 +18,11 @@ import 'src/bitstream_cache.dart';
 import 'src/isolate_stub.dart' if (dart.library.isolate) 'src/isolate_io.dart';
 import 'src/network_stub.dart' if (dart.library.io) 'src/network_io.dart';
 import 'src/network_types.dart';
-import 'src/platform_stub.dart' if (dart.library.io) 'src/platform_io.dart';
 import 'src/options.dart';
-import 'src/raster_core.dart';
+import 'src/platform_stub.dart' if (dart.library.io) 'src/platform_io.dart';
 import 'src/raster_browser_stub.dart'
     if (dart.library.js_interop) 'src/raster_browser.dart';
+import 'src/raster_core.dart';
 import 'src/simd_stub.dart'
     if (dart.library.ffi) 'src/simd_io.dart'
     if (dart.library.js_interop) 'src/simd_wasm.dart'
@@ -36,11 +36,34 @@ export 'src/simd_stub.dart'
     if (dart.library.js_interop) 'src/simd_web.dart'
     show isSimdSupported, ensureSimdReady;
 
-part 'src/widget.dart';
 part 'src/raster_cache.dart';
-part 'src/worker_pool.dart';
-part 'src/ping_pong.dart';
+part 'src/raster_coordinator.dart';
 part 'src/software_session.dart';
+part 'src/source_widget.dart';
+part 'src/widget.dart';
+part 'src/worker_pool.dart';
+
+void _checkPositiveFinite(num value, String name) {
+  if (!value.isFinite || value <= 0) {
+    throw ArgumentError.value(
+      value,
+      name,
+      'Must be finite and greater than zero',
+    );
+  }
+}
+
+void _checkResolutionScale(double scale) {
+  _checkPositiveFinite(scale, 'resolutionScale');
+  if (scale > 1) {
+    throw RangeError.value(scale, 'resolutionScale', 'Must be at most 1');
+  }
+}
+
+Future<Uint8List> _loadAssetBytes(AssetBundle bundle, String name) async {
+  final data = await bundle.load(name);
+  return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+}
 
 final _jsonBytesCodec = json.fuse(utf8);
 
@@ -62,6 +85,8 @@ class FastLottieComposition {
     this._workerSource,
   );
 
+  /// Compiles an owned copy of a JSON document synchronously.
+  /// On web, also retains encoded source bytes for browser worker compilation.
   factory FastLottieComposition.fromJson(
     Map<String, dynamic> json, {
     FastLottieOptions options = const FastLottieOptions(),
@@ -102,6 +127,8 @@ class FastLottieComposition {
     );
   }
 
+  /// Decodes JSON or gzip/TGS bytes and compiles synchronously.
+  /// Use [fromBytesAsync] to move native compilation off the UI isolate.
   factory FastLottieComposition.fromBytes(
     List<int> bytes, {
     FastLottieOptions options = const FastLottieOptions(),
@@ -124,16 +151,14 @@ class FastLottieComposition {
   }) =>
       compute(_compileLottie, (bytes, options), debugLabel: 'fastlottie.parse');
 
+  /// Loads a declared Flutter asset and compiles it via [fromBytesAsync].
   static Future<FastLottieComposition> loadAsset(
     String name, {
     AssetBundle? bundle,
     FastLottieOptions options = const FastLottieOptions(),
   }) async {
-    final data = await (bundle ?? rootBundle).load(name);
-    return FastLottieComposition.fromBytesAsync(
-      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-      options: options,
-    );
+    final bytes = await _loadAssetBytes(bundle ?? rootBundle, name);
+    return FastLottieComposition.fromBytesAsync(bytes, options: options);
   }
 
   /// Fetches raw bytes (`.tgs` or `.json`) over HTTP/HTTPS or from [sourceCacheDirectory],
@@ -186,7 +211,22 @@ class FastLottieComposition {
     return FastLottieComposition.fromBytesAsync(bytes, options: options);
   }
 
-  final double width, height, startFrame, endFrame, frameRate;
+  /// Authored canvas width.
+  final double width;
+
+  /// Authored canvas height.
+  final double height;
+
+  /// Inclusive first frame of playback.
+  final double startFrame;
+
+  /// Exclusive end frame of playback.
+  final double endFrame;
+
+  /// Authored frames per second.
+  final double frameRate;
+
+  /// Options used when compiling this composition.
   final FastLottieOptions options;
 
   /// Whether every visible value and layer visibility is constant over playback.
@@ -211,11 +251,18 @@ class FastLottieComposition {
   }
 
   @visibleForTesting
+  /// Whether first-player state has already been prepared.
   bool get debugHasPreparedScene => _preparedScene != null;
+
+  /// Authored composition dimensions in logical units.
   Size get size => Size(width, height);
+
+  /// Playback duration of the authored frame interval.
   Duration get duration => Duration(
     microseconds: ((endFrame - startFrame) / frameRate * 1000000).round(),
   );
+
+  /// Number of source frame samples in the authored interval.
   int get frameCount => (endFrame - startFrame).ceil();
 
   RasterScene _takeScene() {
@@ -228,11 +275,14 @@ class FastLottieComposition {
 /// Per-player frame cache limits. Pictures retain vectors, not raster pixels.
 @immutable
 class FastLottieCache {
+  /// Creates per-player vector picture limits.
   const FastLottieCache({
     this.maximumFrames = 120,
     this.maximumCommands = 100000,
   }) : assert(maximumFrames >= 0),
        assert(maximumCommands >= 0);
+
+  /// Disables retention of vector pictures.
   static const none = FastLottieCache(maximumFrames: 0, maximumCommands: 0);
 
   /// Retains every drawn source frame as a resolution-independent [ui.Picture]
@@ -241,17 +291,32 @@ class FastLottieCache {
     maximumFrames: 1 << 20,
     maximumCommands: 1 << 30,
   );
+
+  /// Maximum number of retained vector pictures.
   final int maximumFrames;
 
   /// Scene-complexity budget; this is not a native byte count.
   final int maximumCommands;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FastLottieCache &&
+          other.runtimeType == runtimeType &&
+          other.maximumFrames == maximumFrames &&
+          other.maximumCommands == maximumCommands;
+
+  @override
+  int get hashCode => Object.hash(runtimeType, maximumFrames, maximumCommands);
 }
 
+/// Paints a temporary fallback while a shared raster frame is unavailable.
 typedef FastLottieFallbackPainter = void Function(Canvas canvas, Rect target);
 
 /// Stateful renderer; do not share a player between simultaneous animations.
 /// Call [dispose] when its owner is removed.
 class FastLottiePlayer extends ChangeNotifier {
+  /// Creates independent playback state for [composition].
   FastLottiePlayer(
     this.composition, {
     this.cache = const FastLottieCache(),
@@ -260,26 +325,30 @@ class FastLottiePlayer extends ChangeNotifier {
     this.resolutionScale,
     this.maximumFrameRate,
   }) {
-    if (cache.maximumFrames < 0 || cache.maximumCommands < 0) {
-      throw ArgumentError('Cache limits must be nonnegative');
-    }
-    if (resolutionScale != null &&
-        (!resolutionScale!.isFinite ||
-            resolutionScale! <= 0 ||
-            resolutionScale! > 1)) {
-      throw ArgumentError.value(resolutionScale, 'resolutionScale');
-    }
-    if (maximumFrameRate != null &&
-        (!maximumFrameRate!.isFinite || maximumFrameRate! <= 0)) {
-      throw ArgumentError.value(maximumFrameRate, 'maximumFrameRate');
+    RangeError.checkNotNegative(cache.maximumFrames, 'cache.maximumFrames');
+    RangeError.checkNotNegative(cache.maximumCommands, 'cache.maximumCommands');
+    if (resolutionScale case final scale?) _checkResolutionScale(scale);
+    if (maximumFrameRate case final rate?) {
+      _checkPositiveFinite(rate, 'maximumFrameRate');
     }
   }
 
+  /// Shared compiled model rendered by this player.
   final FastLottieComposition composition;
+
+  /// Limits for this player's vector picture cache.
   final FastLottieCache cache;
+
+  /// Optional caller-owned cache shared with other players.
   final FastLottieRasterCache? rasterCache;
+
+  /// Whether shared raster playback animates or holds its first frame.
   final FastLottieRasterMode rasterMode;
+
+  /// Per-player physical resolution override; null uses the shared cache setting.
   final double? resolutionScale;
+
+  /// Per-player sample rate cap; null uses the shared cache setting.
   final double? maximumFrameRate;
   _RasterEntry? _rasterEntry;
   (Size, int)? _rasterRejectedKey;
@@ -300,6 +369,7 @@ class FastLottiePlayer extends ChangeNotifier {
   RasterScene? _sceneState;
   RasterScene get _scene => _sceneState ??= composition._takeScene();
   @visibleForTesting
+  /// Whether this player has constructed its mutable vector scene.
   bool get debugHasScene => _sceneState != null;
   final _pictures = <double, ui.Picture>{};
   bool _disposed = false;
@@ -323,6 +393,7 @@ class FastLottiePlayer extends ChangeNotifier {
     return null;
   }
 
+  /// Retained raster payload bytes, excluding engine and GPU overhead.
   int get rasterBytes {
     final frames = _rasterFrames;
     if (frames != null) {
@@ -354,27 +425,33 @@ class FastLottiePlayer extends ChangeNotifier {
     int maximumBytes = 32 * 1024 * 1024,
   }) async {
     if (_disposed) throw StateError('FastLottiePlayer has been disposed');
-    if (!width.isFinite ||
-        !height.isFinite ||
-        width <= 0 ||
-        height <= 0 ||
-        !devicePixelRatio.isFinite ||
-        devicePixelRatio <= 0 ||
-        maximumBytes < 0) {
-      throw ArgumentError('Invalid raster dimensions/budget');
-    }
+    _checkPositiveFinite(width, 'width');
+    _checkPositiveFinite(height, 'height');
+    _checkPositiveFinite(devicePixelRatio, 'devicePixelRatio');
+    RangeError.checkNotNegative(maximumBytes, 'maximumBytes');
     final contentSize = Size(
       width * devicePixelRatio,
       height * devicePixelRatio,
     );
-    if (!contentSize.width.isFinite || !contentSize.height.isFinite) {
-      throw ArgumentError('Invalid raster pixel dimensions');
+    if (!contentSize.isFinite || contentSize.isEmpty) {
+      final invalidWidth =
+          !contentSize.width.isFinite || contentSize.width <= 0;
+      throw ArgumentError.value(
+        invalidWidth ? width : height,
+        invalidWidth ? 'width' : 'height',
+        'Must be positive and finite after scaling by devicePixelRatio ($devicePixelRatio)',
+      );
     }
     final pixelWidth = contentSize.width.ceil();
     final pixelHeight = contentSize.height.ceil();
     final count = composition.isStatic ? 1 : composition.frameCount;
-    if (pixelWidth * pixelHeight * 4 * count > maximumBytes) {
-      throw ArgumentError('Raster frames exceed the RGBA memory budget');
+    // Divide before multiplying so an oversized request cannot wrap an int.
+    if (pixelWidth > maximumBytes ~/ 4 ~/ count ~/ pixelHeight) {
+      throw ArgumentError.value(
+        maximumBytes,
+        'maximumBytes',
+        'Too small for $count RGBA frames at $pixelWidth × $pixelHeight pixels',
+      );
     }
     final generation = ++_rasterGeneration;
     final images = <ui.Image>[];
@@ -433,9 +510,16 @@ class FastLottiePlayer extends ChangeNotifier {
     }
   }
 
+  /// Number of retained vector pictures.
   int get cachedFrames => _pictures.length;
+
+  /// Cumulative hits in this player's picture or prepared raster cache.
   int get cacheHits => _hits;
+
+  /// Cumulative vector draws without a retained picture.
   int get cacheMisses => _misses;
+
+  /// Estimated vector command count across retained pictures.
   int get estimatedCachedCommands =>
       _pictures.isEmpty ? 0 : _pictures.length * composition._template.commands;
 
@@ -505,9 +589,7 @@ class FastLottiePlayer extends ChangeNotifier {
       return;
     }
     if (shared != null && useFrameRate) {
-      if (!devicePixelRatio.isFinite || devicePixelRatio <= 0) {
-        throw ArgumentError.value(devicePixelRatio, 'devicePixelRatio');
-      }
+      _checkPositiveFinite(devicePixelRatio, 'devicePixelRatio');
       final scale = resolutionScale ?? shared.resolutionScale;
       final pixels = Size(
         c.width * target.width / source.width * devicePixelRatio * scale,
@@ -580,6 +662,7 @@ class FastLottiePlayer extends ChangeNotifier {
     canvas.restore();
   }
 
+  /// Releases this player's pictures, prepared images and shared cache lease.
   void clearCache() {
     rasterCache?._release(this);
     _rasterRejectedKey = null;

@@ -58,12 +58,12 @@ void main() {
     (tester) async {
       final comp = FastLottieComposition.fromJson(fixture('icon'));
       final cache = FastLottieRasterCache(
+        framesPerStrip: 1,
         maximumBytes: 16 * 16 * 4 * 2 - 1,
         resolutionScale: .5,
         workerCount: 1,
       );
-      expect(cache.strategy, FastLottieRasterStrategy.pingPong);
-      expect(cache.isPingPong, isTrue);
+      expect(cache.framesPerStrip, 1);
       final p = FastLottiePlayer(comp, rasterCache: cache);
       record(p, .5);
       expect(cache.entries, 0);
@@ -80,7 +80,11 @@ void main() {
     'LoD uses size times DPR times fixed scale, preserving timeline and bilinear output',
     (tester) async {
       final comp = FastLottieComposition.fromJson(fixture('icon'));
-      final cache = FastLottieRasterCache(resolutionScale: .5, workerCount: 2);
+      final cache = FastLottieRasterCache(
+        framesPerStrip: 1,
+        resolutionScale: .5,
+        workerCount: 2,
+      );
       final p = FastLottiePlayer(
         comp,
         rasterCache: cache,
@@ -146,6 +150,7 @@ void main() {
       final c = FastLottieComposition.fromJson(fixture('icon'));
       final frameBytes = 32 * 32 * 4;
       final cache = FastLottieRasterCache(
+        framesPerStrip: 1,
         maximumBytes: frameBytes * 3,
         reservedPosterBytes: frameBytes,
         workerCount: 2,
@@ -192,7 +197,7 @@ void main() {
     'cache swaps lookahead in 2 buffers, reuses across players and preserves DPR pixels',
     (tester) async {
       final comp = FastLottieComposition.fromJson(fixture('icon'));
-      final cache = FastLottieRasterCache(workerCount: 2);
+      final cache = FastLottieRasterCache(framesPerStrip: 1, workerCount: 2);
       final a = FastLottiePlayer(
         comp,
         rasterCache: cache,
@@ -223,7 +228,7 @@ void main() {
 
       record(a, 2 / total, size: 64, dpr: 2);
       await drain(tester, cache);
-      expect(cache.pingPongSwaps, greaterThanOrEqualTo(1));
+      expect(cache.bufferSwaps, greaterThanOrEqualTo(1));
       expect(cache.bytes, lessThanOrEqualTo(128 * 128 * 4 * 2));
 
       final before = cache.hits;
@@ -258,7 +263,11 @@ void main() {
       final c = distinctIcon(1);
       final other = distinctIcon(2);
       const weight = 32 * 32 * 4 * 2;
-      final cache = FastLottieRasterCache(maximumBytes: weight, workerCount: 1);
+      final cache = FastLottieRasterCache(
+        framesPerStrip: 1,
+        maximumBytes: weight,
+        workerCount: 1,
+      );
       final a = FastLottiePlayer(c, rasterCache: cache);
       final b = FastLottiePlayer(other, rasterCache: cache);
       addTearDown(() {
@@ -292,7 +301,11 @@ void main() {
     (tester) async {
       final json = fixture('icon')..['fr'] = 60;
       final c = FastLottieComposition.fromJson(json);
-      final cache = FastLottieRasterCache(maximumFrameRate: 24, workerCount: 2);
+      final cache = FastLottieRasterCache(
+        framesPerStrip: 1,
+        maximumFrameRate: 24,
+        workerCount: 2,
+      );
       final p = FastLottiePlayer(
         c,
         rasterCache: cache,
@@ -347,10 +360,7 @@ void main() {
   testWidgets(
     'a busy native worker never receives raster jobs for entries canceled in its queue',
     (tester) async {
-      final cache = FastLottieRasterCache.miniStrip(
-        workerCount: 1,
-        maximumInFlight: 8,
-      );
+      final cache = FastLottieRasterCache(workerCount: 1, maximumInFlight: 8);
       final players = [
         for (var i = 0; i < 4; i++)
           FastLottiePlayer(distinctIcon(i), rasterCache: cache),
@@ -386,6 +396,7 @@ void main() {
     'suspension and disposal cancel queued work, bounded pending queue cannot grow',
     (tester) async {
       final cache = FastLottieRasterCache(
+        framesPerStrip: 1,
         maximumInFlight: 1,
         maximumPendingFrames: 2,
         workerCount: 1,
@@ -424,7 +435,7 @@ void main() {
   testWidgets(
     'completion repaints a static player and disposing during worker work releases images',
     (tester) async {
-      final cache = FastLottieRasterCache(workerCount: 1);
+      final cache = FastLottieRasterCache(framesPerStrip: 1, workerCount: 1);
       final p = FastLottiePlayer(
         FastLottieComposition.fromJson(fixture('static')),
         rasterCache: cache,
@@ -458,6 +469,7 @@ void main() {
       const frameBytes = 32 * 32 * 4;
       const weight = frameBytes * 2;
       final cache = FastLottieRasterCache(
+        framesPerStrip: 1,
         maximumBytes: weight * 2 + frameBytes,
         reservedPosterBytes: frameBytes,
         disposalBatchSize: 1,

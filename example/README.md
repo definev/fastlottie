@@ -59,6 +59,11 @@ the repository root with `dart run tool/build_web_worker.dart`. Pass `--check`
 to verify the bundled script matches the current source and SDK. To measure the
 inline fallback, build with `--dart-define=FASTLOTTIE_DISABLE_WEB_WORKER=true`.
 
+From the repository root, `node tool/test_web_worker.cjs` checks the bundled
+worker's version handshake, frame and strip replies, pixel consistency, and
+cache clearing without a browser. Pass a previous `fastlottie_worker.js` path
+to compare its output pixels with the current bundle.
+
 On the web chat demo, use `?workers=1&strip=4` or `?workers=2&strip=4` to compare
 pool sizes with the same mini-strip length. Without the query parameters,
 FastLottie chooses the worker count and strip length automatically.
@@ -81,7 +86,7 @@ For a connected Android device, run `adb reverse tcp:8787 tcp:8787` before
 launching and pass the same URL. The app reads the server's catalog and fetches
 sticker bytes as needed. The download queue can cancel unused requests, and
 raw TGS bytes and rendered frames use separate disk caches. With fastlottie,
-picker thumbnails and inline emoji share a 30 FPS Mini-Strip Ping-Pong cache by
+picker thumbnails and inline emoji share a 30 FPS double-buffered strip cache by
 default (switchable to single-frame Ping-Pong `K=1` from the options menu);
 large sticker messages use vector rendering.
 

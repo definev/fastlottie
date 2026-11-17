@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 
-import 'benchmark/runner.dart';
 import 'benchmark/frame_sampler.dart';
+import 'benchmark/runner.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

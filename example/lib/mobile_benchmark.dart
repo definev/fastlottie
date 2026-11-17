@@ -39,13 +39,12 @@ Map<String, dynamic> cacheStats(FastLottieRasterCache cache) => {
   'rendered_frames': cache.renderedFrames,
   'vector_rasterized_frames': cache.vectorRasterizedFrames,
   'compressed_cache_hits': cache.compressedCacheHits,
-  'ping_pong_swaps': cache.pingPongSwaps,
+  'ping_pong_swaps': cache.bufferSwaps,
   'worker_dispatches': cache.workerDispatches,
   'pending': cache.pendingFrames,
   'error': cache.lastError?.toString(),
   'resolution_scale': cache.resolutionScale,
-  'strip_frames': cache.stripFrames,
-  'strategy': cache.strategy.name,
+  'strip_frames': cache.framesPerStrip,
 };
 
 Future<Map<String, dynamic>> profile(
@@ -151,9 +150,9 @@ Future<Map<String, dynamic>> benchmark() async {
   };
   final modes = <String, dynamic>{};
   for (final entry in [
-    ('vector', TgsWorkload.full, FastLottieRasterStrategy.miniStrip),
-    ('lod', TgsWorkload.lod, FastLottieRasterStrategy.miniStrip),
-    ('lod_pingpong', TgsWorkload.lod, FastLottieRasterStrategy.pingPong),
+    ('vector', TgsWorkload.full, null),
+    ('lod', TgsWorkload.lod, null),
+    ('lod_pingpong', TgsWorkload.lod, 1),
   ]) {
     final scroll = ScrollController();
     late FastLottieRasterCache cache;
@@ -168,7 +167,7 @@ Future<Map<String, dynamic>> benchmark() async {
             store: store,
             catalog: Future.value(assets),
             initialWorkload: entry.$2,
-            initialStrategy: entry.$3,
+            framesPerStrip: entry.$3,
             scrollController: scroll,
             onRasterCacheCreated: (created) {
               cache = created;

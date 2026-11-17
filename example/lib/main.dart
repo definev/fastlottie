@@ -45,7 +45,7 @@ class _FastLottieCupertinoAppState extends State<FastLottieCupertinoApp> {
       isDark: _isDark,
       memoryWorkload: widget.memoryWorkload,
       rasterWorkerCount: _positiveOption('workers'),
-      stripFrames: _positiveOption('strip'),
+      framesPerStrip: _positiveOption('strip'),
       onBrightnessChanged: (next) => setState(() => _isDark = next),
     ),
   );

@@ -19,6 +19,10 @@ class NativeSpansBuffer {
 class NativePixelBuffer {
   NativePixelBuffer(int count) : typedList = Uint32List(count);
   NativePixelBuffer._view(this.typedList);
+
+  /// Borrowing a native address requires the FFI backend.
+  factory NativePixelBuffer.borrowed(Object address, int count) =>
+      throw UnsupportedError('Borrowed pixels require dart:ffi');
   Uint32List typedList;
 
   NativePixelBuffer slice(int start, int count) => NativePixelBuffer._view(

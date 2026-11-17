@@ -22,7 +22,7 @@ changes the sampling rate.
 ## Progressive first image
 
 ```dart
-final cache = FastLottieRasterCache.miniStrip(
+final cache = FastLottieRasterCache(
   progressiveFirstFrame: false, // Optional: start with a complete strip.
 );
 ```
@@ -78,7 +78,7 @@ flag does not change the web renderer.
 ## Exact duplicate uploads
 
 ```dart
-final cache = FastLottieRasterCache.miniStrip(
+final cache = FastLottieRasterCache(
   maximumDuplicateFrameBytes: 0, // Optional: disable comparison.
 );
 ```

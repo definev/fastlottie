@@ -1,7 +1,8 @@
 # Shared raster cache and LoD
 
-`FastLottieRasterCache.pingPong` retains up to two images per active animation
-entry: the visible frame and a lookahead frame. Static compositions and
+`FastLottieRasterCache` retains up to two images per active animation
+entry: the visible strip and a lookahead strip. `framesPerStrip: null`
+selects an adaptive size; `framesPerStrip: 1` stores one frame per image. Static compositions and
 `FastLottieRasterMode.poster` use a single image. A cold or rejected entry can
 still draw through fastlottie's vector renderer.
 

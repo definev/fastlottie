@@ -172,7 +172,7 @@ Future<Map<String, dynamic>> benchmark() async {
   result['ministrip_tight_2mib'] = await _runRasterCacheStress(
     assets: assets,
     store: store,
-    cache: FastLottieRasterCache.miniStrip(
+    cache: FastLottieRasterCache(
       maximumBytes: 2 * 1024 * 1024,
       maximumFrameRate: 30,
       resolutionScale: 0.5,
@@ -183,7 +183,7 @@ Future<Map<String, dynamic>> benchmark() async {
   result['ministrip_42mib'] = await _runRasterCacheStress(
     assets: assets,
     store: store,
-    cache: FastLottieRasterCache.miniStrip(
+    cache: FastLottieRasterCache(
       maximumBytes: 42 * 1024 * 1024,
       maximumFrameRate: 30,
       resolutionScale: 0.5,
@@ -196,7 +196,8 @@ Future<Map<String, dynamic>> benchmark() async {
   result['pingpong_tight_2mib'] = await _runRasterCacheStress(
     assets: assets,
     store: store,
-    cache: FastLottieRasterCache.pingPong(
+    cache: FastLottieRasterCache(
+      framesPerStrip: 1,
       maximumBytes: 2 * 1024 * 1024,
       maximumFrameRate: 30,
       resolutionScale: 0.5,
@@ -207,7 +208,8 @@ Future<Map<String, dynamic>> benchmark() async {
   result['pingpong_42mib'] = await _runRasterCacheStress(
     assets: assets,
     store: store,
-    cache: FastLottieRasterCache.pingPong(
+    cache: FastLottieRasterCache(
+      framesPerStrip: 1,
       maximumBytes: 42 * 1024 * 1024,
       maximumFrameRate: 30,
       resolutionScale: 0.5,

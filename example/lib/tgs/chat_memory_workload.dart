@@ -35,9 +35,7 @@ class ChatMemoryWorkload {
 
   ChatRendererMode get renderer =>
       mode == 'lottie' ? ChatRendererMode.lottie : ChatRendererMode.fastlottie;
-  FastLottieRasterStrategy get strategy => mode == 'ping-pong'
-      ? FastLottieRasterStrategy.pingPong
-      : FastLottieRasterStrategy.miniStrip;
+  int? get framesPerStrip => mode == 'ping-pong' ? 1 : null;
 
   Future<void> _run(
     _CupertinoChatScreenState state,
@@ -84,7 +82,7 @@ class ChatMemoryWorkload {
         'disk_bytes': cache.diskBytes,
         'cache_entries': cache.entries,
         'worker_dispatches': cache.workerDispatches,
-        'strip_swaps': cache.pingPongSwaps,
+        'strip_swaps': cache.bufferSwaps,
         'raster_error': cache.lastError?.toString(),
         'sticker_errors': state._stickerSheet?.errors.length,
         'emoji_errors': state._emojiSheet?.errors.length,

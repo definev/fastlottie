@@ -26,7 +26,14 @@ part 'fork.dart';
 part 'scene_snapshot.dart';
 part 'gradient.dart';
 part 'path_ops.dart';
-part 'rle_rasterizer.dart';
+part 'raster_workspace.dart';
+part 'raster_geometry.dart';
+part 'scanline_rasterizer.dart';
+part 'swar_blender.dart';
+part 'software_scene.dart';
+part 'path_flattening.dart';
+part 'content_key.dart';
+part 'worker_messages.dart';
 part 'raster_worker.dart';
 
 const _isWeb = bool.fromEnvironment('dart.library.js_interop');

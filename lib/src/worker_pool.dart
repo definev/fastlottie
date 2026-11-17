@@ -166,7 +166,11 @@ final class _RasterWorkerPool {
       _registeredScenes.add(<String>{});
       _workerRamBytes.add(0);
       _subs.add(_listen(shard, handle));
-      handle.send((opConfigure, effectiveDiskDir, perWorkerRam));
+      handle.send((
+        opConfigure,
+        diskDirectory: effectiveDiskDir,
+        maximumRamBytes: perWorkerRam,
+      ));
     }
   }
 
@@ -207,8 +211,8 @@ final class _RasterWorkerPool {
     _updateWorkerRam(shard, 0);
     handle.send((
       opConfigure,
-      null,
-      maximumCompressedMemoryBytes ~/ _handles.length,
+      diskDirectory: null,
+      maximumRamBytes: maximumCompressedMemoryBytes ~/ _handles.length,
     ));
     final interrupted = _pendingRequests.values
         .where((request) => request.shard == shard)
@@ -228,15 +232,15 @@ final class _RasterWorkerPool {
     if (isBrowserRasterWorker(handle)) {
       handle.send((
         opRegisterScene,
-        key,
-        composition._workerSource!,
-        composition.options.useSimd,
+        contentKey: key,
+        bytes: composition._workerSource!,
+        useSimd: composition.options.useSimd,
       ));
     } else {
       handle.send((
         opRegisterScene,
-        key,
-        isIsolatePoolSupported
+        contentKey: key,
+        scene: isIsolatePoolSupported
             ? composition._template
             : composition._template.fork(),
       ));
@@ -252,17 +256,17 @@ final class _RasterWorkerPool {
     if (request.stripCount > 1) {
       handle.send((
         opRenderStrip,
-        request.reqId,
-        request.entryKey,
-        request.contentKey,
-        request.stripStart,
-        request.stripCount,
-        request.startFrame,
-        request.frameStep,
-        request.width,
-        request.height,
-        request.totalFrames,
-        request.poster,
+        requestId: request.reqId,
+        entryKey: request.entryKey,
+        contentKey: request.contentKey,
+        stripStart: request.stripStart,
+        stripCount: request.stripCount,
+        startFrame: request.startFrame,
+        frameStep: request.frameStep,
+        width: request.width,
+        height: request.height,
+        totalFrames: request.totalFrames,
+        poster: request.poster,
       ));
     } else {
       final index = resolveWorkerSourceIndex(
@@ -272,15 +276,15 @@ final class _RasterWorkerPool {
       );
       handle.send((
         opRenderFrame,
-        request.reqId,
-        request.entryKey,
-        request.contentKey,
-        request.startFrame + index,
-        index,
-        request.width,
-        request.height,
-        request.totalFrames,
-        request.poster,
+        requestId: request.reqId,
+        entryKey: request.entryKey,
+        contentKey: request.contentKey,
+        frame: request.startFrame + index,
+        frameIndex: index,
+        width: request.width,
+        height: request.height,
+        totalFrames: request.totalFrames,
+        poster: request.poster,
       ));
     }
   }
@@ -301,7 +305,11 @@ final class _RasterWorkerPool {
       final effective = maximumDiskBytes > 0 ? _diskDir : null;
       final perWorkerRam = maximumCompressedMemoryBytes ~/ _handles.length;
       for (final h in _handles) {
-        h.send((opConfigure, effective, perWorkerRam));
+        h.send((
+          opConfigure,
+          diskDirectory: effective,
+          maximumRamBytes: perWorkerRam,
+        ));
       }
     }
   }
@@ -353,16 +361,16 @@ final class _RasterWorkerPool {
     switch (raw) {
       case (
         repFrameReady,
-        final int reqId,
-        final String entryKey,
-        final Object packed,
-        final bool vectorRendered,
-        final int entryDiskBytes,
-        final int workerRam,
-        final int renderMicros,
-        final int kernelCalls,
-        final int geometryCopyBytes,
-        final int transferBytes,
+        requestId: final int reqId,
+        entryKey: final String entryKey,
+        pixels: final Object packed,
+        vectorRendered: final bool vectorRendered,
+        entryDiskBytes: final int entryDiskBytes,
+        workerRamBytes: final int workerRam,
+        renderMicros: final int renderMicros,
+        kernelCalls: final int kernelCalls,
+        geometryCopyBytes: final int geometryCopyBytes,
+        transferBytes: final int transferBytes,
       ):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
@@ -394,21 +402,21 @@ final class _RasterWorkerPool {
         );
       case (
         repStripReady,
-        final int reqId,
-        final String entryKey,
-        final int stripStart,
-        final int stripCount,
-        final Object packed,
-        final int vectorCount,
-        final int compressedCount,
-        final int entryDiskBytes,
-        final int workerRam,
-        final int stripWidth,
-        final int stripHeight,
-        final int renderMicros,
-        final int kernelCalls,
-        final int geometryCopyBytes,
-        final int transferBytes,
+        requestId: final int reqId,
+        entryKey: final String entryKey,
+        stripStart: final int stripStart,
+        stripCount: final int stripCount,
+        pixels: final Object packed,
+        vectorCount: final int vectorCount,
+        compressedCount: final int compressedCount,
+        entryDiskBytes: final int entryDiskBytes,
+        workerRamBytes: final int workerRam,
+        stripWidth: final int stripWidth,
+        stripHeight: final int stripHeight,
+        renderMicros: final int renderMicros,
+        kernelCalls: final int kernelCalls,
+        geometryCopyBytes: final int geometryCopyBytes,
+        transferBytes: final int transferBytes,
       ):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
@@ -438,11 +446,19 @@ final class _RasterWorkerPool {
           geometryCopyBytes: geometryCopyBytes,
           transferBytes: transferBytes,
         );
-      case (repFrameError, final int reqId, final String message):
+      case (
+        repFrameError,
+        requestId: final int reqId,
+        message: final String message,
+      ):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
         listener.onStripError(pending.entry, StateError(message));
-      case (repSceneMissing, final int reqId, final String contentKey):
+      case (
+        repSceneMissing,
+        requestId: final int reqId,
+        contentKey: final String contentKey,
+      ):
         final pending = _pendingRequests[reqId];
         if (pending == null) return;
         if (pending.retried) {
@@ -455,7 +471,11 @@ final class _RasterWorkerPool {
         }
         pending.retried = true;
         _sendRequest(pending, register: true);
-      case (repDeleted, final String entryKey, final int workerRam):
+      case (
+        repDeleted,
+        entryKey: final String entryKey,
+        workerRamBytes: final int workerRam,
+      ):
         _updateWorkerRam(shard, workerRam);
         if (entryKey.isNotEmpty) {
           _pendingDiskDeletes.remove(entryKey);
@@ -508,7 +528,7 @@ final class _RasterWorkerPool {
     _pendingDiskDeletes.add(entryKey);
     if (_started) {
       final shard = _shardForKey(entryKey, _handles.length);
-      _handles[shard].send((opDeleteDisk, entryKey));
+      _handles[shard].send((opDeleteDisk, entryKey: entryKey));
     } else if (_diskDir != null && isDiskCacheSupported) {
       PlatformDiskFs.deleteFile(joinPath(_diskDir!, '$entryKey.flcache'));
       _pendingDiskDeletes.remove(entryKey);
