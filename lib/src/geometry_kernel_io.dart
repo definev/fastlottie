@@ -44,6 +44,8 @@ external int _flatten(
 
 bool _unavailable = false;
 int nativeBezierCalls = 0, nativeBezierFallbacks = 0;
+int _geometryFfiCalls = 0;
+int get nativeGeometryKernelCalls => _geometryFfiCalls;
 
 /// Returns the new vertex count, -1 for output growth, or -2 for Dart fallback.
 /// The caller owns disjoint input/output, and ignores partial writes on failure.
@@ -74,6 +76,7 @@ int flattenBezierNative(
   final capacity = available - start > 8192 ? start + 8192 : available;
   final (a, b, c, d, tx, ty) = transform ?? (1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
   try {
+    _geometryFfiCalls++;
     final result = _flatten(
       pts.address,
       count,
@@ -200,6 +203,7 @@ int expandStrokeNative(
       .clamp(0, outputEnds.length)
       .clamp(0, nativeStrokeContourLimit * 2);
   try {
+    _geometryFfiCalls++;
     final result = _stroke(
       sourceX.address,
       sourceY.address,

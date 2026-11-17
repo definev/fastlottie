@@ -35,7 +35,10 @@ const _isWeb = bool.fromEnvironment('dart.library.js_interop');
 // algorithm aligned with the Flutter web host, including inline fallback.
 const defaultFuseFillTransforms =
     _isWeb || bool.fromEnvironment('FASTLOTTIE_FUSED_FILL', defaultValue: true);
-const _useNativeBezier = bool.fromEnvironment('FASTLOTTIE_NATIVE_BEZIER');
+const _useNativeBezier = bool.fromEnvironment(
+  'FASTLOTTIE_NATIVE_BEZIER',
+  defaultValue: true,
+);
 
 typedef _SnapshotMetadata = ({
   double width,

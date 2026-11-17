@@ -33,10 +33,27 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
   final lz4 = Lz4Scratch();
   final playback = TilePlaybackCursor();
   final scenes = <String, RasterScene>{};
+  final telemetryClock = Stopwatch()..start();
   const defaultPixelCap = 256 * 256;
   const softPixelCap = 512 * 512;
   final pixels = NativePixelBuffer(defaultPixelCap);
   var smallPixelStreak = 0;
+
+  (int, int, int) frameTelemetry(
+    int startedMicros,
+    ({int calls, int copiedBytes}) beforeNative,
+    int beforeGeometryCalls,
+  ) {
+    final afterNative = readNativeKernelTelemetry();
+    return (
+      telemetryClock.elapsedMicroseconds - startedMicros,
+      afterNative.calls -
+          beforeNative.calls +
+          nativeGeometryKernelCalls -
+          beforeGeometryCalls,
+      afterNative.copiedBytes - beforeNative.copiedBytes,
+    );
+  }
 
   void ensurePixels(int count) {
     if (pixels.typedList.length < count) {
@@ -173,6 +190,10 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
               false, // vectorRendered
               -1, // unchanged diskBytes
               store.ramBytes,
+              0, // renderMicros
+              0, // kernelCalls
+              0, // geometryCopyBytes
+              dstBytes.lengthInBytes,
             ));
             recordPixelUse(pxCount);
             if (!poster) {
@@ -195,7 +216,15 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           scenes[contentKey] = scene;
 
           playback.invalidate();
+          final startedMicros = telemetryClock.elapsedMicroseconds;
+          final beforeNative = readNativeKernelTelemetry();
+          final beforeGeometryCalls = nativeGeometryKernelCalls;
           renderSceneSoftware(scene, frame, pixels, width, height, ws);
+          final telemetry = frameTelemetry(
+            startedMicros,
+            beforeNative,
+            beforeGeometryCalls,
+          );
           final renderedBytes = pixelBytes(pxCount);
           final stored = store.storeFrame(
             entryKey: entryKey,
@@ -216,6 +245,10 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             true, // vectorRendered
             stored.entryDiskBytes,
             store.ramBytes,
+            telemetry.$1,
+            telemetry.$2,
+            telemetry.$3,
+            renderedBytes.lengthInBytes,
           ));
           recordPixelUse(pxCount);
           releaseSceneIfCached(contentKey, entryKey, totalFrames);
@@ -251,6 +284,9 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           var vectorRenderedCount = 0;
           var compressedHitCount = 0;
           var latestDiskBytes = -1;
+          var renderMicros = 0;
+          var kernelCalls = 0;
+          var geometryCopyBytes = 0;
           int? warmPage;
 
           RasterScene? scene;
@@ -289,7 +325,18 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             }
             scenes[contentKey] = scene;
 
+            final startedMicros = telemetryClock.elapsedMicroseconds;
+            final beforeNative = readNativeKernelTelemetry();
+            final beforeGeometryCalls = nativeGeometryKernelCalls;
             renderSceneSoftware(scene, scnFrame, slot, width, height, ws);
+            final telemetry = frameTelemetry(
+              startedMicros,
+              beforeNative,
+              beforeGeometryCalls,
+            );
+            renderMicros += telemetry.$1;
+            kernelCalls += telemetry.$2;
+            geometryCopyBytes += telemetry.$3;
             vectorRenderedCount++;
 
             final stored = store.storeFrame(
@@ -321,6 +368,10 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             store.ramBytes,
             width,
             stripHeight,
+            renderMicros,
+            kernelCalls,
+            geometryCopyBytes,
+            pxCount * 4,
           ));
           recordPixelUse(pxCount);
           releaseSceneIfCached(contentKey, entryKey, totalFrames);

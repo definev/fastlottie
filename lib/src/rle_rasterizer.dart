@@ -12,8 +12,8 @@ class RasterWorkspace {
     bool preferNative = true,
     this.retainCoverage = true,
     this.fuseFillTransforms = defaultFuseFillTransforms,
-    this.borrowGeometry = false,
-    bool nativeStroke = false,
+    this.borrowGeometry = true,
+    bool nativeStroke = true,
   }) : preferNative = preferNative && isSimdSupported,
        _nativeStroke = nativeStroke && preferNative && !_isWeb;
 
@@ -39,6 +39,8 @@ class RasterWorkspace {
   final bool borrowGeometry;
   int borrowedCoverageDraws = 0, copiedCoverageDraws = 0;
   int fusedFillDraws = 0;
+  int fusedNativeSolidDraws = 0;
+  int nativeMatteComposites = 0;
   NativeCoverageWorkspace? _nativeCoverage;
   bool _triedNative = false;
   bool _usedLargeNativeGeometry = false;
@@ -102,6 +104,55 @@ class RasterWorkspace {
     (_scanline ??= _FtScanlineRasterizer(
       initialHeight,
     )).rasterizePolyPath(path, evenOdd, out, x0, y0, x1, y1);
+  }
+
+  bool _rasterizeSolid(
+    _PolyPath path,
+    bool evenOdd,
+    _RleSpans out,
+    int x0,
+    int y0,
+    int x1,
+    int y1,
+    NativePixelBuffer dst,
+    int originX,
+    int originY,
+    int stride,
+    int color,
+  ) {
+    final native = _native;
+    if (native == null || !borrowGeometry || color == 0) return false;
+    final borrowed = native.borrowedDraws;
+    final n = native.rasterSolid(
+      path.vx,
+      path.vy,
+      path.contourStart,
+      path.contourEnd,
+      path.vertexCount,
+      path.contourCount,
+      evenOdd,
+      x0,
+      y0,
+      x1,
+      y1,
+      out._buf,
+      dst,
+      originX,
+      originY,
+      stride,
+      color,
+    );
+    borrowedCoverageDraws += native.borrowedDraws - borrowed;
+    if (n < 0) return false;
+    final bounds = native.bounds;
+    out
+      ..spanCount = n
+      ..minX = bounds[0]
+      ..minY = bounds[1]
+      ..maxX = bounds[2]
+      ..maxY = bounds[3];
+    fusedNativeSolidDraws++;
+    return true;
   }
 
   _RleSpans? _retained(Object owner, _CoverageKey key) {
@@ -279,6 +330,11 @@ class RasterWorkspace {
   final _staticGradientLuts =
       Map<_GradientSpec, _SceneCacheEntry<NativePixelBuffer>>.identity();
   NativePixelBuffer? _scratchGradientLut;
+  NativePixelBuffer? _nativeInverseAlphaLut;
+
+  NativePixelBuffer get _inverseAlphaLut =>
+      _nativeInverseAlphaLut ??= NativePixelBuffer(256)
+        ..typedList.setAll(0, _SwarBlender._invAlphaLut);
 
   void _releaseGradientLuts() {
     for (final lut in _staticGradientLuts.values) {
@@ -327,6 +383,8 @@ class RasterWorkspace {
     resetCaches();
     _scratchGradientLut?.dispose();
     _scratchGradientLut = null;
+    _nativeInverseAlphaLut?.dispose();
+    _nativeInverseAlphaLut = null;
     _nativeCoverage?.release();
     _nativeCoverage = null;
     _rasterSpans?.dispose();
@@ -2538,6 +2596,26 @@ void _renderCompilerInto(
     }
 
     // Composite matte into layerBuf, and blend layerBuf onto dst.
+    if (bm == 0 &&
+        useNative &&
+        nativeCompositeMatte(
+          dst,
+          dstOriginX,
+          dstOriginY,
+          dstStride,
+          layerBufPlane,
+          matteBufPlane,
+          bw,
+          bh,
+          bx0,
+          by0,
+          isDstOut,
+          isLuma,
+          ws._inverseAlphaLut,
+        )) {
+      ws.nativeMatteComposites++;
+      continue;
+    }
     final layerBuf = layerBufPlane.typedList;
     final matteBuf = matteBufPlane.typedList;
     final target = dst.typedList;
@@ -3520,6 +3598,31 @@ void _renderStyleInto(
       if (bounds == null) return;
       final (x0, y0, x1, y1) = bounds;
       final useEvenOdd = !style.stroke && style.evenOdd;
+      final canFuseSolid =
+          clipMask == null &&
+          style.gradient == null &&
+          blendMode == 0 &&
+          useNative;
+      final color = canFuseSolid ? _stylePremul(style, frame, a) : 0;
+      if (canFuseSolid &&
+          ws._rasterizeSolid(
+            ws._workPolyB,
+            useEvenOdd,
+            ws._spans,
+            x0,
+            y0,
+            x1,
+            y1,
+            dst,
+            dstOriginX,
+            dstOriginY,
+            dstStride,
+            color,
+          )) {
+        spans = ws._spans;
+        if (key != null && spans.spanCount > 0) ws._retain(style, key, spans);
+        return;
+      }
       ws._rasterize(ws._workPolyB, useEvenOdd, ws._spans, x0, y0, x1, y1);
       spans = ws._spans;
     }

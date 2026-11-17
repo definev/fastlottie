@@ -70,8 +70,8 @@ class FastLottieSoftwareSession {
     bool preferNative = true,
     bool retainCoverage = true,
     bool fuseFillTransforms = defaultFuseFillTransforms,
-    bool borrowGeometry = false,
-    bool nativeStroke = false,
+    bool borrowGeometry = true,
+    bool nativeStroke = true,
     bool usePreparedScene = false,
   }) : _ws = RasterWorkspace(
          initialHeight: pixelHeight,
@@ -101,6 +101,8 @@ class FastLottieSoftwareSession {
   int get fusedFillDraws => _ws.fusedFillDraws;
   int get borrowedCoverageDraws => _ws.borrowedCoverageDraws;
   int get copiedCoverageDraws => _ws.copiedCoverageDraws;
+  int get fusedNativeSolidDraws => _ws.fusedNativeSolidDraws;
+  int get nativeMatteComposites => _ws.nativeMatteComposites;
 
   Uint32List get pixels => _pixelBuffer.typedList;
 

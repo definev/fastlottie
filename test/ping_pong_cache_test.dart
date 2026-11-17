@@ -71,6 +71,10 @@ void main() {
       _record(player, 0 / total, size: 64);
       await _drainPingPong(tester, cache);
       expect(cache.gpuBytes, 64 * 64 * 4);
+      expect(cache.workerRenderMicros, greaterThan(0));
+      expect(cache.nativeKernelCalls, greaterThan(0));
+      expect(cache.isolateTransferBytes, greaterThanOrEqualTo(64 * 64 * 4));
+      expect(cache.decodeImageP95Micros, greaterThan(0));
 
       _record(player, 1 / total, size: 64);
       await _drainPingPong(tester, cache);

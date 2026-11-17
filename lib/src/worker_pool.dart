@@ -39,6 +39,10 @@ abstract interface class _RasterWorkerListener {
     required bool compressedHit,
     required int compressedCount,
     required int entryDiskBytes,
+    required int renderMicros,
+    required int kernelCalls,
+    required int geometryCopyBytes,
+    required int transferBytes,
   });
 
   void onStripError(_RasterEntry entry, Object error);
@@ -355,6 +359,10 @@ final class _RasterWorkerPool {
         final bool vectorRendered,
         final int entryDiskBytes,
         final int workerRam,
+        final int renderMicros,
+        final int kernelCalls,
+        final int geometryCopyBytes,
+        final int transferBytes,
       ):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
@@ -379,6 +387,10 @@ final class _RasterWorkerPool {
           compressedHit: !vectorRendered,
           compressedCount: vectorRendered ? 0 : 1,
           entryDiskBytes: entryDiskBytes > 0 ? entryDiskBytes : 0,
+          renderMicros: renderMicros,
+          kernelCalls: kernelCalls,
+          geometryCopyBytes: geometryCopyBytes,
+          transferBytes: transferBytes,
         );
       case (
         repStripReady,
@@ -393,6 +405,10 @@ final class _RasterWorkerPool {
         final int workerRam,
         final int stripWidth,
         final int stripHeight,
+        final int renderMicros,
+        final int kernelCalls,
+        final int geometryCopyBytes,
+        final int transferBytes,
       ):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
@@ -417,6 +433,10 @@ final class _RasterWorkerPool {
           compressedHit: compressedCount > 0,
           compressedCount: compressedCount,
           entryDiskBytes: entryDiskBytes > 0 ? entryDiskBytes : 0,
+          renderMicros: renderMicros,
+          kernelCalls: kernelCalls,
+          geometryCopyBytes: geometryCopyBytes,
+          transferBytes: transferBytes,
         );
       case (repFrameError, final int reqId, final String message):
         final pending = _pendingRequests.remove(reqId);

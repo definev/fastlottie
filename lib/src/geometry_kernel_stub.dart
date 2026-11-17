@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 int get nativeBezierCalls => 0;
 int get nativeBezierFallbacks => 0;
+int get nativeGeometryKernelCalls => 0;
 int flattenBezierNative(
   Float32List pts,
   int count,

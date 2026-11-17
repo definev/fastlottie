@@ -30,6 +30,8 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
   // A non-owning image reference: reuse only while it is still a front/back
   // buffer. Independent clone handles let the normal disposal path stay intact.
   final _duplicateFrames = <_RasterEntry, (Uint8List, ui.Image)>{};
+  final _decodeStarts = <_RasterEntry, int>{};
+  final _telemetryClock = Stopwatch()..start();
   int duplicateFrameBytes = 0;
   int skippedImageUploads = 0;
 
@@ -493,7 +495,16 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     required bool compressedHit,
     required int compressedCount,
     required int entryDiskBytes,
+    required int renderMicros,
+    required int kernelCalls,
+    required int geometryCopyBytes,
+    required int transferBytes,
   }) {
+    cache
+      .._workerRenderMicros += renderMicros
+      .._nativeKernelCalls += kernelCalls
+      .._geometryCopyBytes += geometryCopyBytes
+      .._isolateTransferBytes += transferBytes;
     if (_disposed ||
         entry.retired ||
         entry.users.isEmpty ||
@@ -597,6 +608,7 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
         _awaitingImages.add(entry);
         _pumpPending();
       }
+      _decodeStarts[entry] = _telemetryClock.elapsedMicroseconds;
       ui.decodeImageFromPixels(
         bgraBytes,
         stripWidth,
@@ -656,6 +668,12 @@ final class _PingPongCoordinator implements _RasterWorkerListener {
     ui.Image image, {
     Uint8List? duplicateBytes,
   }) {
+    final decodeStartedMicros = _decodeStarts.remove(entry);
+    if (decodeStartedMicros != null) {
+      cache._recordDecodeMicros(
+        _telemetryClock.elapsedMicroseconds - decodeStartedMicros,
+      );
+    }
     if (_disposed ||
         entry.retired ||
         entry.users.isEmpty ||

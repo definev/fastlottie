@@ -138,6 +138,8 @@ extension type _WasmExports(JSObject _) implements JSObject {
 _WasmExports? _kernels;
 bool get isSimdSupported => _kernels != null;
 bool get isNativeGradientSupported => isSimdSupported;
+({int calls, int copiedBytes}) readNativeKernelTelemetry() =>
+    (calls: 0, copiedBytes: 0);
 
 Future<void> initializeWasmKernels(Uint8List bytes) async {
   final result = await _instantiate(bytes.toJS).toDart;
@@ -444,6 +446,24 @@ bool nativeGradientSpans(
   return true;
 }
 
+// The mobile native asset exposes the matte and fused coverage kernels. Web
+// keeps its existing Wasm ABI until the generated worker asset is regenerated.
+bool nativeCompositeMatte(
+  NativePixelBuffer dst,
+  int dstOriginX,
+  int dstOriginY,
+  int dstStride,
+  NativePixelBuffer layer,
+  NativePixelBuffer matte,
+  int width,
+  int height,
+  int boxX,
+  int boxY,
+  bool dstOut,
+  bool luma,
+  NativePixelBuffer inverseAlpha,
+) => false;
+
 class NativeCoverageWorkspace {
   NativeCoverageWorkspace._(this._state);
 
@@ -501,7 +521,7 @@ class NativeCoverageWorkspace {
     int x1,
     int y1,
     NativeSpansBuffer out, {
-    bool borrowGeometry = false,
+    bool borrowGeometry = true,
   }) {
     copiedDraws++;
     final cells = (x1 - x0) * (y1 - y0);
@@ -556,6 +576,26 @@ class NativeCoverageWorkspace {
     }
     return n;
   }
+
+  int rasterSolid(
+    Float64List vx,
+    Float64List vy,
+    Int32List s,
+    Int32List e,
+    int nv,
+    int nc,
+    bool odd,
+    int x0,
+    int y0,
+    int x1,
+    int y1,
+    NativeSpansBuffer out,
+    NativePixelBuffer dst,
+    int originX,
+    int originY,
+    int stride,
+    int color,
+  ) => -2;
 
   void trimIfOversized() {
     const softCells = 256 * 256;

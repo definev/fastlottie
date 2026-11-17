@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 bool get isSimdSupported => false;
 Future<void> ensureSimdReady({bool enableOnDartWasm = false}) async {}
+({int calls, int copiedBytes}) readNativeKernelTelemetry() =>
+    (calls: 0, copiedBytes: 0);
 
 class NativeSpansBuffer {
   NativeSpansBuffer(int count) : typedList = Int32List(count);
@@ -63,6 +65,22 @@ bool nativeBlendSolid(
   int count,
   int color,
   int mode,
+) => false;
+
+bool nativeCompositeMatte(
+  NativePixelBuffer dst,
+  int dstOriginX,
+  int dstOriginY,
+  int dstStride,
+  NativePixelBuffer layer,
+  NativePixelBuffer matte,
+  int width,
+  int height,
+  int boxX,
+  int boxY,
+  bool dstOut,
+  bool luma,
+  NativePixelBuffer inverseAlpha,
 ) => false;
 
 bool get isNativeGradientSupported => false;
@@ -131,7 +149,26 @@ abstract class NativeCoverageWorkspace {
     int x1,
     int y1,
     NativeSpansBuffer out, {
-    bool borrowGeometry = false,
+    bool borrowGeometry = true,
   });
+  int rasterSolid(
+    Float64List vx,
+    Float64List vy,
+    Int32List s,
+    Int32List e,
+    int nv,
+    int nc,
+    bool odd,
+    int x0,
+    int y0,
+    int x1,
+    int y1,
+    NativeSpansBuffer out,
+    NativePixelBuffer dst,
+    int originX,
+    int originY,
+    int stride,
+    int color,
+  ) => -2;
   void dispose();
 }

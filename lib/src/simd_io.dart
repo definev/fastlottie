@@ -4,6 +4,11 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+int _kernelCalls = 0;
+int _geometryCopyBytes = 0;
+({int calls, int copiedBytes}) readNativeKernelTelemetry() =>
+    (calls: _kernelCalls, copiedBytes: _geometryCopyBytes);
+
 typedef _NativeClearPixels = ffi.Void Function(
   ffi.Pointer<ffi.Uint32>,
   ffi.Int32,
@@ -107,6 +112,42 @@ external void _blendSolid(
   int count,
   int color,
   int mode,
+);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Pointer<ffi.Uint32>,
+  )
+>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fastlottie_composite_matte',
+)
+external void _compositeMatte(
+  ffi.Pointer<ffi.Uint32> dst,
+  int dstOriginX,
+  int dstOriginY,
+  int dstStride,
+  ffi.Pointer<ffi.Uint32> layer,
+  ffi.Pointer<ffi.Uint32> matte,
+  int width,
+  int height,
+  int boxX,
+  int boxY,
+  int dstOut,
+  int luma,
+  ffi.Pointer<ffi.Uint32> inverseAlpha,
 );
 
 @ffi.Native<
@@ -236,6 +277,7 @@ bool nativeGradientSpans(
     ex,
     ey,
   );
+  _kernelCalls++;
   return true;
 }
 
@@ -243,6 +285,7 @@ bool nativeGradientSpans(
 bool _hasBlendRect = true;
 bool _hasBlendSolid = true;
 bool _hasInnerShadow = true;
+bool _hasCompositeMatte = true;
 
 @ffi.Native<
   ffi.Void Function(
@@ -325,6 +368,7 @@ bool nativeInnerShadow(
       tint,
       opacity,
     );
+    _kernelCalls++;
     return true;
   } on ArgumentError {
     _hasInnerShadow = false;
@@ -345,6 +389,7 @@ bool nativeBlendRect(
   if (!_hasBlendRect || d == null || s == null) return false;
   try {
     _blendRect(d, offset, stride, s, width, height, mode);
+    _kernelCalls++;
     return true;
   } on ArgumentError {
     _hasBlendRect = false;
@@ -366,9 +411,60 @@ bool nativeBlendSolid(
   if (!_hasBlendSolid || d == null || s == null) return false;
   try {
     _blendSolid(d, originX, originY, stride, s, count, color, mode);
+    _kernelCalls++;
     return true;
   } on ArgumentError {
     _hasBlendSolid = false;
+    return false;
+  }
+}
+
+bool nativeCompositeMatte(
+  NativePixelBuffer dst,
+  int dstOriginX,
+  int dstOriginY,
+  int dstStride,
+  NativePixelBuffer layer,
+  NativePixelBuffer matte,
+  int width,
+  int height,
+  int boxX,
+  int boxY,
+  bool dstOut,
+  bool luma,
+  NativePixelBuffer inverseAlpha,
+) {
+  final d = dst.ptr,
+      target = layer.ptr,
+      mask = matte.ptr,
+      inverse = inverseAlpha.ptr;
+  if (!_hasCompositeMatte ||
+      d == null ||
+      target == null ||
+      mask == null ||
+      inverse == null) {
+    return false;
+  }
+  try {
+    _compositeMatte(
+      d,
+      dstOriginX,
+      dstOriginY,
+      dstStride,
+      target,
+      mask,
+      width,
+      height,
+      boxX,
+      boxY,
+      dstOut ? 1 : 0,
+      luma ? 1 : 0,
+      inverse,
+    );
+    _kernelCalls++;
+    return true;
+  } on ArgumentError {
+    _hasCompositeMatte = false;
     return false;
   }
 }
@@ -542,6 +638,7 @@ class NativePixelBuffer {
 void simdClearPixels(NativePixelBuffer dst, int count) {
   if (dst.ptr != null && _nativeClearPixels != null) {
     _nativeClearPixels!(dst.ptr!, count);
+    _kernelCalls++;
   } else {
     dst.typedList.fillRange(0, count, 0);
   }
@@ -566,6 +663,7 @@ bool simdFillSolidSpans(
       spanCount,
       srcPremul,
     );
+    _kernelCalls++;
     return true;
   }
   return false;
@@ -634,6 +732,57 @@ external int _denseBorrowed(
   ffi.Pointer<ffi.Int32> dst,
   int cap,
   ffi.Pointer<ffi.Int32> bounds,
+);
+
+@ffi.Native<
+  ffi.Int32 Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Int32,
+    ffi.Pointer<ffi.Int32>,
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Uint32,
+  )
+>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fl_dense_raster_solid_borrowed',
+  isLeaf: true,
+)
+external int _denseSolidBorrowed(
+  ffi.Pointer<ffi.Void> state,
+  ffi.Pointer<ffi.Double> x,
+  ffi.Pointer<ffi.Double> y,
+  ffi.Pointer<ffi.Int32> starts,
+  ffi.Pointer<ffi.Int32> ends,
+  int nv,
+  int nc,
+  int x0,
+  int y0,
+  int x1,
+  int y1,
+  int odd,
+  ffi.Pointer<ffi.Int32> spans,
+  int capacity,
+  ffi.Pointer<ffi.Int32> bounds,
+  ffi.Pointer<ffi.Uint32> dst,
+  int originX,
+  int originY,
+  int stride,
+  int color,
 );
 
 @ffi.Native<
@@ -731,7 +880,7 @@ class NativeCoverageWorkspace {
     int x1,
     int y1,
     NativeSpansBuffer out, {
-    bool borrowGeometry = false,
+    bool borrowGeometry = true,
   }) {
     final cells = (x1 - x0) * (y1 - y0);
     if (nv < 2 || nc == 0 || out.ptr == null || cells > 262144) {
@@ -749,6 +898,7 @@ class NativeCoverageWorkspace {
         final words = ((x1 - x0 + 63) ~/ 64) * (y1 - y0);
         final reserved = cells <= _borrowedCells && words <= _borrowedWords;
         if (reserved || _denseReserve(_state, x1 - x0, y1 - y0) != 0) {
+          if (!reserved) _kernelCalls++;
           if (!reserved) {
             if (cells > _borrowedCells) _borrowedCells = cells;
             if (words > _borrowedWords) _borrowedWords = words;
@@ -771,9 +921,11 @@ class NativeCoverageWorkspace {
             _bounds,
           );
           var n = run();
+          _kernelCalls++;
           while (n == -1) {
             out.reallocate(out.typedList.length * 2, 0);
             n = run();
+            _kernelCalls++;
           }
           if (n >= 0) {
             borrowedDraws++;
@@ -811,6 +963,7 @@ class NativeCoverageWorkspace {
     _ys.setRange(0, nv, vy);
     _ss.setRange(0, nc, s);
     _es.setRange(0, nc, e);
+    _geometryCopyBytes += nv * 16 + nc * 8;
     int run() => _denseRaster(
       _state,
       _x,
@@ -828,11 +981,96 @@ class NativeCoverageWorkspace {
       _bounds,
     );
     var n = run();
+    _kernelCalls++;
     while (n == -1) {
       out.reallocate(out.typedList.length * 2, 0);
       n = run();
+      _kernelCalls++;
     }
     return n;
+  }
+
+  int rasterSolid(
+    Float64List vx,
+    Float64List vy,
+    Int32List s,
+    Int32List e,
+    int nv,
+    int nc,
+    bool odd,
+    int x0,
+    int y0,
+    int x1,
+    int y1,
+    NativeSpansBuffer out,
+    NativePixelBuffer dst,
+    int originX,
+    int originY,
+    int stride,
+    int color,
+  ) {
+    final target = dst.ptr;
+    final cells = (x1 - x0) * (y1 - y0);
+    if (_borrowedUnavailable ||
+        target == null ||
+        nv < 2 ||
+        nc == 0 ||
+        out.ptr == null ||
+        cells > 262144 ||
+        nv > 512 ||
+        nc > 64 ||
+        x1 - x0 > 128 ||
+        y1 - y0 > 128 ||
+        nv * (x1 - x0 + y1 - y0 + 4) + cells > 32768) {
+      return -2;
+    }
+    try {
+      final words = ((x1 - x0 + 63) ~/ 64) * (y1 - y0);
+      final reserved = cells <= _borrowedCells && words <= _borrowedWords;
+      if (!reserved && _denseReserve(_state, x1 - x0, y1 - y0) == 0) {
+        _kernelCalls++;
+        return -2;
+      }
+      if (!reserved) _kernelCalls++;
+      if (!reserved) {
+        if (cells > _borrowedCells) _borrowedCells = cells;
+        if (words > _borrowedWords) _borrowedWords = words;
+      }
+      int run() => _denseSolidBorrowed(
+        _state,
+        vx.address,
+        vy.address,
+        s.address,
+        e.address,
+        nv,
+        nc,
+        x0,
+        y0,
+        x1,
+        y1,
+        odd ? 1 : 0,
+        out.ptr!,
+        out.typedList.length ~/ 2,
+        _bounds,
+        target,
+        originX,
+        originY,
+        stride,
+        color,
+      );
+      var n = run();
+      _kernelCalls++;
+      while (n == -1) {
+        out.reallocate(out.typedList.length * 2, 0);
+        n = run();
+        _kernelCalls++;
+      }
+      if (n >= 0) borrowedDraws++;
+      return n;
+    } on ArgumentError {
+      _borrowedUnavailable = true;
+      return -2;
+    }
   }
 
   void trimIfOversized() {

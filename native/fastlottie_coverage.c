@@ -394,6 +394,41 @@ static int32_t fl_dense_run(FLDense *r, const double *x, const double *y,
   return r->n;
 }
 
+static inline uint32_t fl_scale_premul(uint32_t premul, uint32_t factor256) {
+  if (factor256 >= 256) return premul;
+  if (!factor256 || !premul) return 0;
+  uint32_t rb = ((((premul & 0x00FF00FF) * factor256) + 0x00800080) >> 8) & 0x00FF00FF;
+  uint32_t ag = ((((premul >> 8) & 0x00FF00FF) * factor256) + 0x00800080) & 0xFF00FF00;
+  return rb | ag;
+}
+
+static inline uint32_t fl_src_over(uint32_t src, uint32_t dst) {
+  if (!src) return dst;
+  const uint32_t alpha = src >> 24;
+  if (alpha == 255 || !dst) return src;
+  const uint32_t inverse = 255 - alpha;
+  uint32_t rb0 = (dst & 0x00FF00FF) * inverse + 0x00800080;
+  uint32_t rb = ((rb0 + ((rb0 >> 8) & 0x00FF00FF)) >> 8) & 0x00FF00FF;
+  uint32_t ag0 = ((dst >> 8) & 0x00FF00FF) * inverse + 0x00800080;
+  uint32_t ag = (ag0 + ((ag0 >> 8) & 0x00FF00FF)) & 0xFF00FF00;
+  return src + (rb | ag);
+}
+
+static void fl_fill_solid(const int32_t *spans, int32_t count,
+                          uint32_t *dst, int32_t origin_x, int32_t origin_y,
+                          int32_t stride, uint32_t color) {
+  if (!dst || !color) return;
+  for (int32_t i = 0; i < count * 2; i += 2) {
+    const uint32_t xy = (uint32_t)spans[i], run = (uint32_t)spans[i + 1];
+    const uint32_t src = fl_scale_premul(color, (run & 255) + 1);
+    if (!src) continue;
+    const int32_t y = (int32_t)(xy >> 16) - origin_y;
+    const int32_t x = (int32_t)(xy & 65535) - origin_x;
+    uint32_t *row = dst + (int64_t)y * stride + x;
+    for (uint32_t p = 0; p < (run >> 8); ++p) row[p] = fl_src_over(src, row[p]);
+  }
+}
+
 // Negative result: -1 asks the caller to grow the output, -2 falls back to the
 // Dart scanline (unsupported bounds or allocation failure).
 FL_EXPORT int32_t fl_dense_raster(void *state, const double *x, const double *y,
@@ -429,4 +464,31 @@ FL_EXPORT int32_t fl_dense_raster_borrowed(
   }
   return fl_dense_run(r, x, y, start, end, contours,
                       x0, y0, x1, y1, odd, out, cap, bounds);
+}
+
+// Common mobile path: coverage generation and normal solid compositing cross
+// the Dart FFI boundary once. The same bounded contract as the borrowed
+// raster call keeps this leaf-safe and allocation-free.
+FL_EXPORT int32_t fl_dense_raster_solid_borrowed(
+    void *state, const double *x, const double *y,
+    const int32_t *start, const int32_t *end, int32_t vertices, int32_t contours,
+    int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t odd,
+    int32_t *out, int32_t cap, int32_t *bounds, uint32_t *dst,
+    int32_t origin_x, int32_t origin_y, int32_t stride, uint32_t color) {
+  FLDense *r = state;
+  if (!r || !dst || vertices < 2 || vertices > 512 || contours < 1 || contours > 64 ||
+      x0 < 0 || y0 < 0 || x1 > 65535 || y1 > 65535 || x0 >= x1 || y0 >= y1 ||
+      x1 - x0 > 128 || y1 - y0 > 128 || cap < 1 || stride <= 0) return -2;
+  const int w = x1 - x0, h = y1 - y0;
+  if (vertices * (w + h + 4) + w * h > 32768 ||
+      (size_t)w * h > r->cell_cap || (size_t)((w + 63) / 64) * h > r->used_cap) return -2;
+  int previous = 0;
+  for (int i = 0; i < contours; ++i) {
+    if (start[i] < previous || end[i] < start[i] || end[i] > vertices) return -2;
+    previous = end[i];
+  }
+  const int32_t count = fl_dense_run(r, x, y, start, end, contours,
+                                     x0, y0, x1, y1, odd, out, cap, bounds);
+  if (count >= 0) fl_fill_solid(out, count, dst, origin_x, origin_y, stride, color);
+  return count;
 }

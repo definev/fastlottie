@@ -3,7 +3,7 @@ import 'package:fastlottie/src/geometry_kernel_io.dart' as geometry;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show fixture;
-import 'path_ops_test.dart' show animated, constant, scene, stroke;
+import 'path_ops_test.dart' show animated, constant, matteScene, scene, stroke;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -215,4 +215,56 @@ void main() {
     },
     skip: !isSimdSupported,
   );
+
+  test('default native common paths are active and preserve exact pixels', () {
+    final composition = FastLottieComposition.fromJson(fixture('features'));
+    final candidate = FastLottieSoftwareSession(
+      composition,
+      pixelWidth: 112,
+      pixelHeight: 112,
+    );
+    final reference = FastLottieSoftwareSession(
+      composition,
+      pixelWidth: 112,
+      pixelHeight: 112,
+      preferNative: false,
+      retainCoverage: false,
+    );
+    try {
+      for (final frame in [0.0, 14.0, 28.5, 59.0]) {
+        expect(
+          candidate.renderFrame(frame),
+          orderedEquals(reference.renderFrame(frame)),
+        );
+      }
+      expect(candidate.borrowedCoverageDraws, greaterThan(0));
+      expect(candidate.fusedNativeSolidDraws, greaterThan(0));
+    } finally {
+      candidate.dispose();
+      reference.dispose();
+    }
+  }, skip: !isSimdSupported);
+
+  test('default native matte composite preserves exact pixels', () {
+    final composition = FastLottieComposition.fromJson(matteScene(1));
+    final candidate = FastLottieSoftwareSession(
+      composition,
+      pixelWidth: 112,
+      pixelHeight: 112,
+    );
+    final reference = FastLottieSoftwareSession(
+      composition,
+      pixelWidth: 112,
+      pixelHeight: 112,
+      preferNative: false,
+      retainCoverage: false,
+    );
+    try {
+      expect(candidate.renderFrame(0), orderedEquals(reference.renderFrame(0)));
+      expect(candidate.nativeMatteComposites, greaterThan(0));
+    } finally {
+      candidate.dispose();
+      reference.dispose();
+    }
+  }, skip: !isSimdSupported);
 }

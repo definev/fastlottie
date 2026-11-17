@@ -6,7 +6,7 @@ import 'raster_core.dart';
 
 const webWorkerAsset = 'packages/fastlottie/lib/src/wasm/fastlottie_worker.js';
 // Reject cached worker assets that rasterize with the old fill algorithm.
-const webWorkerVersion = 2;
+const webWorkerVersion = 3;
 const workerInit = -1;
 const workerReady = -2;
 const workerFailed = -3;
@@ -118,8 +118,24 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
         final bool rendered,
         final int disk,
         final int ram,
+        final int renderMicros,
+        final int kernelCalls,
+        final int geometryCopyBytes,
+        final int transferBytes,
       ) =>
-        [repFrameReady, id, entry, bytes, rendered, disk, ram],
+        [
+          repFrameReady,
+          id,
+          entry,
+          bytes,
+          rendered,
+          disk,
+          ram,
+          renderMicros,
+          kernelCalls,
+          geometryCopyBytes,
+          transferBytes,
+        ],
       (
         repStripReady,
         final int id,
@@ -133,6 +149,10 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
         final int ram,
         final int width,
         final int height,
+        final int renderMicros,
+        final int kernelCalls,
+        final int geometryCopyBytes,
+        final int transferBytes,
       ) =>
         [
           repStripReady,
@@ -147,6 +167,10 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
           ram,
           width,
           height,
+          renderMicros,
+          kernelCalls,
+          geometryCopyBytes,
+          transferBytes,
         ],
       (repFrameError, final int id, final String error) => [
         repFrameError,
@@ -210,7 +234,19 @@ final class WorkerMessage {
   };
 
   Object decodeReply() => switch (op) {
-    repFrameReady => (repFrameReady, i(1), s(2), bytes(3), b(4), i(5), i(6)),
+    repFrameReady => (
+      repFrameReady,
+      i(1),
+      s(2),
+      bytes(3),
+      b(4),
+      i(5),
+      i(6),
+      i(7),
+      i(8),
+      i(9),
+      i(10),
+    ),
     repStripReady => (
       repStripReady,
       i(1),
@@ -224,6 +260,10 @@ final class WorkerMessage {
       i(9),
       i(10),
       i(11),
+      i(12),
+      i(13),
+      i(14),
+      i(15),
     ),
     repFrameError => (repFrameError, i(1), s(2)),
     repSceneMissing => (repSceneMissing, i(1), s(2)),

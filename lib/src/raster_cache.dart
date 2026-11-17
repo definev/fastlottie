@@ -209,6 +209,11 @@ class FastLottieRasterCache {
 
   int _reserved = 0, _bytes = 0, hits = 0, misses = 0, renderedFrames = 0;
   int _vectorRasterizedFrames = 0, _compressedCacheHits = 0, _pingPongSwaps = 0;
+  int _workerRenderMicros = 0,
+      _nativeKernelCalls = 0,
+      _geometryCopyBytes = 0,
+      _isolateTransferBytes = 0;
+  final _decodeMicros = <int>[];
   int _posterWeight = 0,
       _unpinnedAnimBytes = 0,
       _unpinnedPosterBytes = 0,
@@ -249,6 +254,34 @@ class FastLottieRasterCache {
   int get vectorRasterizedFrames => _vectorRasterizedFrames;
   int get compressedCacheHits => _compressedCacheHits;
   int get pingPongSwaps => _pingPongSwaps;
+
+  /// Cumulative software scene-render time measured inside worker isolates.
+  int get workerRenderMicros => _workerRenderMicros;
+
+  /// Native/Wasm kernel transitions made by vector-rendered frames.
+  int get nativeKernelCalls => _nativeKernelCalls;
+
+  /// Geometry bytes copied into native coverage scratch buffers.
+  int get geometryCopyBytes => _geometryCopyBytes;
+
+  /// BGRA bytes transferred from raster workers to the UI isolate.
+  int get isolateTransferBytes => _isolateTransferBytes;
+
+  /// Rolling p95 latency of the latest 128 `decodeImageFromPixels` uploads.
+  int get decodeImageP95Micros {
+    if (_decodeMicros.isEmpty) return 0;
+    final sorted = List<int>.from(_decodeMicros)..sort();
+    return sorted[((sorted.length * 95 + 99) ~/ 100 - 1).clamp(
+      0,
+      sorted.length - 1,
+    )];
+  }
+
+  void _recordDecodeMicros(int micros) {
+    if (_decodeMicros.length == 128) _decodeMicros.removeAt(0);
+    _decodeMicros.add(micros);
+  }
+
   int get entries => _entries.length;
   int get pendingFrames => _pingPong.pendingCount;
   bool get isPingPong => true;
