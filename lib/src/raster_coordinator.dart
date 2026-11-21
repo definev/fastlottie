@@ -46,9 +46,8 @@ final class _RasterCoordinator implements _RasterWorkerListener {
         cache.maximumDuplicateFrameBytes) {
       _forgetDuplicate(_duplicateFrames.keys.first);
     }
-    final copy = bytes;
-    _duplicateFrames[entry] = (copy, image);
-    duplicateFrameBytes += copy.lengthInBytes;
+    _duplicateFrames[entry] = (bytes, image);
+    duplicateFrameBytes += bytes.lengthInBytes;
   }
 
   int _activeJobs = 0;
@@ -619,10 +618,11 @@ final class _RasterCoordinator implements _RasterWorkerListener {
           stripCount,
           dispatchedGen,
           image,
+          // The worker sends an owned snapshot of its raster buffer, including
+          // on web and inline fallback. Retain that snapshot instead of copying it.
           duplicateBytes:
-              cache.maximumDuplicateFrameBytes > 0 &&
-                  bgraBytes.lengthInBytes <= cache.maximumDuplicateFrameBytes
-              ? Uint8List.fromList(bgraBytes)
+              bgraBytes.lengthInBytes <= cache.maximumDuplicateFrameBytes
+              ? bgraBytes
               : null,
         ),
       );

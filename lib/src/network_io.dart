@@ -98,6 +98,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
   final client = _borrowHttpClient();
   HttpClientRequest? request;
   StreamSubscription<List<int>>? subscription;
+  Completer<Uint8List>? responseBody;
   var aborted = false;
 
   void abort() {
@@ -105,6 +106,10 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     try {
       request?.abort();
     } catch (_) {}
+    final body = responseBody;
+    if (body != null && !body.isCompleted) {
+      body.completeError(const FastLottieNetworkCancelledException());
+    }
     unawaited(subscription?.cancel());
   }
 
@@ -153,7 +158,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
 
     final builder = BytesBuilder(copy: false);
     var total = 0;
-    final done = Completer<Uint8List>();
+    final done = responseBody = Completer<Uint8List>();
     subscription = response.listen(
       (chunk) {
         if (done.isCompleted) return;

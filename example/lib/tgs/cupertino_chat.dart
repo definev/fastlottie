@@ -50,7 +50,7 @@ final _androidQualityPicker =
     !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 final _opaqueChatHeader = const bool.hasEnvironment('CHAT_OPAQUE_HEADER')
     ? const bool.fromEnvironment('CHAT_OPAQUE_HEADER')
-    : _compactChat;
+    : _compactChat || _androidQualityPicker;
 
 enum _DrawerTab { all, pack, emoji }
 

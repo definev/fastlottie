@@ -119,6 +119,52 @@ void main() {
     releaseSlowRequest.complete();
   });
 
+  test(
+    'cancelling after the first response chunk completes the fetch',
+    () async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _PassthroughHttpOverrides();
+      addTearDown(() => HttpOverrides.global = previous);
+
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final firstChunk = Completer<void>();
+      final finish = Completer<void>();
+      addTearDown(() async {
+        finish.complete();
+        await server.close(force: true);
+      });
+      server.listen((request) async {
+        final response = request.response..contentLength = 8193;
+        response.add(List<int>.filled(8192, 0));
+        await response.flush();
+        firstChunk.complete();
+        await finish.future;
+        try {
+          response.add([0]);
+          await response.close();
+        } catch (_) {
+          // The client may have closed the connection during cancellation.
+        }
+      });
+
+      final token = FastLottieCancelToken();
+      final uri = Uri.parse('http://127.0.0.1:${server.port}/emoji.tgs');
+      final fetch = FastLottieComposition.fetchNetworkBytes(
+        uri,
+        cancelToken: token,
+      );
+      final cancelled = expectLater(
+        fetch.timeout(const Duration(seconds: 2)),
+        throwsA(isA<FastLottieNetworkCancelledException>()),
+      );
+      await firstChunk.future;
+      // Give the loopback client time to subscribe to the partial body.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      token.cancel();
+      await cancelled;
+    },
+  );
+
   testWidgets(
     'FastLottie.network displays placeholder, retries failures, cancels on unmount, and plays on load',
     (tester) async {

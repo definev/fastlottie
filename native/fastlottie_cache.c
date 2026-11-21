@@ -8,14 +8,23 @@
 #define FL_EXPORT __attribute__((visibility("default")))
 #endif
 
-#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
+#if defined(__aarch64__) && (defined(__ARM_FEATURE_CRC32) || defined(__ANDROID__))
 #include <arm_acle.h>
 #endif
+#if defined(__aarch64__) && defined(__ANDROID__) && !defined(__ARM_FEATURE_CRC32)
+#include <asm/hwcap.h>
+#include <sys/auxv.h>
+#define FL_RUNTIME_ARM_CRC32 1
+#endif
 
-static uint32_t crc31(const uint8_t *src, size_t count,
-                      const uint32_t *table) {
+#if (defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)) || defined(FL_RUNTIME_ARM_CRC32)
+#if defined(FL_RUNTIME_ARM_CRC32)
+// Android's default arm64 target does not guarantee CRC instructions. Keep
+// them in a separate function and check the kernel's CPU capability first.
+__attribute__((target("crc")))
+#endif
+static uint32_t crc31_arm(const uint8_t *src, size_t count) {
     uint32_t crc = UINT32_MAX;
-#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
     while (count >= 8) {
         uint64_t value;
         memcpy(&value, src, sizeof value);
@@ -23,9 +32,26 @@ static uint32_t crc31(const uint8_t *src, size_t count,
         src += 8;
         count -= 8;
     }
+    while (count--) crc = __crc32b(crc, *src++);
+    return (crc ^ UINT32_MAX) & 0x7fffffffu;
+}
 #endif
+
+static uint32_t crc31(const uint8_t *src, size_t count,
+                      const uint32_t *table) {
+#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
+    (void)table;
+    return crc31_arm(src, count);
+#else
+#if defined(FL_RUNTIME_ARM_CRC32)
+    if (count >= 8 && (getauxval(AT_HWCAP) & HWCAP_CRC32)) {
+        return crc31_arm(src, count);
+    }
+#endif
+    uint32_t crc = UINT32_MAX;
     while (count--) crc = table[(crc ^ *src++) & 255u] ^ (crc >> 8);
     return (crc ^ UINT32_MAX) & 0x7fffffffu;
+#endif
 }
 
 static uint32_t read32le(const uint8_t *src) {
