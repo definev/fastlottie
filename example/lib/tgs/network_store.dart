@@ -5,7 +5,6 @@ import 'package:fastlottie/fastlottie.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 
-import 'compiled_pack.dart';
 import 'store.dart';
 import 'web_support_stub.dart'
     if (dart.library.js_interop) 'web_support.dart'
@@ -71,9 +70,6 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
     this.sourceCacheDirectory,
     this.modelCacheObserver,
     this.maximumCompiledBytes = 0,
-    this.compiledPack,
-    this.directPackPlayback = false,
-    this.deferredPackPlayback = false,
     NetworkUrlByteFetcher? fetcher,
     TgsDecoder? decoder,
     TgsBatchDecoder? batchDecoder,
@@ -90,13 +86,6 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
         maximumCompiledBytes < 0 ||
         (maximumCompiledBytes > 0 &&
             (decoder != null || batchDecoder != null || kIsWeb)) ||
-        (compiledPack != null &&
-            (maximumCompiledBytes > 0 ||
-                decoder != null ||
-                batchDecoder != null ||
-                kIsWeb)) ||
-        (directPackPlayback && compiledPack == null) ||
-        (deferredPackPlayback && !directPackPlayback) ||
         (decoder != null && batchDecoder != null)) {
       throw ArgumentError('Invalid NetworkTgsStore configuration');
     }
@@ -132,8 +121,6 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
   final int maximumEntries;
   final int maximumSourceBytes;
   final int maximumCompiledBytes;
-  final CompiledModelPack? compiledPack;
-  final bool directPackPlayback, deferredPackPlayback;
   final bool framePaced;
   final ModelCacheObserver? modelCacheObserver;
   String? sourceCacheDirectory;
@@ -210,8 +197,6 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
   int downloadedBytes = 0;
   int decodes = 0;
   int decodedModels = 0, inflateUs = 0, compileUs = 0, prepareUs = 0;
-  int packHits = 0, packFallbacks = 0, packReadBytes = 0, packReadUs = 0;
-  int directPlaybackModels = 0, deferredPlaybackModels = 0;
   int fetchErrors = 0;
 
   int get cached => _cached;
@@ -450,18 +435,7 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
       final sourceBytes = maximumCompiledBytes == 0
           ? null
           : [for (final entry in live) entry.bytes!];
-      final results = compiledPack != null
-          ? await decodeTgsPackedBatch([
-              for (final entry in live)
-                (
-                  entry.bytes!,
-                  entry.reference,
-                  compiledPack!.lookup(entry.url),
-                  directPackPlayback,
-                  deferredPackPlayback,
-                ),
-            ])
-          : maximumCompiledBytes == 0
+      final results = maximumCompiledBytes == 0
           ? await _decodeBatch([
               for (final entry in live) (entry.bytes!, entry.reference),
             ])
@@ -476,19 +450,13 @@ class NetworkTgsStore extends ChangeNotifier implements TgsStoreBase {
         final entry = live[i];
         final result = results[i];
         entry.bytes = null;
-        packReadBytes += result.packReadBytes;
-        packReadUs += result.packReadUs;
         if (_disposed) {
           _fail(entry, const TgsLoadCancelled());
         } else if (result.error != null) {
           _fail(entry, result.error!, result.stackTrace);
         } else {
           final model = result.model!;
-          if (model.directPlayback) directPlaybackModels++;
-          if (model.deferredPlayback) deferredPlaybackModels++;
           if (result.snapshotHit) snapshotHits++;
-          if (result.packHit) packHits++;
-          if (result.packFallback) packFallbacks++;
           if (result.compiledSnapshot case final snapshot?) {
             snapshotEncodes++;
             snapshotEncodeUs += result.snapshotEncodeUs;

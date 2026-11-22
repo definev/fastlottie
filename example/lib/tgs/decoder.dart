@@ -1,14 +1,10 @@
 import 'package:fastlottie/fastlottie.dart';
 // ignore: implementation_imports
-import 'package:fastlottie/src/bitstream_cache.dart';
-// ignore: implementation_imports
 import 'package:fastlottie/src/lz4.dart';
 // ignore: implementation_imports
 import 'package:fastlottie/src/snapshot_envelope.dart';
 import 'package:flutter/foundation.dart';
 import 'package:lottie/lottie.dart';
-
-import 'compiled_pack.dart';
 
 class TgsModel {
   TgsModel({
@@ -18,13 +14,10 @@ class TgsModel {
     required this.inflateUs,
     required this.parseUs,
     this.prepareUs = 0,
-    this.directPlayback = false,
-    this.deferredPlayback = false,
   });
   final FastLottieComposition? fast;
   final LottieComposition? reference;
   final int sourceBytes, inflateUs, parseUs, prepareUs;
-  final bool directPlayback, deferredPlayback;
   double get frameRate => fast?.frameRate ?? reference!.frameRate;
   double get frames => fast != null
       ? fast!.endFrame - fast!.startFrame
@@ -72,10 +65,6 @@ class TgsDecodeResult {
     this.compiledSnapshot,
     this.snapshotHit = false,
     this.snapshotEncodeUs = 0,
-    this.packHit = false,
-    this.packReadBytes = 0,
-    this.packReadUs = 0,
-    this.packFallback = false,
   }) : model = value,
        error = null,
        stackTrace = null;
@@ -85,19 +74,13 @@ class TgsDecodeResult {
       stackTrace = stack,
       compiledSnapshot = null,
       snapshotHit = false,
-      snapshotEncodeUs = 0,
-      packHit = false,
-      packReadBytes = 0,
-      packReadUs = 0,
-      packFallback = false;
+      snapshotEncodeUs = 0;
   final TgsModel? model;
   final Object? error;
   final StackTrace? stackTrace;
   final Uint8List? compiledSnapshot;
   final bool snapshotHit;
   final int snapshotEncodeUs;
-  final bool packHit, packFallback;
-  final int packReadBytes, packReadUs;
 }
 
 typedef TgsBatchDecoder = Future<List<TgsDecodeResult>> Function(
@@ -123,21 +106,11 @@ Future<List<TgsDecodeResult>> decodeTgsBatch(List<TgsDecodeRequest> requests) =>
 
 typedef TgsSnapshotRequest = (Uint8List, bool, Uint8List?);
 
-TgsDecodeResult? _tryRestoreSnapshot(
-  Uint8List snapshot,
-  Stopwatch sw, {
-  bool packHit = false,
-  int readBytes = 0,
-  int readUs = 0,
-  bool directPlayback = false,
-  bool deferredPlayback = false,
-}) {
+TgsDecodeResult? _tryRestoreSnapshot(Uint8List snapshot, Stopwatch sw) {
   try {
     // ignore: invalid_use_of_visible_for_testing_member
     final decoded = debugDecodeCompiledComposition(
       unpackCompiledSnapshot(snapshot),
-      directPlayback: directPlayback,
-      deferPlayback: deferredPlayback,
     );
     final restoreUs = sw.elapsedMicroseconds;
     decoded.composition.prepareForPlayback();
@@ -149,13 +122,8 @@ TgsDecodeResult? _tryRestoreSnapshot(
         inflateUs: 0,
         parseUs: totalUs,
         prepareUs: totalUs - restoreUs,
-        directPlayback: directPlayback,
-        deferredPlayback: deferredPlayback,
       ),
-      snapshotHit: !packHit,
-      packHit: packHit,
-      packReadBytes: readBytes,
-      packReadUs: readUs,
+      snapshotHit: true,
     );
   } on FormatException {
     // The snapshot is an optimization; the original TGS is still available.
@@ -209,61 +177,3 @@ Future<List<TgsDecodeResult>> decodeTgsSnapshotBatch(
   requests,
   debugLabel: 'tgs.restore-or-compile',
 );
-
-typedef TgsPackRequest = (Uint8List, bool, PackedModelRef?, bool, bool);
-
-List<TgsDecodeResult> _parsePackedBatch(List<TgsPackRequest> requests) {
-  final reader = CompiledPackReader();
-  try {
-    return [
-      for (final request in requests)
-        (() {
-          final source = request.$1;
-          if (request.$2) return _parseOne((source, true));
-          final entry = request.$3;
-          var readBytes = 0, readUs = 0;
-          if (entry != null) {
-            final sw = Stopwatch()..start();
-            if (entry.sourceLength == source.length &&
-                BitstreamStore.crc31(source, 0, source.length) ==
-                    entry.sourceCrc) {
-              final payload = reader.read(entry);
-              readUs = sw.elapsedMicroseconds;
-              if (payload != null) {
-                readBytes = payload.length;
-                if (BitstreamStore.crc31(payload, 0, payload.length) ==
-                    entry.payloadCrc) {
-                  final restored = _tryRestoreSnapshot(
-                    payload,
-                    sw,
-                    packHit: true,
-                    readBytes: readBytes,
-                    readUs: readUs,
-                    directPlayback: request.$4,
-                    deferredPlayback: request.$5,
-                  );
-                  if (restored != null) return restored;
-                }
-              }
-            }
-          }
-          final fallback = _parseOne((source, false));
-          if (fallback.model case final model?) {
-            return TgsDecodeResult.success(
-              model,
-              packFallback: true,
-              packReadBytes: readBytes,
-              packReadUs: readUs,
-            );
-          }
-          return fallback;
-        })(),
-    ];
-  } finally {
-    reader.close();
-  }
-}
-
-Future<List<TgsDecodeResult>> decodeTgsPackedBatch(
-  List<TgsPackRequest> requests,
-) => compute(_parsePackedBatch, requests, debugLabel: 'tgs.compiled-pack');

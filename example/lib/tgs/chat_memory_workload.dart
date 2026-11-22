@@ -15,9 +15,6 @@ class ChatMemoryWorkload {
     this.modelCacheEntries,
     this.modelCacheObserver,
     this.compiledCacheBytes = 0,
-    this.compiledPack,
-    this.directPackPlayback = false,
-    this.deferredPackPlayback = false,
   });
 
   final String mode, rasterCachePath, urlCachePath;
@@ -27,8 +24,6 @@ class ChatMemoryWorkload {
   final Future<void> Function(bool active)? onScroll;
   final int? modelCacheEntries;
   final int compiledCacheBytes;
-  final CompiledModelPack? compiledPack;
-  final bool directPackPlayback, deferredPackPlayback;
   final ModelCacheObserver? modelCacheObserver;
   Map<String, Object?> Function()? snapshot;
   Map<String, int> Function()? modelCounters;
@@ -99,12 +94,6 @@ class ChatMemoryWorkload {
         'snapshot_encodes': store.snapshotEncodes,
         'snapshot_encode_us': store.snapshotEncodeUs,
         'snapshot_evictions': store.snapshotEvictions,
-        'pack_hits': store.packHits,
-        'direct_playback_models': store.directPlaybackModels,
-        'deferred_playback_models': store.deferredPlaybackModels,
-        'pack_fallbacks': store.packFallbacks,
-        'pack_read_bytes': store.packReadBytes,
-        'pack_read_us': store.packReadUs,
         'source_bytes': store.sourceBytes,
         'network_downloads': store.networkDownloads,
         'disk_source_hits': store.diskSourceHits,
@@ -128,11 +117,6 @@ class ChatMemoryWorkload {
       'snapshot_hits': state._store.snapshotHits,
       'snapshot_encodes': state._store.snapshotEncodes,
       'snapshot_encode_us': state._store.snapshotEncodeUs,
-      'pack_hits': state._store.packHits,
-      'direct_playback_models': state._store.directPlaybackModels,
-      'pack_fallbacks': state._store.packFallbacks,
-      'pack_read_bytes': state._store.packReadBytes,
-      'pack_read_us': state._store.packReadUs,
     };
     Future<void> mark(String phase) async {
       await Future<void>.delayed(const Duration(seconds: 3));

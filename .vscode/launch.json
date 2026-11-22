@@ -20,6 +20,15 @@
                 "--wasm"
             ]
         },
+                {
+            "name": "example (native) (dev)",
+            "cwd": "example",
+            "request": "launch",
+            "type": "dart",
+            "args": [
+                "--dart-define=TGS_SERVER_URL=http://localhost:8787"
+            ]
+        },
         {
             "name": "example (native)",
             "cwd": "example",
@@ -27,7 +36,7 @@
             "type": "dart",
             "flutterMode": "release",
             "args": [
-                "--dart-define=TGS_SERVER_URL=http://127.0.0.1:8787"
+                "--dart-define=TGS_SERVER_URL=http://localhost:8787"
             ]
         }
     ]
