@@ -8,7 +8,7 @@ import 'tgs/cupertino_chat.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await ensureSimdReady();
+  await ensureSimdReady(enableOnDartWasm: true);
   runApp(const FastLottieCupertinoApp());
 }
 
