@@ -5,6 +5,8 @@ import 'package:fastlottie/fastlottie.dart';
 import 'package:flutter/foundation.dart';
 
 import 'clock.dart';
+import 'emoji_posters.dart';
+import 'network_server_types.dart';
 import 'store.dart';
 
 // Spatial and temporal quality caps for inline emojis and 5-column picker cells.
@@ -80,6 +82,7 @@ class StickerSheet extends ChangeNotifier {
     this.maximumBytes = stickerSheetBytes,
     this.frameRate = stickerThumbnailFrameRate,
     this.framesPerStrip,
+    this.posterCache,
     StickerPlaybackBudget? playbackBudget,
   }) : store =
            store ??
@@ -103,6 +106,7 @@ class StickerSheet extends ChangeNotifier {
   final int pixelSize, maximumBytes;
   final double frameRate;
   final int? framesPerStrip;
+  final PackPosterCache? posterCache;
   final TgsStoreBase store;
   final bool _ownsStore;
   final FastLottieRasterCache rasterCache;
@@ -227,8 +231,13 @@ class StickerSheet extends ChangeNotifier {
       .listenableWith(clock);
 
   /// Returns the phased, density-budgeted timeline position for one thumbnail.
-  double progressFor(String asset, StickerClock clock, {bool still = false}) {
-    if (still) return 0;
+  double progressFor(
+    String asset,
+    StickerClock clock, {
+    bool still = false,
+    PackPoster? poster,
+  }) {
+    if (still) return poster?.progress ?? 0;
     final entry = _entries[asset];
     final player = entry?.player;
     if (entry == null || player == null) return 0;
@@ -237,12 +246,24 @@ class StickerSheet extends ChangeNotifier {
     if (c.isStatic || span <= 0) return 0;
     final rate = math.min(c.frameRate, entry.playbackRate);
     final sourceStep = math.max(1.0, c.frameRate / rate);
-    final phaseFrames = entry.phaseSample * sourceStep;
-    final frame =
-        (((clock.microseconds + 1) / 1000000 * c.frameRate + phaseFrames) %
-                span)
-            .clamp(0.0, span > 1 ? span - 1 : 0.0)
-            .toDouble();
+    final now = clock.microseconds;
+    final double phaseFrames;
+    final int elapsed;
+    if (poster == null) {
+      phaseFrames = entry.phaseSample * sourceStep;
+      elapsed = now;
+    } else {
+      if (entry.playbackStart == null && player.rasterBytes == 0) {
+        return poster.progress;
+      }
+      // Hold the poster's sample until the shared player has a raster image.
+      entry.playbackStart ??= now;
+      phaseFrames = poster.progress * span;
+      elapsed = now - entry.playbackStart!;
+    }
+    final frame = (((elapsed + 1) / 1000000 * c.frameRate + phaseFrames) % span)
+        .clamp(0.0, span > 1 ? span - 1 : 0.0)
+        .toDouble();
     return frame / span;
   }
 
@@ -417,6 +438,7 @@ final class _SheetAsset {
   int pins = 0;
   double playbackRate;
   int phaseSample;
+  int? playbackStart;
   bool disposed = false;
 
   void configurePlayback(double rate, int phase) {
@@ -447,6 +469,7 @@ final class _SheetAsset {
     final p = player;
     if (p == null) return;
     player = null;
+    playbackStart = null;
     p.removeListener(_onPlayerFrame);
     p.dispose();
   }

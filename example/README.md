@@ -24,6 +24,17 @@ Chrome loads TGS files directly from the bundled Flutter assets. Native targets
 start an embedded HTTP server. Use `flutter run --profile -d <device-id>` on a
 connected phone to check frame timings.
 
+The chat and picker display a pre-rendered custom PNG while FastLottie
+prepares playback. The same pack contract works with built-in assets and
+the Dart pack server. Regenerate manifests and posters from the repository
+root after changing bundled TGS files or the rasterizer.
+
+```sh
+flutter test --no-pub tool/build_emoji_posters.dart
+```
+
+Set `--dart-define=CHAT_EMOJI_POSTERS=false` to benchmark the TGS-only path.
+
 ## Test the Wasm raster backend
 
 Web builds use the bundled FastLottie Wasm module when the hook does not
@@ -68,12 +79,12 @@ On the web chat demo, use `?workers=1&strip=4` or `?workers=2&strip=4` to compar
 pool sizes with the same mini-strip length. Without the query parameters,
 FastLottie chooses the worker count and strip length automatically.
 
-## Use a separate TGS server
+## Run the Dart pack server
 
 From the repository root, run:
 
 ```sh
-dart tool/tgs_server.dart --port 8787 --delay-ms 150
+dart run tool/pack_server.dart --port 8787 --delay-ms 800
 ```
 
 In another terminal, from `example/`:
@@ -82,13 +93,26 @@ In another terminal, from `example/`:
 flutter run -d macos --dart-define=TGS_SERVER_URL=http://127.0.0.1:8787
 ```
 
-For a connected Android device, run `adb reverse tcp:8787 tcp:8787` before
-launching and pass the same URL. The app reads the server's catalog and fetches
-sticker bytes as needed. The download queue can cancel unused requests, and
-raw TGS bytes and rendered frames use separate disk caches. With fastlottie,
-picker thumbnails and inline emoji share a 30 FPS double-buffered strip cache by
-default (switchable to single-frame Ping-Pong `K=1` from the options menu);
-large sticker messages use vector rendering.
+Replace `macos` with `chrome` to try the same server from the browser. On a
+connected Android device, run `adb reverse tcp:8787 tcp:8787` and pass the same
+URL. The artificial delay applies to TGS downloads, so a cold poster can
+appear before the animation.
+
+- `/v1/catalog` lists pack revisions and supports `If-None-Match`.
+- `/manifests/<revision>.json` lists item revisions, posters, poster
+  progress and animation sources.
+- `/objects/<sha256>.png` and `/objects/<sha256>.tgs` serve immutable bytes.
+
+The generator publishes the catalog after writing the objects and manifests.
+Keep `build/pack_server/sources/` alongside the publication history when
+serving older revisions after changing a TGS source. The server validates
+hashes and references on startup. Restart it after publishing a new catalog.
+
+The native client opens a complete cached catalog and refreshes it in the
+background. Its 32 MiB disk cache keeps downloaded media by hash. Posters
+share a bounded decode queue across the picker, inline emoji and large
+stickers. Web uses browser HTTP caching. The original `tool/tgs_server.dart`
+and `/catalog` remain available for testing legacy clients.
 
 ## Comparison targets
 

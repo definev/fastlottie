@@ -11,6 +11,9 @@ dependencies:
   lottie: 3.8.2
   path_provider: ^2.1.5
   cupertino_icons: ^2.0.0
+  crypto: ^3.0.8
+  http: ^1.6.0
+  meta: ^1.19.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -19,6 +22,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/emoji_posters/
+    - assets/emoji_posters/manifests/
     - assets/tgs/Crocosaurus-1794222759141/
     - assets/tgs/HotCherry-1794222813220/
     - assets/tgs/HotHotHot-1794222825310/

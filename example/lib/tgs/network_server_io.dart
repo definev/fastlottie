@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'network_server_types.dart';
+import 'pack_assets.dart';
 
 typedef _BytesSupplier = Future<Uint8List> Function();
 
@@ -79,6 +80,51 @@ class LocalTgsServer {
     Duration simulatedLatency = Duration.zero,
   }) async {
     final assets = bundle ?? rootBundle;
+    final packAssets = PackAssets(bundle: assets);
+    try {
+      final catalog = await packAssets.catalog(PackAssets.bundleOrigin);
+      final server = await HttpServer.bind(host, port);
+      final baseUri = Uri.parse('http://$host:${server.port}');
+      final packs = <TgsRemotePack>[];
+      final routes = <String, _ServedAsset>{};
+      for (final pack in catalog.packs) {
+        final items = <TgsRemoteItem>[];
+        for (final item in pack.items) {
+          final data = item.toJson();
+          final route = '/tgs/${item.id}?revision=${item.revision}';
+          data['url'] = route;
+          final remote = TgsRemoteItem.fromJson(data, baseUri);
+          items.add(remote);
+          routes[remote.uri.path] = _ServedAsset(
+            item: remote,
+            loadBytes: () async {
+              final source = await assets.load('assets/tgs/${item.id}');
+              return Uint8List.sublistView(source);
+            },
+          );
+        }
+        packs.add(
+          TgsRemotePack(
+            id: pack.id,
+            title: pack.title,
+            kind: pack.kind,
+            items: items,
+            revision: pack.revision,
+          ),
+        );
+      }
+      return LocalTgsServer._(
+        server,
+        baseUri,
+        TgsRemoteCatalog.fromPacks(baseUri, packs),
+        routes,
+        simulatedLatency,
+      );
+    } on FlutterError {
+      // AssetBundle overrides used by existing callers may only supply TGS.
+    } finally {
+      packAssets.dispose();
+    }
     final manifest = await AssetManifest.loadFromAssetBundle(assets);
     final paths =
         manifest

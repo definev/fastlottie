@@ -1,6 +1,23 @@
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 enum TgsItemKind { sticker, emoji }
+
+typedef PackPoster = ({Uri uri, double progress});
+
+PackPoster? _readPoster(Object? value, Uri baseUri) {
+  if (value == null) return null;
+  final json = value as Map;
+  final progress = (json['progress'] as num).toDouble();
+  if (!progress.isFinite || progress < 0 || progress >= 1) {
+    throw const FormatException('Invalid poster progress');
+  }
+  return (uri: baseUri.resolve(json['url'] as String), progress: progress);
+}
+
+Map<String, Object> _posterJson(PackPoster poster) => {
+  'url': poster.uri.toString(),
+  'progress': poster.progress,
+};
 
 /// All 88 natively supported Topics Emoji files (`Topics-1794247486249`),
 /// verified pixel-differentially against `package:lottie` / native `rlottie`.
@@ -2888,6 +2905,10 @@ class TgsRemoteItem {
     required this.bytes,
     required this.label,
     this.shortcode,
+    this.revision,
+    this.poster,
+    this.largePoster,
+    this.animated = true,
   });
 
   factory TgsRemoteItem.fromJson(Map<String, dynamic> json, Uri baseUri) {
@@ -2905,6 +2926,10 @@ class TgsRemoteItem {
       bytes: (json['bytes'] as num?)?.toInt() ?? 0,
       label: json['label'] as String? ?? (json['fileName'] as String),
       shortcode: json['shortcode'] as String?,
+      revision: json['revision'] as String?,
+      poster: _readPoster(json['poster'], baseUri),
+      largePoster: _readPoster(json['largePoster'], baseUri),
+      animated: json['animated'] as bool? ?? true,
     );
   }
 
@@ -2918,6 +2943,9 @@ class TgsRemoteItem {
   final int bytes;
   final String label;
   final String? shortcode;
+  final String? revision;
+  final PackPoster? poster, largePoster;
+  final bool animated;
 
   String get urlString => uri.toString();
 
@@ -2947,6 +2975,10 @@ class TgsRemoteItem {
     'bytes': bytes,
     'label': label,
     if (shortcode != null) 'shortcode': shortcode,
+    'revision': ?revision,
+    if (poster case final image?) 'poster': _posterJson(image),
+    if (largePoster case final image?) 'largePoster': _posterJson(image),
+    if (!animated) 'animated': false,
   };
 }
 
@@ -2957,6 +2989,7 @@ class TgsRemotePack {
     required this.title,
     required this.kind,
     required this.items,
+    this.revision,
   });
 
   factory TgsRemotePack.fromJson(Map<String, dynamic> json, Uri baseUri) =>
@@ -2970,22 +3003,52 @@ class TgsRemotePack {
           for (final raw in json['items'] as List<dynamic>)
             TgsRemoteItem.fromJson(raw as Map<String, dynamic>, baseUri),
         ],
+        revision: json['revision'] as String?,
       );
 
   final String id;
   final String title;
   final TgsItemKind kind;
   final List<TgsRemoteItem> items;
+  final String? revision;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'id': id,
     'title': title,
     'kind': kind.name,
     'items': [for (final item in items) item.toJson()],
+    'revision': ?revision,
   };
 }
 
 class TgsRemoteCatalog {
+  factory TgsRemoteCatalog.fromPacks(Uri baseUri, List<TgsRemotePack> packs) {
+    final stickers = [
+      for (final pack in packs)
+        if (pack.kind == TgsItemKind.sticker) pack.items,
+    ];
+    final rows = stickers.fold(
+      0,
+      (count, items) => count > items.length ? count : items.length,
+    );
+    final emojiPacks = packs.where((pack) => pack.kind == TgsItemKind.emoji);
+    return TgsRemoteCatalog(
+      baseUri: baseUri,
+      packs: packs,
+      stickers: [
+        for (var row = 0; row < rows; row++)
+          for (final items in stickers)
+            if (row < items.length) items[row],
+      ],
+      emojis: [
+        for (final pack in emojiPacks)
+          if (pack.id.startsWith('Topics-')) ...pack.items,
+        for (final pack in emojiPacks)
+          if (!pack.id.startsWith('Topics-')) ...pack.items,
+      ],
+    );
+  }
+
   TgsRemoteCatalog({
     required this.baseUri,
     required this.packs,

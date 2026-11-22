@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie_example/main.dart';
 import 'package:fastlottie_example/tgs/clock.dart';
 import 'package:fastlottie_example/tgs/cupertino_chat.dart';
+import 'package:fastlottie_example/tgs/emoji_posters.dart';
 import 'package:fastlottie_example/tgs/network_server.dart';
 import 'package:fastlottie_example/tgs/network_store.dart';
+import 'package:fastlottie_example/tgs/pack_assets.dart';
 import 'package:fastlottie_example/tgs/sheet.dart';
 import 'package:fastlottie_example/tgs/store.dart';
 // Keep compatible with Flutter versions before the cupertino_ui split.
@@ -15,6 +18,8 @@ import 'package:fastlottie_example/tgs/store.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../tool/pack_server.dart';
 
 class _PassthroughHttpOverrides extends HttpOverrides {}
 
@@ -33,6 +38,78 @@ TgsModel _dummyModel([int sourceBytes = 10]) => TgsModel(
 );
 
 void main() {
+  test(
+    'Pack server provides immutable assets and a reusable offline catalog',
+    () async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _PassthroughHttpOverrides();
+      addTearDown(() => HttpOverrides.global = previous);
+      final server = await PackServer.start(
+        Directory('assets'),
+        port: 0,
+        animationDelay: const Duration(seconds: 2),
+      );
+      final directory = await Directory.systemTemp.createTemp(
+        'fastlottie_pack_',
+      );
+      final assets = PackAssets()..cacheDirectory = directory.path;
+      final client = HttpClient();
+      addTearDown(() async {
+        client.close(force: true);
+        assets.dispose();
+        await server.close();
+        await directory.delete(recursive: true);
+      });
+      final endpoint = server.baseUri.resolve('/v1/catalog');
+      final first = await (await client.getUrl(endpoint)).close();
+      final etag = first.headers.value(HttpHeaders.etagHeader);
+      await first.drain<void>();
+      expect(etag, isNotNull);
+      final conditional = await client.getUrl(endpoint);
+      conditional.headers.set(HttpHeaders.ifNoneMatchHeader, etag!);
+      final unchanged = await conditional.close();
+      expect(unchanged.statusCode, HttpStatus.notModified);
+      await unchanged.drain<void>();
+      final catalog = await assets.catalog(server.baseUri);
+      expect(catalog.stickerPacks.length, 4);
+      expect(catalog.emojiPacks.length, 2);
+      expect(catalog.packs.every((pack) => pack.revision != null), isTrue);
+      final emoji = catalog.emojis.first;
+      final sticker = catalog.stickers.first;
+      final head = await (await client.headUrl(sticker.largePoster!.uri))
+          .close();
+      expect(
+        head.headers.value(HttpHeaders.cacheControlHeader),
+        contains('immutable'),
+      );
+      expect(head.headers.contentType?.mimeType, 'image/png');
+      await head.drain<void>();
+
+      var animationReady = false;
+      final animation = assets.fetch(emoji.uri).then((result) {
+        animationReady = true;
+        return result;
+      });
+      final image = await assets.fetch(emoji.poster!.uri);
+      expect(image.bytes.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
+      expect(animationReady, isFalse);
+      expect((await animation).bytes, isNotEmpty);
+      final cached = await assets.cachedCatalog(server.baseUri);
+      expect(cached!.emojis.first.revision, emoji.revision);
+      for (var i = 0; i < 100; i++) {
+        final copy = await assets.fetch(emoji.poster!.uri);
+        if (copy.fromDiskCache) break;
+        await Future<void>.delayed(const Duration(milliseconds: 2));
+      }
+      await server.close();
+      expect(
+        (await assets.catalog(server.baseUri)).emojis.first.revision,
+        emoji.revision,
+      );
+      expect((await assets.fetch(emoji.poster!.uri)).fromDiskCache, isTrue);
+    },
+  );
+
   test('LocalTgsServer serves catalog, TGS binary payloads, ETag 304, and failure states', () async {
     final previous = HttpOverrides.current;
     HttpOverrides.global = _PassthroughHttpOverrides();
@@ -532,6 +609,191 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets('Inline emoji paints its bundled pose before TGS is available', (
+    tester,
+  ) async {
+    const id = 'NotoEmoji/emoji_u1f331.tgs';
+    final uri = Uri.parse('http://localhost/tgs/$id');
+    final assets = PackAssets();
+    final posters = PackPosterCache(assets);
+    final catalog = (await tester.runAsync(
+      () => assets.catalog(PackAssets.bundleOrigin),
+    ))!;
+    final poster = catalog.emojis.firstWhere((item) => item.id == id).poster!;
+    final item = TgsRemoteItem(
+      id: id,
+      packId: 'NotoEmoji',
+      packTitle: 'Noto Tags',
+      fileName: 'emoji_u1f331.tgs',
+      kind: TgsItemKind.emoji,
+      relativePath: uri.path,
+      uri: uri,
+      bytes: 0,
+      label: 'Seedling',
+      poster: poster,
+    );
+    await tester.runAsync(() => assets.fetch(poster.uri));
+    expect(poster.progress, greaterThan(0));
+    final fetch = Completer<FastLottieNetworkFetchResult>();
+    var fetchCount = 0;
+    final store = NetworkTgsStore(
+      framePaced: false,
+      fetcher: (_, {cancelToken, sourceCacheDirectory}) {
+        fetchCount++;
+        return fetch.future;
+      },
+    );
+    final raster = FastLottieRasterCache(
+      maximumFrameRate: 30,
+      maximumDiskBytes: 0,
+      framesPerStrip: 3,
+      progressiveFirstFrame: false,
+    );
+    final sheet = StickerSheet(
+      assets: [item.urlString],
+      pixelSize: 96,
+      store: store,
+      rasterCache: raster,
+      posterCache: posters,
+    );
+    final clock = StickerClock();
+    addTearDown(() {
+      clock.dispose();
+      sheet.dispose();
+      raster.dispose();
+      store.dispose();
+      posters.dispose();
+      assets.dispose();
+    });
+
+    const key = ValueKey('poster-test-sticker');
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: Center(
+          child: InlineNetworkSticker(
+            key: key,
+            item: item,
+            sheet: sheet,
+            clock: clock,
+            store: store,
+            renderer: ChatRendererMode.fastlottie,
+            still: false,
+            size: 96,
+            placeholderColor: CupertinoColors.transparent,
+          ),
+        ),
+      ),
+    );
+    final lease = posters.acquire(poster);
+    addTearDown(lease.release);
+    for (var i = 0; i < 100 && lease.value == null; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump();
+    }
+    expect(lease.value, isNotNull);
+    await tester.pump();
+    expect(fetchCount, 1);
+    expect(sheet.playerFor(item.urlString), isNull);
+    expect(raster.workerDispatches, 0);
+    expect(identical(posters.acquire(poster), lease), isTrue);
+    lease.release();
+
+    Future<Uint8List> paintEmoji() async {
+      final paint = tester.widget<CustomPaint>(
+        find.descendant(
+          of: find.byKey(key),
+          matching: find.byType(CustomPaint),
+        ),
+      );
+      return (await tester.runAsync(() async {
+        final recorder = ui.PictureRecorder();
+        paint.painter!.paint(Canvas(recorder), const Size.square(96));
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(96, 96);
+        try {
+          return Uint8List.sublistView((await image.toByteData())!);
+        } finally {
+          image.dispose();
+          picture.dispose();
+        }
+      }))!;
+    }
+
+    final firstPaint = await paintEmoji();
+    expect(
+      firstPaint.indexWhere((byte) => byte != 0),
+      isNot(-1),
+      reason: 'the emoji is visible with the TGS request still pending',
+    );
+
+    final tgs = (await tester.runAsync(
+      () => rootBundle.load('assets/tgs/$id'),
+    ))!;
+    fetch.complete(
+      FastLottieNetworkFetchResult(
+        Uint8List.sublistView(tgs),
+        fromDiskCache: false,
+      ),
+    );
+    for (var i = 0; i < 60 && raster.renderedFrames == 0; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(raster.renderedFrames, greaterThan(0));
+    expect(
+      sheet.progressFor(item.urlString, clock, poster: poster),
+      closeTo(poster.progress, .0001),
+    );
+    final firstRaster = await paintEmoji();
+    final largestChannelDelta = Iterable<int>.generate(
+      firstPaint.length,
+      (i) => (firstRaster[i] - firstPaint[i]).abs(),
+    ).reduce((a, b) => a > b ? a : b);
+    expect(largestChannelDelta, lessThanOrEqualTo(2));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('Remote pack chat shows the sticker poster before animation', (
+    tester,
+  ) async {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _PassthroughHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previous);
+    final server = (await tester.runAsync(
+      () => PackServer.start(
+        Directory('assets'),
+        port: 0,
+        animationDelay: const Duration(seconds: 2),
+      ),
+    ))!;
+    addTearDown(server.close);
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoChatScreen(externalServerUri: server.baseUri),
+      ),
+    );
+    final hero = find.byType(HeroNetworkSticker);
+    final poster = find.descendant(of: hero, matching: find.byType(RawImage));
+    for (var i = 0; i < 100 && poster.evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(poster, findsWidgets);
+    expect(tester.widget<RawImage>(poster.first).image, isNotNull);
+    expect(
+      find.descendant(of: hero, matching: find.byType(FastLottie)),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('FastLottieCupertinoApp mounts main entry cleanly', (
     tester,

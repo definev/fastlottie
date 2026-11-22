@@ -13,18 +13,22 @@ import 'package:lottie/lottie.dart';
 import 'cache_dir.dart';
 import 'clock.dart';
 import 'compiled_pack.dart';
+import 'emoji_posters.dart';
 import 'network_server.dart';
 import 'network_store.dart';
+import 'pack_assets.dart';
 import 'pressure.dart';
 import 'sheet.dart';
 import 'store.dart';
-import 'web_support_stub.dart'
-    if (dart.library.js_interop) 'web_support.dart'
-    as web_support;
 
 part 'chat_memory_workload.dart';
 
 enum ChatRendererMode { fastlottie, lottie }
+
+const _enableEmojiPosters = bool.fromEnvironment(
+  'CHAT_EMOJI_POSTERS',
+  defaultValue: true,
+);
 
 /// Benchmark-only override; the regular demo keeps its existing hero policy.
 class HeroStickerCacheScope extends InheritedWidget {
@@ -62,6 +66,7 @@ class ChatMessage {
     required this.isOutgoing,
     required this.timestamp,
     this.senderName,
+    this.inlineItems = const {},
   }) : sticker = null,
        reloadEpoch = 0;
 
@@ -72,11 +77,15 @@ class ChatMessage {
     required this.timestamp,
     this.senderName,
     this.reloadEpoch = 0,
-  }) : text = null;
+  }) : text = null,
+       inlineItems = const {};
 
   final String id;
   final String? text;
   final TgsRemoteItem? sticker;
+
+  /// UTF-16 offsets, lengths and immutable descriptors of sent custom emoji.
+  final Map<int, (int, TgsRemoteItem)> inlineItems;
   final bool isOutgoing;
   final DateTime timestamp;
   final String? senderName;
@@ -522,6 +531,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     compiledPack: pack,
     directPackPlayback: pack != null,
     deferredPackPlayback: pack != null,
+    fetcher: _packAssets.fetch,
   );
 
   int? get _preferredStripSize =>
@@ -574,6 +584,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   TgsRemoteCatalog? _catalog;
   StickerSheet? _stickerSheet;
   StickerSheet? _emojiSheet;
+  final _packAssets = PackAssets();
+  late final _posters = PackPosterCache(_packAssets);
   final List<StickerSheet> _disposingSheets = <StickerSheet>[];
   final List<FastLottieRasterCache> _disposingCaches =
       <FastLottieRasterCache>[];
@@ -632,6 +644,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   void _switchStore(CompiledModelPack? pack) {
     final oldStore = _store;
     _store = _createStore(pack: pack);
+    _store.attachSourceCacheDirectory(oldStore.sourceCacheDirectory);
     _composerController.store = _store;
     if (_catalog != null) {
       _setupCatalog(_catalog!);
@@ -675,33 +688,46 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       if (urlCacheDir != null && _store.sourceCacheDirectory == null) {
         _store.attachSourceCacheDirectory(urlCacheDir);
       }
+      _packAssets.cacheDirectory = urlCacheDir;
 
       TgsRemoteCatalog catalog;
       final explicitCatalog = widget.initialCatalog;
+      const defineUrl = String.fromEnvironment('TGS_SERVER_URL');
+      final external =
+          widget.externalServerUri ??
+          (defineUrl.isNotEmpty ? Uri.tryParse(defineUrl) : null);
       if (explicitCatalog != null) {
         catalog = await explicitCatalog;
-      } else if (kIsWeb) {
-        catalog = await web_support.loadBundledTgsCatalog();
-      } else {
-        const defineUrl = String.fromEnvironment('TGS_SERVER_URL');
-        final external =
-            widget.externalServerUri ??
-            (defineUrl.isNotEmpty ? Uri.tryParse(defineUrl) : null);
-        if (external != null) {
-          catalog = await fetchRemoteTgsCatalog(external);
-        } else {
-          final server = await LocalTgsServer.startFromBundle();
-          if (!mounted) {
-            await server.close(force: true);
-            return;
-          }
-          _embeddedServer = server;
-          catalog = server.catalog;
+      } else if (external != null) {
+        final cached = await _packAssets.cachedCatalog(external);
+        if (!mounted) return;
+        if (cached != null && workload == null) {
+          _setupCatalog(cached);
+          _prewarmChatPosters(cached);
+          unawaited(_refreshCatalog(external, cached));
+          return;
         }
+        try {
+          catalog = await _packAssets.catalog(external);
+        } on FastLottieNetworkException catch (error) {
+          if (error.statusCode != 404 || kIsWeb) rethrow;
+          catalog = await fetchRemoteTgsCatalog(external);
+        }
+      } else if (kIsWeb) {
+        catalog = await _packAssets.catalog(PackAssets.bundleOrigin);
+      } else {
+        final server = await LocalTgsServer.startFromBundle();
+        if (!mounted) {
+          await server.close(force: true);
+          return;
+        }
+        _embeddedServer = server;
+        catalog = server.catalog;
       }
 
       if (!mounted) return;
       _setupCatalog(catalog);
+      _prewarmChatPosters(catalog);
       if (workload != null) unawaited(workload._run(this, catalog));
     } catch (error) {
       widget.memoryWorkload?.onError(error);
@@ -710,6 +736,31 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         _bootError = error;
         _booting = false;
       });
+    }
+  }
+
+  Future<void> _refreshCatalog(Uri origin, TgsRemoteCatalog previous) async {
+    try {
+      final next = await _packAssets.catalog(origin);
+      if (!mounted || !identical(_catalog, previous)) return;
+      final revisions = previous.packs.map((pack) => (pack.id, pack.revision));
+      if (listEquals(revisions.toList(), [
+        for (final pack in next.packs) (pack.id, pack.revision),
+      ])) {
+        return;
+      }
+      final draft = previous.toShortcodeText(_composerController.text);
+      _composerController.value = TextEditingValue(
+        text: draft,
+        selection: TextSelection.collapsed(offset: draft.length),
+      );
+      _setupCatalog(next);
+      _prewarmChatPosters(next);
+      if (_drawerOpen) _prewarmPickerPosters(_selectedTabIndex);
+    } on Exception {
+      // The mounted catalog continues to work while the server is offline.
+    } on TypeError {
+      // Keep the current revision when the remote manifest is incompatible.
     }
   }
 
@@ -759,6 +810,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
       framesPerStrip: _framesPerStrip,
+      posterCache: _enableEmojiPosters ? _posters : null,
       playbackBudget: _playbackBudget,
     )..constrained = _pressure.constrained;
 
@@ -769,6 +821,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
       framesPerStrip: _framesPerStrip,
+      posterCache: _enableEmojiPosters ? _posters : null,
       playbackBudget: _playbackBudget,
     )..constrained = _pressure.constrained;
 
@@ -1137,7 +1190,10 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   }
 
   @override
-  void didHaveMemoryPressure() => _store.evictCompiledSnapshots();
+  void didHaveMemoryPressure() {
+    _store.evictCompiledSnapshots();
+    _posters.clearIdle();
+  }
 
   void _toggleDrawer() {
     if (_drawerOpen) {
@@ -1145,6 +1201,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       _composerFocus.requestFocus();
     } else {
       _composerFocus.unfocus();
+      _prewarmPickerPosters(_selectedTabIndex);
       setState(() => _drawerOpen = true);
     }
     _syncPlayback();
@@ -1157,8 +1214,56 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   }
 
   void _selectPickerTab(int index) {
+    _prewarmPickerPosters(index);
     setState(() => _selectedTabIndex = index);
     if (_pickerScroll.hasClients) _pickerScroll.jumpTo(0);
+  }
+
+  void _prewarmChatPosters(TgsRemoteCatalog catalog) {
+    final sheet = _emojiSheet;
+    final cache = sheet?.posterCache;
+    if (sheet == null ||
+        cache == null ||
+        _renderer != ChatRendererMode.fastlottie) {
+      return;
+    }
+    final posters = <PackPoster>{
+      if (catalog.emojis.isNotEmpty) ?catalog.emojis.first.poster,
+    };
+    for (final message in _messages.reversed.take(4)) {
+      if (message.sticker case final item?) {
+        final poster = item.largePoster ?? item.poster;
+        if (poster != null) posters.add(poster);
+        if (posters.length >= 6) break;
+        continue;
+      }
+      final text = message.text;
+      if (text == null) continue;
+      for (final token in catalog.richMessageRegex.allMatches(text)) {
+        final item = catalog.findItem(token.group(0)!);
+        if (item?.poster case final poster?) {
+          posters.add(poster);
+        }
+        if (posters.length >= 6) break;
+      }
+      if (posters.length >= 6) break;
+    }
+    cache.prewarm(posters);
+  }
+
+  void _prewarmPickerPosters(int index) {
+    final sheet = _emojiSheet;
+    final cache = sheet?.posterCache;
+    final catalog = _catalog;
+    if (sheet == null ||
+        cache == null ||
+        catalog == null ||
+        _renderer != ChatRendererMode.fastlottie) {
+      return;
+    }
+    final tabs = _buildTabs(catalog);
+    final tab = tabs[index.clamp(0, tabs.length - 1)];
+    cache.prewarm([for (final item in tab.$4.take(5)) ?item.poster]);
   }
 
   void _setReducedMotion(bool reduced) {
@@ -1182,14 +1287,30 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   }
 
   void _sendTextMessage() {
-    final textToSend = _composerController.toShortcodeText().trim();
-    if (textToSend.isEmpty) return;
+    final raw = _composerController.text.trim();
+    if (raw.isEmpty) return;
+    final text = StringBuffer();
+    final inlineItems = <int, (int, TgsRemoteItem)>{};
+    final catalog = _catalog;
+    var cursor = 0;
+    for (final match
+        in catalog?.richMessageRegex.allMatches(raw) ?? const <RegExpMatch>[]) {
+      final item = catalog?.findItem(match[0]!);
+      if (item == null) continue;
+      text.write(raw.substring(cursor, match.start));
+      final label = item.shortcode ?? item.unicode ?? item.label;
+      inlineItems[text.length] = (label.length, item);
+      text.write(label);
+      cursor = match.end;
+    }
+    text.write(raw.substring(cursor));
     _composerController.clear();
     setState(() {
       _messages.add(
         ChatMessage.text(
           id: 'msg_${_messageSeq++}',
-          text: textToSend,
+          text: text.toString(),
+          inlineItems: Map.unmodifiable(inlineItems),
           isOutgoing: true,
           timestamp: DateTime.now(),
         ),
@@ -1245,6 +1366,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   }
 
   Future<void> _clearAllCaches() async {
+    _posters.clearIdle();
+    await _packAssets.clearDisk();
     _stickerSheet?.clearLoadedModels();
     _emojiSheet?.clearLoadedModels();
     await _store.clearMemoryAndUrlDiskCache();
@@ -1474,6 +1597,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               height: 180,
               child: HeroNetworkSticker(
                 item: item,
+                posters: _enableEmojiPosters ? _posters : null,
                 store: _store,
                 renderer: _renderer,
                 animate: !_reduced,
@@ -1601,6 +1725,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       stale.dispose();
     }
     _disposingSheets.clear();
+    _posters.dispose();
+    _packAssets.dispose();
     _rasterCache.dispose();
     for (final stale in _disposingCaches) {
       stale.dispose();
@@ -1756,6 +1882,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                     message: msg,
                                     catalog: catalog,
                                     emojiSheet: _emojiSheet!,
+                                    posters: _enableEmojiPosters
+                                        ? _posters
+                                        : null,
                                     clock: _clock,
                                     store: _store,
                                     renderer: _renderer,
@@ -2331,6 +2460,7 @@ class _ChatMessageRow extends StatelessWidget {
     required this.message,
     required this.catalog,
     required this.emojiSheet,
+    required this.posters,
     required this.clock,
     required this.store,
     required this.renderer,
@@ -2344,6 +2474,7 @@ class _ChatMessageRow extends StatelessWidget {
   final ChatMessage message;
   final TgsRemoteCatalog catalog;
   final StickerSheet emojiSheet;
+  final PackPosterCache? posters;
   final StickerClock clock;
   final TgsStoreBase store;
   final ChatRendererMode renderer;
@@ -2395,6 +2526,7 @@ class _ChatMessageRow extends StatelessWidget {
                     child: HeroNetworkSticker(
                       key: ValueKey('sent-sticker-${message.id}'),
                       item: item,
+                      posters: posters,
                       store: store,
                       renderer: renderer,
                       animate: animateHero,
@@ -2557,17 +2689,27 @@ class _ChatMessageRow extends StatelessWidget {
     double emojiSize,
     Color placeholderColor,
   ) {
-    final stickerOnly = _containsOnlyStickersAndWhitespace(text, catalog);
+    final references = message.inlineItems.isEmpty
+        ? {
+            for (final match in catalog.richMessageRegex.allMatches(text))
+              if (catalog.findItem(match[0]!) case final item?)
+                match.start: (match.end - match.start, item),
+          }
+        : message.inlineItems;
+    var cursor = 0;
+    var stickerOnly = references.isNotEmpty;
+    for (final MapEntry(key: start, value: (length, _)) in references.entries) {
+      if (text.substring(cursor, start).trim().isNotEmpty) stickerOnly = false;
+      cursor = start + length;
+    }
+    if (text.substring(cursor).trim().isNotEmpty) stickerOnly = false;
     final stickerSize = stickerOnly ? 40.0 : emojiSize;
     final spans = <InlineSpan>[];
-    var cursor = 0;
-    final regex = catalog.richMessageRegex;
-    for (final match in regex.allMatches(text)) {
-      final token = match.group(0)!;
-      final item = catalog.findItem(token);
-      if (item == null) continue;
-      if (match.start > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, match.start)));
+    cursor = 0;
+    for (final MapEntry(key: start, value: (length, item))
+        in references.entries) {
+      if (start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, start)));
       }
       spans.add(
         WidgetSpan(
@@ -2584,7 +2726,7 @@ class _ChatMessageRow extends StatelessWidget {
           ),
         ),
       );
-      cursor = match.end;
+      cursor = start + length;
     }
     if (cursor < text.length) {
       spans.add(TextSpan(text: text.substring(cursor)));
@@ -2593,24 +2735,6 @@ class _ChatMessageRow extends StatelessWidget {
       spans.add(TextSpan(text: text));
     }
     return spans;
-  }
-
-  bool _containsOnlyStickersAndWhitespace(
-    String text,
-    TgsRemoteCatalog catalog,
-  ) {
-    var cursor = 0;
-    var foundSticker = false;
-    final regex = catalog.richMessageRegex;
-    for (final match in regex.allMatches(text)) {
-      final token = match.group(0)!;
-      final item = catalog.findItem(token);
-      if (item == null) continue;
-      if (text.substring(cursor, match.start).trim().isNotEmpty) return false;
-      foundSticker = true;
-      cursor = match.end;
-    }
-    return foundSticker && text.substring(cursor).trim().isEmpty;
   }
 }
 
@@ -2646,9 +2770,15 @@ class InlineNetworkSticker extends StatefulWidget {
 
 class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
   bool _pinned = false;
+  EmojiPosterLease? _poster;
 
   void _syncPin() {
-    final shouldPin = widget.renderer == ChatRendererMode.fastlottie;
+    final staticPoster =
+        !widget.item.animated &&
+        widget.sheet.posterCache != null &&
+        widget.item.poster != null;
+    final shouldPin =
+        widget.renderer == ChatRendererMode.fastlottie && !staticPoster;
     if (shouldPin == _pinned) return;
     if (shouldPin) {
       widget.sheet.acquirePin(widget.item.urlString);
@@ -2658,15 +2788,43 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
     _pinned = shouldPin;
   }
 
+  void _syncPoster() {
+    final cache = widget.sheet.posterCache;
+    final poster =
+        widget.renderer == ChatRendererMode.fastlottie || !widget.item.animated
+        ? widget.item.poster
+        : null;
+    if (poster?.uri == _poster?.uri) return;
+    _poster?.release();
+    _poster = poster == null ? null : cache?.acquire(poster);
+  }
+
+  Widget _reference(bool still) => SizedBox.square(
+    dimension: widget.size,
+    child: _ReferenceNetworkCell(
+      url: widget.item.urlString,
+      store: widget.store,
+      clock: widget.clock,
+      animate: !still,
+      placeholderColor: widget.placeholderColor,
+    ),
+  );
+
   @override
   void initState() {
     super.initState();
+    _syncPoster();
     _syncPin();
   }
 
   @override
   void didUpdateWidget(InlineNetworkSticker oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.sheet.posterCache != widget.sheet.posterCache) {
+      _poster?.release();
+      _poster = null;
+    }
+    _syncPoster();
     if (oldWidget.item.urlString != widget.item.urlString ||
         oldWidget.sheet != widget.sheet) {
       if (_pinned) {
@@ -2679,6 +2837,7 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
 
   @override
   void dispose() {
+    _poster?.release();
     if (_pinned) {
       widget.sheet.releasePin(widget.item.urlString);
       _pinned = false;
@@ -2690,17 +2849,9 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
   Widget build(BuildContext context) {
     final effectiveStill =
         widget.still || MediaQuery.disableAnimationsOf(context);
-    if (widget.renderer == ChatRendererMode.lottie) {
-      return SizedBox.square(
-        dimension: widget.size,
-        child: _ReferenceNetworkCell(
-          url: widget.item.urlString,
-          store: widget.store,
-          clock: widget.clock,
-          animate: !effectiveStill,
-          placeholderColor: widget.placeholderColor,
-        ),
-      );
+    if (widget.renderer == ChatRendererMode.lottie &&
+        (widget.item.animated || _poster == null)) {
+      return _reference(effectiveStill);
     }
 
     final dpr = MediaQuery.devicePixelRatioOf(context);
@@ -2713,25 +2864,23 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
       valueListenable: widget.sheet.errorListenableFor(widget.item.urlString),
       builder: (context, error, _) {
         if (error != null) {
-          if (error is UnsupportedLottieException) {
-            return const SizedBox.shrink();
+          final poster = _poster;
+          if (poster != null) {
+            return ValueListenableBuilder(
+              valueListenable: poster,
+              builder: (context, image, child) {
+                if (image != null) {
+                  return GestureDetector(
+                    onTap: () => widget.sheet.retryAsset(widget.item.urlString),
+                    child: RawImage(image: image, fit: BoxFit.contain),
+                  );
+                }
+                return child!;
+              },
+              child: _errorPlaceholder(error),
+            );
           }
-          return GestureDetector(
-            onTap: () => widget.sheet.retryAsset(widget.item.urlString),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: widget.placeholderColor,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Center(
-                child: Icon(
-                  CupertinoIcons.refresh,
-                  size: 16,
-                  color: CupertinoColors.systemRed,
-                ),
-              ),
-            ),
-          );
+          return _errorPlaceholder(error);
         }
         return CustomPaint(
           painter: _NetworkInlinePainter(
@@ -2741,7 +2890,11 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
             still: effectiveStill,
             devicePixelRatio: dpr,
             placeholderColor: widget.placeholderColor,
-            repaint: listenable,
+            poster: _poster,
+            pose: _poster == null ? null : widget.item.poster,
+            repaint: _poster == null
+                ? listenable
+                : Listenable.merge([listenable, _poster]),
           ),
         );
       },
@@ -2758,6 +2911,28 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
       ),
     );
   }
+
+  Widget _errorPlaceholder(Object error) {
+    if (error is UnsupportedLottieException) {
+      return const SizedBox.shrink();
+    }
+    return GestureDetector(
+      onTap: () => widget.sheet.retryAsset(widget.item.urlString),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: widget.placeholderColor,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Center(
+          child: Icon(
+            CupertinoIcons.refresh,
+            size: 16,
+            color: CupertinoColors.systemRed,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _NetworkInlinePainter extends CustomPainter {
@@ -2768,6 +2943,8 @@ class _NetworkInlinePainter extends CustomPainter {
     required this.still,
     required this.devicePixelRatio,
     required this.placeholderColor,
+    required this.poster,
+    required this.pose,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -2779,13 +2956,18 @@ class _NetworkInlinePainter extends CustomPainter {
   final bool still;
   final double devicePixelRatio;
   final Color placeholderColor;
+  final EmojiPosterLease? poster;
+  final PackPoster? pose;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
     final player = sheet.playerFor(url);
+    if (still && _drawPoster(canvas, Offset.zero & size)) return;
     if (player == null) {
-      _drawPlaceholder(canvas, size);
+      if (!_drawPoster(canvas, Offset.zero & size)) {
+        _drawPlaceholder(canvas, size);
+      }
       return;
     }
     final maxEdge = math.max(size.width, size.height);
@@ -2799,7 +2981,7 @@ class _NetworkInlinePainter extends CustomPainter {
     final filterQuality = (targetPixels - sheet.pixelSize).abs() > 1
         ? FilterQuality.low
         : null;
-    final progress = sheet.progressFor(url, clock, still: still);
+    final progress = sheet.progressFor(url, clock, still: still, poster: pose);
     player.draw(
       canvas,
       Offset.zero & size,
@@ -2808,8 +2990,25 @@ class _NetworkInlinePainter extends CustomPainter {
       filterQuality: filterQuality,
       coldFallback: still
           ? null
-          : (c, target) => _drawPlaceholder(c, target.size, target.topLeft),
+          : (c, target) {
+              if (!_drawPoster(c, Offset.zero & size)) {
+                _drawPlaceholder(c, target.size, target.topLeft);
+              }
+            },
     );
+  }
+
+  bool _drawPoster(Canvas canvas, Rect target) {
+    final image = poster?.value;
+    if (image == null) return false;
+    paintImage(
+      canvas: canvas,
+      rect: target,
+      image: image,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.low,
+    );
+    return true;
   }
 
   void _drawPlaceholder(
@@ -2831,6 +3030,8 @@ class _NetworkInlinePainter extends CustomPainter {
       old.sheet != sheet ||
       old.clock != clock ||
       old.still != still ||
+      old.poster != poster ||
+      old.pose != pose ||
       old.devicePixelRatio != devicePixelRatio ||
       old.placeholderColor != placeholderColor;
 }
@@ -2915,6 +3116,7 @@ class HeroNetworkSticker extends StatefulWidget {
     required this.borderColor,
     required this.accentColor,
     required this.secondaryTextColor,
+    this.posters,
     this.animate = true,
     this.size = 220,
   });
@@ -2926,6 +3128,7 @@ class HeroNetworkSticker extends StatefulWidget {
   final Color borderColor;
   final Color accentColor;
   final Color secondaryTextColor;
+  final PackPosterCache? posters;
   final bool animate;
   final double size;
 
@@ -2933,11 +3136,20 @@ class HeroNetworkSticker extends StatefulWidget {
   State<HeroNetworkSticker> createState() => _HeroNetworkStickerState();
 }
 
-class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
-  late TgsLease _lease;
+class _HeroNetworkStickerState extends State<HeroNetworkSticker>
+    with SingleTickerProviderStateMixin {
+  TgsLease? _lease;
+  EmojiPosterLease? _poster;
+  late final AnimationController _timeline = AnimationController(vsync: this);
+  bool _hasTimeline = false;
   int _replayTick = 0;
 
   void _acquire() {
+    if (!widget.item.animated &&
+        widget.posters != null &&
+        widget.item.poster != null) {
+      return;
+    }
     _lease = widget.store.acquire(
       widget.item.urlString,
       reference: widget.renderer == ChatRendererMode.lottie,
@@ -2946,30 +3158,51 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
   }
 
   void _retry() {
-    _lease.release();
+    _lease?.release();
     setState(_acquire);
   }
 
   @override
   void initState() {
     super.initState();
+    _acquirePoster();
     _acquire();
+  }
+
+  void _acquirePoster() {
+    final poster = widget.item.largePoster ?? widget.item.poster;
+    _poster = poster == null ? null : widget.posters?.acquire(poster);
   }
 
   @override
   void didUpdateWidget(HeroNetworkSticker oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.posters != widget.posters ||
+        oldWidget.item.poster != widget.item.poster ||
+        oldWidget.item.largePoster != widget.item.largePoster) {
+      _poster?.release();
+      _acquirePoster();
+    }
     if (oldWidget.item.urlString != widget.item.urlString ||
         oldWidget.store != widget.store ||
-        oldWidget.renderer != widget.renderer) {
-      _lease.release();
+        oldWidget.renderer != widget.renderer ||
+        oldWidget.posters != widget.posters ||
+        oldWidget.item.animated != widget.item.animated) {
+      _lease?.release();
+      _lease = null;
+      if (_hasTimeline) {
+        _timeline.stop();
+        _timeline.duration = null;
+      }
       _acquire();
     }
   }
 
   @override
   void dispose() {
-    _lease.release();
+    if (_hasTimeline) _timeline.dispose();
+    _poster?.release();
+    _lease?.release();
     super.dispose();
   }
 
@@ -2977,111 +3210,148 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker> {
   Widget build(BuildContext context) => SizedBox.square(
     dimension: widget.size,
     child: FutureBuilder<TgsModel>(
-      future: _lease.future,
-      initialData: _lease.ready,
+      future: _lease?.future,
+      initialData: _lease?.ready,
       builder: (context, snapshot) {
-        final model = _lease.ready;
-        if (snapshot.hasError) {
-          if (snapshot.error is UnsupportedLottieException) {
-            return const SizedBox.shrink();
+        final model = _lease?.ready;
+        final effectiveAnimate =
+            widget.animate && !MediaQuery.disableAnimationsOf(context);
+        final poster = _poster;
+        if (_hasTimeline && !effectiveAnimate && _timeline.isAnimating) {
+          _timeline.stop();
+        }
+        Widget render() {
+          if (snapshot.hasError) {
+            if (snapshot.error is UnsupportedLottieException) {
+              return const SizedBox.shrink();
+            }
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                color: widget.placeholderColor,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: widget.borderColor),
+              ),
+              child: Center(
+                child: CupertinoButton(
+                  onPressed: _retry,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        CupertinoIcons.refresh_circled,
+                        size: 32,
+                        color: widget.accentColor,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Download failed · Tap to retry',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: widget.secondaryTextColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
           }
-          return DecoratedBox(
-            decoration: BoxDecoration(
-              color: widget.placeholderColor,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: widget.borderColor),
-            ),
-            child: Center(
-              child: CupertinoButton(
-                onPressed: _retry,
+          if (model == null) {
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                color: widget.placeholderColor.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      CupertinoIcons.refresh_circled,
-                      size: 32,
-                      color: widget.accentColor,
-                    ),
-                    const SizedBox(height: 6),
+                    const CupertinoActivityIndicator(radius: 12),
+                    const SizedBox(height: 8),
                     Text(
-                      'Download failed · Tap to retry',
+                      'Loading ${(widget.item.bytes / 1024).toStringAsFixed(0)} KB…',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11.5,
                         color: widget.secondaryTextColor,
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          );
-        }
-        if (model == null) {
-          return DecoratedBox(
-            decoration: BoxDecoration(
-              color: widget.placeholderColor.withValues(alpha: 0.65),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CupertinoActivityIndicator(radius: 12),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Loading ${(widget.item.bytes / 1024).toStringAsFixed(0)} KB…',
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      color: widget.secondaryTextColor,
-                    ),
-                  ),
-                ],
+            );
+          }
+
+          if (widget.renderer == ChatRendererMode.fastlottie &&
+              model.fast != null) {
+            final progress =
+                (widget.item.largePoster ?? widget.item.poster)?.progress;
+            Animation<double>? controller;
+            if (poster != null && progress != null && !model.fast!.isStatic) {
+              _hasTimeline = true;
+              if (_timeline.duration != model.fast!.duration) {
+                _timeline.duration = model.fast!.duration;
+                _timeline.value = progress;
+              }
+              if (!_timeline.isAnimating && effectiveAnimate) {
+                _timeline.repeat();
+              }
+              controller = _timeline;
+            }
+            return GestureDetector(
+              onTap: effectiveAnimate
+                  ? () {
+                      if (controller != null) _timeline.value = progress!;
+                      setState(() => _replayTick++);
+                    }
+                  : null,
+              child: FastLottie(
+                key: ValueKey('hero_${widget.item.id}_$_replayTick'),
+                composition: model.fast!,
+                controller: controller,
+                width: widget.size,
+                height: widget.size,
+                animate: effectiveAnimate,
+                repeat: true,
+                useFrameRate: true,
+                usePipeline: false,
+                cache:
+                    context
+                        .dependOnInheritedWidgetOfExactType<
+                          HeroStickerCacheScope
+                        >()
+                        ?.cache ??
+                    FastLottieCache.unbounded,
               ),
-            ),
-          );
-        }
+            );
+          }
 
-        final effectiveAnimate =
-            widget.animate && !MediaQuery.disableAnimationsOf(context);
-
-        if (widget.renderer == ChatRendererMode.fastlottie &&
-            model.fast != null) {
-          return GestureDetector(
-            onTap: effectiveAnimate
-                ? () => setState(() => _replayTick++)
-                : null,
-            child: FastLottie(
-              key: ValueKey('hero_${widget.item.id}_$_replayTick'),
-              composition: model.fast!,
-              width: widget.size,
-              height: widget.size,
+          if (widget.renderer == ChatRendererMode.lottie &&
+              model.reference != null) {
+            return Lottie(
+              composition: model.reference!,
               animate: effectiveAnimate,
               repeat: true,
-              useFrameRate: true,
-              usePipeline: false,
-              cache:
-                  context
-                      .dependOnInheritedWidgetOfExactType<
-                        HeroStickerCacheScope
-                      >()
-                      ?.cache ??
-                  FastLottieCache.unbounded,
-            ),
-          );
+              frameRate: FrameRate.composition,
+              fit: BoxFit.contain,
+            );
+          }
+
+          return const SizedBox.shrink();
         }
 
-        if (widget.renderer == ChatRendererMode.lottie &&
-            model.reference != null) {
-          return Lottie(
-            composition: model.reference!,
-            animate: effectiveAnimate,
-            repeat: true,
-            frameRate: FrameRate.composition,
-            fit: BoxFit.contain,
-          );
+        if (poster == null || (model != null && effectiveAnimate)) {
+          return render();
         }
-
-        return const SizedBox.shrink();
+        return ValueListenableBuilder(
+          valueListenable: poster,
+          builder: (context, image, _) {
+            if (image != null) {
+              return RawImage(image: image, fit: BoxFit.contain);
+            }
+            if (poster.finished) return render();
+            return ColoredBox(color: widget.placeholderColor);
+          },
+        );
       },
     ),
   );
