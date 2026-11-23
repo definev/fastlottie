@@ -530,7 +530,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     framePaced: true,
     // Visible cells stay pinned. This only bounds models that have
     // already scrolled off; compiling them again reads the disk cache.
-    maximumEntries: widget.memoryWorkload?.modelCacheEntries ?? 8,
+    maximumEntries: widget.memoryWorkload?.modelCacheEntries ?? 32,
     modelCacheObserver: widget.memoryWorkload?.modelCacheObserver,
     maximumCompiledBytes: widget.memoryWorkload?.compiledCacheBytes ?? 0,
     fetcher: _packAssets.fetch,
@@ -543,15 +543,15 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   FastLottieRasterCache _createRasterCache(int? framesPerStrip) =>
       FastLottieRasterCache(
-        maximumBytes: 6 * 1024 * 1024,
-        maximumInFlight: 2,
-        maximumCompressedMemoryBytes: 2 * 1024 * 1024,
+        maximumBytes: 32 * 1024 * 1024,
+        maximumInFlight: 8,
+        maximumCompressedMemoryBytes: 8 * 1024 * 1024,
         maximumDiskBytes: 128 * 1024 * 1024,
         maximumFrameRate: stickerThumbnailFrameRate,
         framesPerStrip: framesPerStrip,
         progressiveFirstFrame: true,
-        workerCount: widget.rasterWorkerCount ?? 1,
-        allowUiVectorFallback: false,
+        workerCount: widget.rasterWorkerCount,
+        allowUiVectorFallback: true,
       );
 
   final StickerClock _clock = StickerClock();
@@ -2365,7 +2365,7 @@ class _StickerPickerDrawer extends StatelessWidget {
                               still: still,
                               size: constraints.maxWidth / 4.8,
                               placeholderColor: palette.tilePlaceholder,
-                              repaintBoundary: false,
+                              repaintBoundary: true,
                             ),
                           ),
                         ),
@@ -2910,7 +2910,7 @@ class _NetworkInlinePainter extends CustomPainter {
       progress,
       devicePixelRatio: math.max(0.1, effectiveDpr),
       filterQuality: filterQuality,
-      coldFallback: still
+      coldFallback: still || (player.rasterCache?.allowUiVectorFallback ?? true)
           ? null
           : (c, target) {
               if (!_drawPoster(c, Offset.zero & size)) {

@@ -397,7 +397,11 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       _requestStrip(entry, stripStart, stripCount, highPriority: true);
     }
 
-    // Once front buffer is valid, never block UI thread falling back to vectors.
+    if (cache.allowUiVectorFallback) {
+      return (null, null, 0);
+    }
+
+    // Once front buffer is valid and vector fallback is disabled, avoid blocking UI thread.
     final fallbackSlot =
         entry.renderingImage != null && entry.renderingStripCount > 0
         ? entry.lastRenderingSlot.clamp(0, entry.renderingStripCount - 1)
@@ -453,7 +457,6 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     if (!canDispatch ||
         entry.queuedForRaster ||
         _highPriorityQueue.isNotEmpty ||
-        (!highPriority && _activeJobs > 0) ||
         (!highPriority && _lowPriorityQueue.isNotEmpty)) {
       if (!entry.queuedForRaster) {
         final totalQueued =

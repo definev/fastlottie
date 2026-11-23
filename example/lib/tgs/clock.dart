@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
@@ -132,16 +133,17 @@ class _GalleryTicker extends Ticker {
             ?.display
             .refreshRate ??
         60;
-    final vsyncUs = (1000000 / refresh).round();
+    final vsyncUs = (1000000 / (refresh <= 0 ? 60 : refresh)).round();
     final remainingUs = ((target - now).inMicroseconds * timeDilation).ceil();
     final intervals = (remainingUs - 1) ~/ vsyncUs;
     if (intervals <= 0) {
       super.scheduleTick(rescheduling: rescheduling);
     } else {
+      // Wake up with headroom before the next target vsync so OS timer latency
+      // doesn't slip past the frame boundary on high-refresh displays (90/120Hz).
+      final delayUs = math.max(1, ((intervals - 0.4) * vsyncUs).round());
       _timer = Timer(
-        // Wake just after the preceding vsync, so the requested frame cannot
-        // arrive before its sample boundary (especially 24 FPS on 60 Hz).
-        Duration(microseconds: intervals * vsyncUs + 1),
+        Duration(microseconds: delayUs),
         () {
           _timer = null;
           if (shouldScheduleTick) super.scheduleTick();
