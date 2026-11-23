@@ -397,16 +397,19 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       _requestStrip(entry, stripStart, stripCount, highPriority: true);
     }
 
+    // If a valid front buffer already exists, hold the last rendered slot
+    // to avoid stalling the UI thread with costly vector rasterization.
+    if (entry.renderingImage != null && entry.renderingStripCount > 0) {
+      final fallbackSlot =
+          entry.lastRenderingSlot.clamp(0, entry.renderingStripCount - 1);
+      return (entry.renderingImage, entry, offsetYForSlot(fallbackSlot));
+    }
+
     if (cache.allowUiVectorFallback) {
       return (null, null, 0);
     }
 
-    // Once front buffer is valid and vector fallback is disabled, avoid blocking UI thread.
-    final fallbackSlot =
-        entry.renderingImage != null && entry.renderingStripCount > 0
-        ? entry.lastRenderingSlot.clamp(0, entry.renderingStripCount - 1)
-        : 0;
-    return (entry.renderingImage, entry, offsetYForSlot(fallbackSlot));
+    return (entry.renderingImage, entry, 0);
   }
 
   void _ensurePrefetch(_RasterEntry entry, int nextStart) {

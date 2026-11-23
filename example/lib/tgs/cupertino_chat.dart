@@ -536,21 +536,26 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     fetcher: _packAssets.fetch,
   );
 
-  int? get _preferredStripSize => widget.framesPerStrip;
+  int? get _preferredStripSize =>
+      widget.framesPerStrip ??
+      (!kIsWeb && defaultTargetPlatform == TargetPlatform.android ? 3 : null);
   late int? _framesPerStrip =
       widget.memoryWorkload?.framesPerStrip ?? _preferredStripSize;
   late FastLottieRasterCache _rasterCache = _createRasterCache(_framesPerStrip);
 
   FastLottieRasterCache _createRasterCache(int? framesPerStrip) =>
       FastLottieRasterCache(
-        maximumBytes: 32 * 1024 * 1024,
-        maximumInFlight: 8,
-        maximumCompressedMemoryBytes: 8 * 1024 * 1024,
+        maximumBytes: 48 * 1024 * 1024,
+        maximumInFlight: 16,
+        maximumCompressedMemoryBytes: 16 * 1024 * 1024,
         maximumDiskBytes: 128 * 1024 * 1024,
         maximumFrameRate: stickerThumbnailFrameRate,
         framesPerStrip: framesPerStrip,
         progressiveFirstFrame: true,
-        workerCount: widget.rasterWorkerCount,
+        workerCount: widget.rasterWorkerCount ??
+            (!kIsWeb && defaultTargetPlatform == TargetPlatform.android
+                ? 8
+                : null),
         allowUiVectorFallback: true,
       );
 
@@ -1095,7 +1100,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     }
     if (oldWidget.framesPerStrip != widget.framesPerStrip ||
         oldWidget.rasterWorkerCount != widget.rasterWorkerCount) {
-      final nextFrames = widget.framesPerStrip;
+      final nextFrames = widget.framesPerStrip ?? _preferredStripSize;
       final force =
           oldWidget.framesPerStrip != widget.framesPerStrip ||
           oldWidget.rasterWorkerCount != widget.rasterWorkerCount;
@@ -1793,7 +1798,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                   parent: AlwaysScrollableScrollPhysics(),
                                 ),
                                 scrollCacheExtent:
-                                    const ScrollCacheExtent.pixels(350),
+                                    const ScrollCacheExtent.pixels(250),
                                 addAutomaticKeepAlives: false,
                                 padding: const EdgeInsets.fromLTRB(
                                   12,
