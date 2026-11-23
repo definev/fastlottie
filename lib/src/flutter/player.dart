@@ -133,6 +133,9 @@ class FastLottiePlayer extends ChangeNotifier {
   bool get debugHasScene => _sceneState != null;
   final _pictures = <double, ui.Picture>{};
   bool _disposed = false;
+
+  /// Whether this player has been disposed.
+  bool get isDisposed => _disposed;
   int _hits = 0, _misses = 0;
   List<ui.Image>? _rasterFrames;
   Size? _rasterSize;
@@ -430,6 +433,8 @@ class FastLottiePlayer extends ChangeNotifier {
       } else if (coldFallback != null) {
         coldFallback(canvas, target);
         return;
+      } else if (!shared.allowUiVectorFallback) {
+        return;
       }
     }
     canvas.save();
@@ -463,6 +468,30 @@ class FastLottiePlayer extends ChangeNotifier {
       }
     }
     canvas.restore();
+  }
+
+  /// Dispatches an asynchronous request to prepare the initial raster frame
+  /// before this player is painted on screen.
+  void prewarm({
+    Size? destinationSize,
+    BoxFit fit = BoxFit.contain,
+    Alignment alignment = Alignment.center,
+    double? devicePixelRatio,
+  }) {
+    final shared = rasterCache;
+    if (shared == null || !shared.enabled || _disposed) return;
+    final dpr = devicePixelRatio ?? 1.0;
+    _checkPositiveFinite(dpr, 'devicePixelRatio');
+    final scale = resolutionScale ?? shared.resolutionScale;
+    final dest = destinationSize ?? composition.size;
+    final fitted = applyBoxFit(fit, composition.size, dest);
+    final target = alignment.inscribe(fitted.destination, Offset.zero & dest);
+    final source = alignment.inscribe(fitted.source, Offset.zero & composition.size);
+    final pixels = Size(
+      composition.width * target.width / source.width * dpr * scale,
+      composition.height * target.height / source.height * dpr * scale,
+    );
+    shared._prewarm(this, pixels);
   }
 
   /// Releases this player's pictures, prepared images and shared cache lease.

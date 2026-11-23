@@ -533,6 +533,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         framesPerStrip: framesPerStrip,
         progressiveFirstFrame: true,
         workerCount: widget.rasterWorkerCount ?? 1,
+        allowUiVectorFallback: false,
       );
 
   final StickerClock _clock = StickerClock();

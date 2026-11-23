@@ -1,7 +1,7 @@
 import 'dart:ffi';
 import 'dart:typed_data';
 
-// Outside the CRC31 range, including zero as a valid checksum.
+// Use a value outside the CRC31 range so zero still verifies a checksum.
 const _skipCacheCrc = 0x80000000;
 
 @Native<

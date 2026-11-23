@@ -117,6 +117,7 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
       maximumFrameRate: tgsRasterFrameRate,
       resolutionScale: lod ? tgsLodScale : 1,
       framesPerStrip: framesPerStrip,
+      allowUiVectorFallback: false,
     );
     unawaited(attachExampleDiskCache(rasterCache));
     widget.onRasterCacheCreated?.call(rasterCache);
@@ -266,10 +267,14 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
                 }
                 return LayoutBuilder(
                   builder: (context, constraints) {
+                    final cellWidth = (constraints.maxWidth - 40) / 4;
+                    final itemWidth = cellWidth - 12;
+                    final itemHeight = cellWidth - 36;
                     final grid = GridView.builder(
                       key: const ValueKey('tgs-grid'),
                       controller: scroll,
                       padding: const EdgeInsets.all(8),
+                      scrollCacheExtent: const ScrollCacheExtent.pixels(300),
                       addAutomaticKeepAlives: false,
                       // Both renderers already isolate their own canvas.
                       addRepaintBoundaries: false,
@@ -286,6 +291,8 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
                         store: store,
                         clock: clock,
                         renderer: renderer,
+                        itemWidth: itemWidth,
+                        itemHeight: itemHeight,
                         animate:
                             !reduced &&
                             (!mobile ||
@@ -339,6 +346,8 @@ class StickerCell extends StatefulWidget {
     required this.store,
     required this.clock,
     required this.renderer,
+    this.itemWidth,
+    this.itemHeight,
     this.animate = true,
     this.maximumFrameRate,
     this.rasterCache,
@@ -350,6 +359,7 @@ class StickerCell extends StatefulWidget {
   final TgsStore store;
   final StickerClock clock;
   final TgsRenderer renderer;
+  final double? itemWidth, itemHeight;
   final bool animate;
   final double? maximumFrameRate;
   final FastLottieRasterCache? rasterCache;
@@ -389,54 +399,67 @@ class _StickerCellState extends State<StickerCell> {
     super.dispose();
   }
 
+  Widget _buildContent(TgsModel model) {
+    final wrongBackend =
+        (model.fast != null) != (widget.renderer == TgsRenderer.fastlottie);
+    if (wrongBackend) {
+      return const Center(child: Icon(Icons.error_outline));
+    }
+    final sticker = _AnimatedSticker(
+      model: model,
+      clock: widget.clock,
+      width: widget.itemWidth,
+      height: widget.itemHeight,
+      animate: widget.animate && !widget.silhouette,
+      maximumFrameRate: widget.maximumFrameRate,
+      rasterCache: widget.rasterCache,
+    );
+    return Padding(
+      padding: widget.padding,
+      child: widget.silhouette
+          ? ColorFiltered(
+              colorFilter: const ColorFilter.mode(
+                Color(0xff77717f),
+                BlendMode.srcIn,
+              ),
+              child: sticker,
+            )
+          : sticker,
+    );
+  }
+
   @override
-  Widget build(BuildContext context) => FutureBuilder<TgsModel>(
-    future: lease.future,
-    initialData: lease.ready,
-    builder: (context, snapshot) {
-      final model = lease.ready;
-      if (snapshot.hasError) {
-        return const Center(child: Icon(Icons.error_outline));
-      }
-      if (model == null) return const SizedBox.shrink();
-      final wrongBackend =
-          (model.fast != null) != (widget.renderer == TgsRenderer.fastlottie);
-      if (wrongBackend) {
-        return const Center(child: Icon(Icons.error_outline));
-      }
-      final sticker = _AnimatedSticker(
-        model: model,
-        clock: widget.clock,
-        animate: widget.animate && !widget.silhouette,
-        maximumFrameRate: widget.maximumFrameRate,
-        rasterCache: widget.rasterCache,
-      );
-      return Padding(
-        padding: widget.padding,
-        child: widget.silhouette
-            ? ColorFiltered(
-                colorFilter: const ColorFilter.mode(
-                  Color(0xff77717f),
-                  BlendMode.srcIn,
-                ),
-                child: sticker,
-              )
-            : sticker,
-      );
-    },
-  );
+  Widget build(BuildContext context) {
+    final ready = lease.ready;
+    if (ready != null) return _buildContent(ready);
+    return FutureBuilder<TgsModel>(
+      future: lease.future,
+      initialData: lease.ready,
+      builder: (context, snapshot) {
+        final model = lease.ready;
+        if (snapshot.hasError) {
+          return const Center(child: Icon(Icons.error_outline));
+        }
+        if (model == null) return const SizedBox.shrink();
+        return _buildContent(model);
+      },
+    );
+  }
 }
 
 class _AnimatedSticker extends StatefulWidget {
   const _AnimatedSticker({
     required this.model,
     required this.clock,
+    this.width,
+    this.height,
     required this.animate,
     this.maximumFrameRate,
     this.rasterCache,
   });
   final TgsModel model;
   final StickerClock clock;
+  final double? width, height;
   final bool animate;
   final double? maximumFrameRate;
   final FastLottieRasterCache? rasterCache;
@@ -492,6 +515,8 @@ class _AnimatedStickerState extends State<_AnimatedSticker> {
           child: FastLottie(
             composition: widget.model.fast!,
             controller: progress,
+            width: widget.width,
+            height: widget.height,
             cache: FastLottieCache.none,
             rasterCache: widget.rasterCache,
             rasterMode: widget.animate
@@ -504,6 +529,8 @@ class _AnimatedStickerState extends State<_AnimatedSticker> {
       : Lottie(
           composition: widget.model.reference!,
           controller: progress,
+          width: widget.width,
+          height: widget.height,
           frameRate: FrameRate.composition,
           fit: BoxFit.contain,
           renderCache: widget.rasterCache == null ? null : RenderCache.raster,

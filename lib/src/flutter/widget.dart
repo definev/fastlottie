@@ -207,8 +207,13 @@ class FastLottie extends _FastLottieWidget {
 
 class _FastLottieState extends State<FastLottie>
     with SingleTickerProviderStateMixin {
-  late FastLottiePlayer _player;
-  late final AnimationController _controller;
+  FastLottiePlayer? _playerInstance;
+  FastLottiePlayer get _player => _playerInstance!;
+  AnimationController? _controllerInstance;
+  AnimationController get _controller => _controllerInstance ??= AnimationController(
+    vsync: this,
+    duration: widget.composition.duration,
+  );
   late final _FrameRepaint _repaint;
   bool _reducedMotion = false;
   FastLottiePlayback _playback = FastLottiePlayback.active;
@@ -249,20 +254,6 @@ class _FastLottieState extends State<FastLottie>
   @override
   void initState() {
     super.initState();
-    final effectiveRaster = _resolveRasterCache();
-    _player = FastLottiePlayer(
-      widget.composition,
-      cache: widget.cache,
-      rasterCache: effectiveRaster,
-      rasterMode: _rasterMode,
-      resolutionScale: widget.resolutionScale,
-      maximumFrameRate: widget.maximumFrameRate,
-    );
-    _controller = AnimationController(
-      vsync: this,
-      duration: widget.composition.duration,
-    );
-    _repaint = _FrameRepaint(_player, animation, widget.useFrameRate, false);
   }
 
   @override
@@ -270,10 +261,22 @@ class _FastLottieState extends State<FastLottie>
     super.didChangeDependencies();
     _reducedMotion = MediaQuery.disableAnimationsOf(context);
     final nextPlayback = FastLottiePlaybackScope.of(context);
-    if (nextPlayback != _playback) {
-      final previous = _player;
+    if (_playerInstance == null) {
       _playback = nextPlayback;
-      _player = FastLottiePlayer(
+      final effectiveRaster = _resolveRasterCache();
+      _playerInstance = FastLottiePlayer(
+        widget.composition,
+        cache: widget.cache,
+        rasterCache: effectiveRaster,
+        rasterMode: _rasterMode,
+        resolutionScale: widget.resolutionScale,
+        maximumFrameRate: widget.maximumFrameRate,
+      );
+      _repaint = _FrameRepaint(_player, animation, widget.useFrameRate, false);
+    } else if (nextPlayback != _playback) {
+      final previous = _playerInstance!;
+      _playback = nextPlayback;
+      _playerInstance = FastLottiePlayer(
         widget.composition,
         cache: widget.cache,
         rasterCache: previous.rasterCache,
@@ -288,13 +291,26 @@ class _FastLottieState extends State<FastLottie>
         widget.controller == null && _reducedMotion,
       );
       previous.dispose();
+    } else {
+      _repaint.update(
+        _player,
+        _paintAnimation,
+        widget.useFrameRate,
+        widget.controller == null && _reducedMotion,
+      );
     }
-    _repaint.update(
-      _player,
-      _paintAnimation,
-      widget.useFrameRate,
-      widget.controller == null && _reducedMotion,
-    );
+    if (_playback != FastLottiePlayback.hidden && _player.rasterCache != null) {
+      final target = Size(
+        widget.width ?? widget.composition.width,
+        widget.height ?? widget.composition.height,
+      );
+      _player.prewarm(
+        destinationSize: target,
+        fit: widget.fit,
+        alignment: widget.alignment,
+        devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      );
+    }
     _play();
   }
 
@@ -304,7 +320,7 @@ class _FastLottieState extends State<FastLottie>
         !widget.animate ||
         _reducedMotion ||
         widget.composition.isStatic) {
-      _controller.stop();
+      _controllerInstance?.stop();
     } else if (widget.repeat) {
       if (!_controller.isAnimating || !_repeating) _controller.repeat();
     } else if (!_controller.isCompleted) {
@@ -343,7 +359,7 @@ class _FastLottieState extends State<FastLottie>
       }
 
       final previousPlayer = _player;
-      _player = FastLottiePlayer(
+      _playerInstance = FastLottiePlayer(
         widget.composition,
         cache: widget.cache,
         rasterCache: nextRaster,
@@ -361,10 +377,10 @@ class _FastLottieState extends State<FastLottie>
       if (wasUsingDefault && !_usesDefaultPipeline) {
         DefaultRasterCacheScope.release();
       }
-      if (oldWidget.composition != widget.composition) {
-        _controller.stop();
-        _controller.duration = widget.composition.duration;
-        _controller.value = 0;
+      if (oldWidget.composition != widget.composition && _controllerInstance != null) {
+        _controllerInstance!.stop();
+        _controllerInstance!.duration = widget.composition.duration;
+        _controllerInstance!.value = 0;
       }
     } else {
       _repaint.update(
@@ -380,8 +396,8 @@ class _FastLottieState extends State<FastLottie>
   @override
   void dispose() {
     _repaint.dispose();
-    _player.dispose();
-    _controller.dispose();
+    _playerInstance?.dispose();
+    _controllerInstance?.dispose();
     if (_usesDefaultPipeline) {
       _usesDefaultPipeline = false;
       DefaultRasterCacheScope.release();

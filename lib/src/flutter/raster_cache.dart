@@ -55,6 +55,7 @@ class FastLottieRasterCache {
     this.framesPerStrip,
     this.progressiveFirstFrame = true,
     this.maximumDuplicateFrameBytes = 1024 * 1024,
+    this.allowUiVectorFallback = true,
     String? diskCacheDirectory,
     int? workerCount,
   }) {
@@ -124,6 +125,10 @@ class FastLottieRasterCache {
   /// from GPU and compressed cache budgets.
   /// Only the last result per entry is retained; oversized results bypass it.
   final int maximumDuplicateFrameBytes;
+
+  /// When false, cold frames waiting for worker delivery do not fall back to
+  /// synchronous vector rasterization on the Flutter UI thread.
+  final bool allowUiVectorFallback;
 
   /// Host bytes retained for duplicate upload detection.
   int get duplicateFrameBytes => _coordinator.duplicateFrameBytes;
@@ -587,6 +592,11 @@ class FastLottieRasterCache {
     Size size,
     double relative,
   ) => _coordinator.lookup(player, size, relative);
+
+  void _prewarm(FastLottiePlayer player, Size size) {
+    if (_disposed || !_enabled || lastError != null) return;
+    _coordinator.prewarm(player, size);
+  }
 
   void _failed(Object error) {
     lastError = error;

@@ -101,13 +101,17 @@ Future<Map<String, dynamic>> profile(
         )
       : null;
   final ticker = Ticker((_) {
-    drag?.update(
-      DragUpdateDetails(
-        globalPosition: Offset.zero,
-        delta: const Offset(0, -24),
-        primaryDelta: -24,
-      ),
-    );
+    if (drag != null) {
+      drag.update(
+        DragUpdateDetails(
+          globalPosition: Offset.zero,
+          delta: const Offset(0, -24),
+          primaryDelta: -24,
+        ),
+      );
+    } else if (forceVsync) {
+      WidgetsBinding.instance.scheduleFrame();
+    }
   });
   if (forceVsync) ticker.start();
   try {

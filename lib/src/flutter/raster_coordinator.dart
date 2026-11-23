@@ -204,6 +204,49 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     return _stripStartFor(entry, next);
   }
 
+  void prewarm(FastLottiePlayer player, Size rawPixels) {
+    if (!cache._enabled || cache.lastError != null || player.isDisposed) return;
+    final pw = math.max(1, (rawPixels.width - 1e-4).ceil());
+    final ph = math.max(1, (rawPixels.height - 1e-4).ceil());
+    final keySize = Size(pw.toDouble(), ph.toDouble());
+    final c = player.composition;
+    final poster = player.rasterMode == FastLottieRasterMode.poster;
+    final rateKey = poster || c.isStatic
+        ? 0
+        : cache._rateKey(c, player.maximumFrameRate);
+
+    var entry = player._rasterEntry;
+    if (entry == null ||
+        entry.retired ||
+        entry.key.$2 != keySize ||
+        entry.key.$3 != poster ||
+        entry.key.$4 != rateKey) {
+      if (entry == null &&
+          player._rasterRejectedKey == (keySize, rateKey) &&
+          player._rasterRejectedGeneration == cache._admissionGeneration) {
+        return;
+      }
+      cache._release(player);
+      entry = cache._acquire(player, keySize);
+      player._rasterEntry = entry;
+      if (entry == null) {
+        player._rasterRejectedKey = (keySize, rateKey);
+        player._rasterRejectedGeneration = cache._admissionGeneration;
+        return;
+      } else {
+        player._rasterRejectedKey = null;
+      }
+    }
+    if (entry.renderingImage != null || entry.retired) return;
+    workerPool.touchDiskEntry(entry.entryKey);
+    if (entry.inFlightStripStart < 0) {
+      final total = entry.totalFrames;
+      final stripStart = _stripStartFor(entry, 0);
+      final stripCount = _stripCountFor(entry, stripStart, total);
+      _requestStrip(entry, stripStart, stripCount, highPriority: false);
+    }
+  }
+
   (ui.Image?, _RasterEntry?, int) lookup(
     FastLottiePlayer player,
     Size rawPixels,
