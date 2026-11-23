@@ -139,6 +139,17 @@ class FastLottiePlayer extends ChangeNotifier {
   int _rasterGeneration = 0;
   final _rasterPaint = Paint()..filterQuality = FilterQuality.none;
 
+  // Memoized layout bounds to eliminate per-frame GC allocations during playback.
+  Rect? _layoutDestination;
+  BoxFit? _layoutFit;
+  Alignment? _layoutAlignment;
+  double? _layoutDpr;
+  double? _layoutScale;
+  late FittedSizes _layoutFitted;
+  late Rect _layoutSource;
+  late Rect _layoutTarget;
+  Size? _layoutPixels;
+
   /// Allocated raster resolution in physical pixels, or null before preparation/admission.
   Size? get rasterSize {
     final frames = _rasterFrames;
@@ -327,9 +338,30 @@ class FastLottiePlayer extends ChangeNotifier {
         : rasterRelative;
     final shared = rasterCache;
     final frame = c.startFrame + relative;
-    final fitted = applyBoxFit(fit, c.size, destination.size);
-    final source = alignment.inscribe(fitted.source, Offset.zero & c.size);
-    final target = alignment.inscribe(fitted.destination, destination);
+    final FittedSizes fitted;
+    final Rect source;
+    final Rect target;
+    if (_layoutDestination == destination &&
+        _layoutFit == fit &&
+        _layoutAlignment == alignment) {
+      fitted = _layoutFitted;
+      source = _layoutSource;
+      target = _layoutTarget;
+    } else {
+      fitted = _layoutFitted = applyBoxFit(fit, c.size, destination.size);
+      source = _layoutSource = alignment.inscribe(
+        fitted.source,
+        Offset.zero & c.size,
+      );
+      target = _layoutTarget = alignment.inscribe(
+        fitted.destination,
+        destination,
+      );
+      _layoutDestination = destination;
+      _layoutFit = fit;
+      _layoutAlignment = alignment;
+      _layoutPixels = null;
+    }
     final raster = _rasterFrames;
     if (raster != null && useFrameRate) {
       final index = c.isStatic ? 0 : relative.toInt();
@@ -352,10 +384,19 @@ class FastLottiePlayer extends ChangeNotifier {
     if (shared != null && useFrameRate) {
       _checkPositiveFinite(devicePixelRatio, 'devicePixelRatio');
       final scale = resolutionScale ?? shared.resolutionScale;
-      final pixels = Size(
-        c.width * target.width / source.width * devicePixelRatio * scale,
-        c.height * target.height / source.height * devicePixelRatio * scale,
-      );
+      final Size pixels;
+      if (_layoutPixels != null &&
+          _layoutDpr == devicePixelRatio &&
+          _layoutScale == scale) {
+        pixels = _layoutPixels!;
+      } else {
+        pixels = _layoutPixels = Size(
+          c.width * target.width / source.width * devicePixelRatio * scale,
+          c.height * target.height / source.height * devicePixelRatio * scale,
+        );
+        _layoutDpr = devicePixelRatio;
+        _layoutScale = scale;
+      }
       final (image, entry, slotOffsetY) = shared._lookup(
         this,
         pixels,
@@ -380,6 +421,7 @@ class FastLottiePlayer extends ChangeNotifier {
           );
           if (_pictures.isEmpty) {
             _sceneState = null;
+            composition.discardPreparedScene();
           }
           return;
         } catch (error) {
@@ -434,6 +476,8 @@ class FastLottiePlayer extends ChangeNotifier {
     }
     _rasterFrames = null;
     _rasterSize = null;
+    _layoutDestination = null;
+    _layoutPixels = null;
     for (final picture in _pictures.values) {
       picture.dispose();
     }

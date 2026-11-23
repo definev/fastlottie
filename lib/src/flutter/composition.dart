@@ -200,6 +200,12 @@ class FastLottieComposition {
     _preparedScene ??= _template.fork(warm: true);
   }
 
+  /// Discards any pre-forked scene instance to free memory when using raster playback.
+  /// Subsequent vector playback requests will fork lazily from the immutable template.
+  void discardPreparedScene() {
+    _preparedScene = null;
+  }
+
   @visibleForTesting
   /// Whether first-player state has already been prepared.
   bool get debugHasPreparedScene => _preparedScene != null;

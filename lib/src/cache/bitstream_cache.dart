@@ -90,8 +90,8 @@ class BitstreamStore {
     String? diskCacheDirectory,
     this._maximumRamBytes = 4 * 1024 * 1024,
     this.maximumOpenFiles = 16,
-    this.useNativeDecoder = false,
-    this.useNativeEncoder = false,
+    this.useNativeDecoder = true,
+    this.useNativeEncoder = true,
     this.readStats,
   }) : _diskDir = (diskCacheDirectory == null || diskCacheDirectory.isEmpty)
            ? null

@@ -3,6 +3,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#endif
+
 #if defined(_WIN32)
 #define FL_EXPORT __declspec(dllexport)
 #else
@@ -424,8 +430,81 @@ static void fl_fill_solid(const int32_t *spans, int32_t count,
     if (!src) continue;
     const int32_t y = (int32_t)(xy >> 16) - origin_y;
     const int32_t x = (int32_t)(xy & 65535) - origin_x;
+    const int32_t len = (int32_t)(run >> 8);
     uint32_t *row = dst + (int64_t)y * stride + x;
-    for (uint32_t p = 0; p < (run >> 8); ++p) row[p] = fl_src_over(src, row[p]);
+    const uint32_t sa = src >> 24;
+
+    if (sa == 255) {
+      int32_t p = 0;
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+      uint32x4_t val4 = vdupq_n_u32(src);
+      for (; p <= len - 4; p += 4) {
+        vst1q_u32(row + p, val4);
+      }
+#elif defined(__SSE2__) || defined(_M_X64)
+      __m128i val4 = _mm_set1_epi32((int)src);
+      for (; p <= len - 4; p += 4) {
+        _mm_storeu_si128((__m128i*)(row + p), val4);
+      }
+#endif
+      for (; p < len; ++p) {
+        row[p] = src;
+      }
+    } else {
+      const uint32_t ia = 255 - sa;
+      int32_t p = 0;
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+      if (len >= 4) {
+        uint8x16_t s16 = vreinterpretq_u8_u32(vdupq_n_u32(src));
+        uint8x8_t ia8 = vdup_n_u8((uint8_t)ia);
+        uint16x8_t c128 = vdupq_n_u16(128);
+
+        for (; p <= len - 4; p += 4) {
+          uint8x16_t d16 = vld1q_u8((const uint8_t*)(row + p));
+          uint16x8_t prod_lo = vmlal_u8(c128, vget_low_u8(d16), ia8);
+          uint16x8_t prod_hi = vmlal_u8(c128, vget_high_u8(d16), ia8);
+
+          uint16x8_t term_lo = vaddq_u16(prod_lo, vshrq_n_u16(prod_lo, 8));
+          uint16x8_t term_hi = vaddq_u16(prod_hi, vshrq_n_u16(prod_hi, 8));
+
+          uint8x8_t res_lo = vshrn_n_u16(term_lo, 8);
+          uint8x8_t res_hi = vshrn_n_u16(term_hi, 8);
+
+          uint8x16_t out16 = vaddq_u8(s16, vcombine_u8(res_lo, res_hi));
+          vst1q_u8((uint8_t*)(row + p), out16);
+        }
+      }
+#elif defined(__SSE2__) || defined(_M_X64)
+      if (len >= 4) {
+        __m128i s16 = _mm_set1_epi32((int)src);
+        __m128i ia16 = _mm_set1_epi16((short)ia);
+        __m128i c128 = _mm_set1_epi16(128);
+        __m128i zero = _mm_setzero_si128();
+
+        for (; p <= len - 4; p += 4) {
+          __m128i d16 = _mm_loadu_si128((const __m128i*)(row + p));
+          __m128i d_lo = _mm_unpacklo_epi8(d16, zero);
+          __m128i d_hi = _mm_unpackhi_epi8(d16, zero);
+
+          __m128i prod_lo = _mm_add_epi16(_mm_mullo_epi16(d_lo, ia16), c128);
+          __m128i prod_hi = _mm_add_epi16(_mm_mullo_epi16(d_hi, ia16), c128);
+
+          __m128i term_lo = _mm_add_epi16(prod_lo, _mm_srli_epi16(prod_lo, 8));
+          __m128i term_hi = _mm_add_epi16(prod_hi, _mm_srli_epi16(prod_hi, 8));
+
+          __m128i res_lo = _mm_srli_epi16(term_lo, 8);
+          __m128i res_hi = _mm_srli_epi16(term_hi, 8);
+
+          __m128i res8 = _mm_packus_epi16(res_lo, res_hi);
+          __m128i out16 = _mm_add_epi8(s16, res8);
+          _mm_storeu_si128((__m128i*)(row + p), out16);
+        }
+      }
+#endif
+      for (; p < len; ++p) {
+        row[p] = fl_src_over(src, row[p]);
+      }
+    }
   }
 }
 
