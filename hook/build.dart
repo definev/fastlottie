@@ -1,6 +1,6 @@
 import 'package:code_assets/code_assets.dart';
 import 'package:data_assets/data_assets.dart';
-import 'package:fastlottie/src/c_library.dart';
+import 'package:fastlottie/src/platform/c_library.dart';
 import 'package:hooks/hooks.dart';
 
 import 'wasm.dart';

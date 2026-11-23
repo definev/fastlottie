@@ -41,7 +41,11 @@ void _check(bool condition, String message) {
 }
 
 Future<void> _checkWorkerPool(FastLottieComposition composition) async {
-  final cache = FastLottieRasterCache(framesPerStrip: 2, workerCount: 2);
+  final cache = FastLottieRasterCache(
+    framesPerStrip: 2,
+    workerCount: 2,
+    progressiveFirstFrame: false,
+  );
   final players = [
     for (var i = 0; i < 8; i++)
       FastLottiePlayer(
@@ -76,6 +80,8 @@ Future<void> _checkWorkerPool(FastLottieComposition composition) async {
 
   try {
     drawAll(0);
+    // Requests queued behind a busy shard are dispatched in a microtask.
+    await Future<void>.value();
     if (_requireBrowserWorker) {
       _check(cache.workerDispatches == 2, 'Expected two simultaneous jobs');
     }
@@ -97,6 +103,7 @@ Future<void> _checkWorkerPool(FastLottieComposition composition) async {
     await drain();
     final dispatched = cache.workerDispatches;
     drawAll(8);
+    await Future<void>.value();
     _check(
       cache.workerDispatches - dispatched == (_requireBrowserWorker ? 2 : 1),
       'Unexpected number of jobs in flight after startup',
@@ -229,7 +236,11 @@ Future<FastLottieComposition> _gradientIcon() async {
 }
 
 Future<void> _checkMiniStrip(FastLottieComposition composition) async {
-  final cache = FastLottieRasterCache(framesPerStrip: 4, workerCount: 1);
+  final cache = FastLottieRasterCache(
+    framesPerStrip: 4,
+    workerCount: 1,
+    progressiveFirstFrame: false,
+  );
   final player = FastLottiePlayer(
     composition,
     rasterCache: cache,

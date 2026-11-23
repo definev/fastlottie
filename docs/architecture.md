@@ -19,9 +19,9 @@ flowchart TB
 
     subgraph Compile["2. Biên dịch & Chuẩn hóa (Off-UI Isolate via compute)"]
         COMP["compiler.dart: _Compiler\nFail-fast whitelist schema check\nBiên dịch tĩnh Expression & Layer Control\nXây dựng DAG (_Layer, _Group, _Style, _Trim)"]
-        TRACK["track.dart: _Keyframes & _Track\nĐóng gói Columnar TypedData (times, metadata, values, easing)\nPad stride bội số 4 cho Float32x4 SIMD (mặc định bật)\nBảng LUT sRGB <-> Linear & _SpatialCurve (129 mẫu)"]
+        TRACK["track.dart: Keyframes & Track\nĐóng gói Columnar TypedData (times, metadata, values, easing)\nPad stride bội số 4 cho Float32x4 SIMD (mặc định bật)\nBảng LUT sRGB <-> Linear & _SpatialCurve (129 mẫu)"]
         HASH["content_key.dart: _ContentKeyHasher\nBăm 128-bit định danh toàn bộ cây scene\n(contentKey độc lập Isolate/phiên chạy)"]
-        FORK["fork.dart: _Fork(warm: true)\nNhân bản trạng thái mutable (_cursor, output buffer)\nChia sẻ 100% _Keyframes bất biến, 0 đối tượng dart:ui"]
+        FORK["fork.dart: _Fork(warm: true)\nNhân bản trạng thái mutable (_cursor, output buffer)\nChia sẻ 100% Keyframes bất biến, 0 đối tượng dart:ui"]
         DEC -->|"json.fuse(utf8)"| COMP
         COMP --> TRACK
         COMP --> HASH
@@ -30,7 +30,7 @@ flowchart TB
 
     subgraph Runtime["3. Điều phối trên UI Isolate (Player & Widget Layer)"]
         WIDGET["widget.dart: FastLottie / FastLottieNetwork / FastLottieView\nRepaintBoundary + _FastPainter + _FrameRepaint\nChỉ thông báo vẽ lại khi mẫu frame thực sự đổi"]
-        PLAYER["fastlottie.dart: FastLottiePlayer.draw()\nTính toán BoxFit + DPR + Frame Quantization"]
+        PLAYER["player.dart: FastLottiePlayer.draw()\nTính toán BoxFit + DPR + Frame Quantization"]
         FORK -->|"Isolate.exit (Zero-copy)"| WIDGET
         WIDGET --> PLAYER
     end
@@ -50,7 +50,7 @@ flowchart TB
         SHARD["Sharding theo FNV-1a(entryKey) % workerCount\n(2..4 persistent Isolates, giao tiếp bằng TransferableTypedData)"]
         BITSTREAM["bitstream_cache.dart: BitstreamStore\nL1: Compressed RAM LRU (chia theo worker)\nL2: File đĩa append-only .flcache (Header FLC1 + Index + CRC31)"]
         LZ4["lz4.dart: Lz4Codec & Lz4Scratch\nNén/Giải nén LZ4 thuần Dart, 0 cấp phát bộ nhớ\nFast-path cho pixel 32-bit lặp lại (offset == 4)"]
-        SWRAST["software_scene.dart: _renderSceneSoftware()\nLàm phẳng Bézier thích ứng -> _PolyPath (SoA)\n_expandStroke & _applyDash -> _FtScanlineRasterizer (24.8 fixed-point)\n_RleSpans -> _SwarBlender (64-bit SWAR Premultiplied BGRA8888)"]
+        SWRAST["software_scene.dart: _renderSceneSoftware()\nLàm phẳng Bézier thích ứng -> PolyPath (SoA)\n_expandStroke & _applyDash -> FtScanlineRasterizer (24.8 fixed-point)\nRleSpans -> SwarBlender (64-bit SWAR Premultiplied BGRA8888)"]
         
         TIER2 <-->|"Yêu cầu frame / Nhận BGRA8888\nui.decodeImageFromPixels"| SHARD
         SHARD --> BITSTREAM
@@ -71,10 +71,10 @@ sequenceDiagram
     participant Repaint as _FrameRepaint
     participant Player as FastLottiePlayer
     participant PP as _RasterCoordinator
-    participant Pool as _RasterWorkerPool (Host)
+    participant Pool as RasterWorkerPool (Host)
     participant Worker as Worker Isolate (Shard k)
     participant Store as BitstreamStore + LZ4
-    participant RLE as _FtScanlineRasterizer + SWAR
+    participant RLE as FtScanlineRasterizer + SWAR
 
     Ticker->>Repaint: tick() (ví dụ: 60Hz/120Hz)
     Repaint->>Player: _relativeSample(progress)
@@ -118,10 +118,13 @@ sequenceDiagram
 
 ## 3. Phân tích Lựa chọn Kiến trúc Chi tiết
 
-### 3.1. Hai Library (`part` / `part of`) & Trừu tượng hóa Nền tảng
-- **`lib/fastlottie.dart`**: Library phía Flutter chứa composition/player và các `part` quản lý widget, raster cache, worker pool, ping-pong, software session. Đây là nơi quản lý vòng đời `ui.Image`, repaint và giao tiếp với worker.
-- **`lib/src/raster_core.dart`**: Library biên dịch và kết xuất dùng chung cho Flutter và browser worker. Các `part` gồm compiler, expressions, track, scene, fork, gradient, path ops, software rasterizer và raster worker. `RasterScene` cung cấp thao tác compile/fork/draw cùng metadata; `renderSceneSoftware` là điểm vào kết xuất pixel. Conditional import `raster_flutter_canvas.dart` / `raster_no_canvas.dart` cho phép browser worker dùng core mà không phụ thuộc `dart:ui`.
-- **Giữ private trong từng library**: `part` cho phép các thuật toán liên quan dùng chung trạng thái nội bộ mà không phải mở rộng public API. Khi thêm logic, đặt nó vào library sở hữu dữ liệu và vòng đời tương ứng; không đưa phụ thuộc Flutter vào compiler hoặc software worker.
+### 3.1. Các library và phụ thuộc nền tảng
+
+- **`lib/fastlottie.dart`** xuất các kiểu Flutter và các hàm public. Trong `lib/src/flutter/`, `composition.dart` tải và biên dịch scene, `widget.dart` quản lý widget và repaint, còn `player.dart` quản lý playback và vòng đời `ui.Image` cùng các part cache/coordinator.
+- **`lib/src/worker/`** quản lý request và tạo pixel. Coordinator chuyển scene đã biên dịch, thông tin frame và context của request cho `RasterWorkerPool`. Pool trả lại context cùng kết quả để coordinator quyết định có cài ảnh hay bỏ qua frame cũ. `softwareWorkerEntry` giữ workspace, đọc/ghi cache và gọi raster core. Browser adapter chuyển giữa record Dart và wire format web.
+- **`lib/src/raster/raster_core.dart`** sở hữu scene graph nội bộ và cung cấp `RasterScene`, `RasterWorkspace` và `renderSceneSoftware`. Compiler, scene, snapshot và phần duyệt scene dùng chung các kiểu private trong library này. Track, hình học, scanline và blend có library riêng. Conditional import `raster_flutter_canvas.dart` / `raster_no_canvas.dart` cho phép browser worker dùng core khi thiếu `dart:ui`.
+- **`lib/src/cache/`**, **`network/`** và **`platform/`** chứa cache bitstream, tải nguồn và adapter nền tảng tương ứng. Asset JS/Wasm nằm ở `lib/src/wasm/`.
+
 - **Conditional Imports cho Đa nền tảng (Native IO vs Web)**:
   - `isolate_io.dart` / `isolate_stub.dart`: Trên Native sử dụng `Isolate.spawn` và `TransferableTypedData` (chuyển vùng nhớ BGRA8888 zero-copy từ worker về UI); trên Web fallback về `StreamController` nội cục.
   - `platform_io.dart` / `platform_stub.dart`: Cung cấp `RandomAccessFile` đồng bộ (`PlatformFileHandle`) cho worker isolate đọc/ghi trực tiếp theo offset trong file `.flcache`.
@@ -134,11 +137,11 @@ sequenceDiagram
 - **Tham chiếu path (`_ShapePathCompiler`)**: Cùng nằm trong `expressions.dart`, nhưng xử lý sau khi nhận diện expression của shape path. Nó chia sẻ geometry đã biên dịch theo identity, giữ transform/style riêng cho từng shape và phát hiện tham chiếu vòng; resolver thuộc tính không thay thế JSON của loại expression này.
 - **Đồ thị phi chu trình (DAG) cho Trim Paths (`_Shape` & `_TrimPart`)**: Trong chuẩn Lottie, một modifier `tm` (`_Trim`) có thể tác động lên các shape đã được khai báo và bắt vào `_Style` ở phía trên hoặc nằm trong nhóm lồng nhau. Compiler bọc mọi hình học trong lớp vỏ đại diện `_Shape`. Khi gặp `tm`, compiler đóng băng danh sách nội dung gốc vào `trim.inputs`, rồi thay thế nội dung của từng `_Shape` bằng `_TrimPart(trim, n)`. Đồ thị sau biên dịch là một DAG thuần Dart, không chứa đối tượng `dart:ui` và không cần duyệt lại cây layer lúc vẽ.
 
-### 3.3. Bố cục Dữ liệu Kiểu Cột (Columnar Layout) & Nội suy SIMD trong `_Track`
+### 3.3. Bố cục Dữ liệu Kiểu Cột (Columnar Layout) & Nội suy SIMD trong `Track`
 Xem thêm số đo chi tiết tại [data-layout.md](data-layout.md).
-- **Ghi trực tiếp vào các cột keyframe**: Compiler đọc header để tính kích thước buffer rồi giải mã giá trị và easing vào các mảng `TypedData` của `_Keyframes`:
+- **Ghi trực tiếp vào các cột keyframe**: Compiler đọc header để tính kích thước buffer rồi giải mã giá trị và easing vào các mảng `TypedData` của `Keyframes`:
   1. `Float64List times`: Cột thời gian tách rời. Tìm kiếm nhị phân chỉ đọc mảng này trong L1 cache mà không chạm vào dữ liệu tọa độ.
-  2. **Con trỏ thời gian `_cursor` $O(1)$**: `_Track.at(frame)` lưu lại chỉ số đoạn keyframe của lần lấy mẫu trước. Khi phát tuần tự, phép kiểm tra `frame >= times[_cursor] && frame < times[_cursor + 1]` trúng ngay trong $O(1)$ mà không cần binary search.
+  2. **Con trỏ thời gian `_cursor` $O(1)$**: `Track.at(frame)` lưu lại chỉ số đoạn keyframe của lần lấy mẫu trước. Khi phát tuần tự, phép kiểm tra `frame >= times[_cursor] && frame < times[_cursor + 1]` trúng ngay trong $O(1)$ mà không cần binary search.
   3. `Int32List metadata`: Đóng gói 3 cột có độ dài `count` nối tiếp nhau:
      - `[0 .. count)`: Cờ bit (`holdFlag = 1`, `endFlag = 2`, `tangentFlag = 4`, `linearFlag = 8`) và số lượng đường cong easing (`easeCount = flags >> 4`).
      - `[count .. 2*count)`: `endOffset` đã giải quyết sẵn (nếu keyframe không có `e` riêng, nó trỏ thẳng tới `start` của keyframe kế tiếp mà không nhân đôi dữ liệu).
@@ -153,7 +156,7 @@ Xem thêm số đo chi tiết tại [data-layout.md](data-layout.md).
 - **An toàn Isolate & Zero Re-parse**: `FastLottieComposition._template` là cây `_Compiler` bất biến, hoàn toàn không chứa đối tượng `dart:ui` (`Path`, `Paint`, `Shader`), nhờ đó `fromBytesAsync` / `loadAsset` / `loadNetwork` có thể giải nén GZip, parse JSON (`json.fuse(utf8)`) và biên dịch trên worker rồi trả thẳng đồ thị đối tượng về UI isolate qua `Isolate.exit` (không cần serialize lại sang JSON).
 - **Khởi động trước trên Worker (`prepareForPlayback`)**: Ngay trên worker giải mã, `prepareForPlayback()` tính sẵn khóa băm `contentKey` và tạo trước một bản sao `_preparedScene = _Fork(warm: true).scene(_template)`, đồng thời đánh giá (prime) toàn bộ các cờ `late final bool isStatic`, `isPathStatic`, `isSpatialStatic`, `isTranslationOnly`, `isSpatialIdentity`.
 - **Chia sẻ Bộ nhớ & Khởi tạo Lazy**:
-  - Player đầu tiên cần vẽ vector nhận ngay `_preparedScene`. Các player tiếp theo gọi `_Fork().scene(_template)` để tạo các node trạng thái nhẹ. Track động có `_cursor` và `Float32List output` riêng, nhưng chia sẻ `_Keyframes`; track hằng dùng chung cả đối tượng `_Track`, vì `at()` trả thẳng mẫu bất biến và không cập nhật trạng thái. Chuẩn hóa RGB và cờ gamma phải hoàn tất trước khi fork.
+  - Player đầu tiên cần vẽ vector nhận ngay `_preparedScene`. Các player tiếp theo gọi `_Fork().scene(_template)` để tạo các node trạng thái nhẹ. Track động có `_cursor` và `Float32List output` riêng, nhưng chia sẻ `Keyframes`; track hằng dùng chung cả đối tượng `Track`, vì `at()` trả thẳng mẫu bất biến và không cập nhật trạng thái. Chuẩn hóa RGB và cờ gamma phải hoàn tất trước khi fork.
   - Khi một player vẽ qua `FastLottieRasterCache` (chế độ mặc định), thuộc tính `_scene` của player là lazy — nếu frame đã có trong cache raster, player **thậm chí không cần fork cây scene trên UI isolate**.
 - **Băm định danh nội dung 128-bit (`_ContentKeyHasher`)**: Duyệt toàn bộ cấu trúc `_Compiler` (kích thước, tốc độ khung hình, các layer, transform, track, hình học, style, gradient, dash, precomp) bằng 4 thanh ghi trạng thái 32-bit nhân xoay để sinh ra chuỗi hex 32 ký tự `contentKey` hoàn toàn tất định giữa mọi Isolate, phiên chạy ứng dụng và nền tảng (IO/Web).
 
@@ -166,7 +169,7 @@ Khi `FastLottiePlayer.draw()` được gọi, nó lựa chọn đường ống t
    - Khi vẽ chỉ tốn một lệnh `canvas.drawImageRect` với `FilterQuality.none`.
 
 2. **Tier B (Mặc định khi `usePipeline: true`) — Shared Ping-Pong Pipeline (`FastLottieRasterCache`)**:
-   - Mặc định widget `FastLottie` tự động mượn một instance `FastLottieRasterCache` dùng chung có đếm tham chiếu qua `_DefaultRasterCacheScope`.
+   - Mặc định widget `FastLottie` tự động mượn một instance `FastLottieRasterCache` dùng chung có đếm tham chiếu qua `DefaultRasterCacheScope`.
    - **Double-Buffered `ui.Image`**: Mỗi `_RasterEntry` (định danh bởi `(contentKey, pixelSize, poster, rateKey)`) chỉ giữ tối đa **2 texture GPU** tại một thời điểm: `renderingImage` (front buffer đang vẽ) và `backgroundImage` (back buffer chứa frame kế tiếp `(index + 1) % total` đã được worker giải mã trước).
    - Khi sang frame kế tiếp, `_RasterCoordinator.lookup` chỉ thực hiện hoán đổi con trỏ `renderingImage = backgroundImage` trong $O(1)$ và phát lệnh prefetch cho frame tiếp theo.
    - **Deduplication nhiều Player**: Nếu nhiều widget trên màn hình phát cùng một sticker ở cùng kích thước và tốc độ, tất cả đều gắn vào cùng một `_RasterEntry`, dùng chung cặp texture GPU và chỉ tốn 1 luồng giải mã.
@@ -185,26 +188,26 @@ Khi `FastLottiePlayer.draw()` được gọi, nó lựa chọn đường ống t
      - **Cắt tỉa Matte bằng `worldBounds`**: Chỉ những layer có `matte` mới dùng hai lệnh `canvas.saveLayer` (`BlendMode.dstIn` / `dstOut`, kèm `ColorFilter.matrix` cho Luma matte). Trước khi gọi `saveLayer`, `_Compiler.draw` tính giao điểm khung bao thế giới (`worldBounds`) giữa target và matte: nếu không giao nhau (với `dstIn`) thì bỏ qua hoàn toàn; nếu giao nhau thì chỉ cấp phát `saveLayer` đúng bằng vùng bao hợp nhỏ nhất (mở rộng 1px cho khử răng cưa).
 
 ### 3.6. Trình Kết xuất Phần mềm Thuần Dart (`software_scene.dart`)
-Vì các đối tượng `dart:ui` (`Canvas`, `Path`, `Picture`) không thể khởi tạo hay sử dụng trên Background Isolate thông thường của Dart, `fastlottie` cài đặt một trình kết xuất đồ họa vector 2D phần mềm hoàn chỉnh để chạy trên `_RasterWorkerPool`:
-1. **Làm phẳng Bézier thích ứng theo tỷ lệ màn hình (`_PolyPath`)**:
+Vì các đối tượng `dart:ui` (`Canvas`, `Path`, `Picture`) không thể khởi tạo hay sử dụng trên Background Isolate thông thường của Dart, `fastlottie` cài đặt một trình kết xuất đồ họa vector 2D phần mềm hoàn chỉnh để chạy trên `RasterWorkerPool`:
+1. **Làm phẳng Bézier thích ứng theo tỷ lệ màn hình (`PolyPath`)**:
    - Từ ma trận affine hiện hành, tính hệ số phóng đại thực tế `maxScale` để chọn sai số phẳng `localFlatness = (0.25 / maxScale).clamp(0.005, 1.5)`.
-   - Chia đôi đệ quy De Casteljau (`addCubic`, độ sâu tối đa 10) vào cấu trúc **Struct-of-Arrays (`_PolyPath`)** (`Float64List vx, vy`, `Int32List contourStart, contourEnd`, `Uint8List contourClosed`).
+   - Chia đôi đệ quy De Casteljau (`addCubic`, độ sâu tối đa 10) vào cấu trúc **Struct-of-Arrays (`PolyPath`)** (`Float64List vx, vy`, `Int32List contourStart, contourEnd`, `Uint8List contourClosed`).
    - Các đường dẫn tĩnh (`src.isPathStatic`) chỉ được làm phẳng một lần và lưu trong `ws.staticPaths` của từng worker.
 2. **Mở rộng nét vẽ (`_expandStroke`) & Nét đứt (`_applyDash`)**:
    - Sử dụng bộ đệm tái sử dụng `_StrokeScratch` (SoA `x, y, tx, ty`) để mở rộng đa giác nét vẽ với đầy đủ `butt`/`round`/`square` cap và `miter`/`round`/`bevel` join.
    - Tại các góc gấp phía trong (inner crease), đường bao đi xuyên qua tâm đỉnh `(vx, vy)` để quy tắc lấp đầy `NonZero` không tạo vết khuyết.
-3. **Bộ quét dòng kiểu FreeType (`_FtScanlineRasterizer` & `_RleSpans`)**:
+3. **Bộ quét dòng kiểu FreeType (`FtScanlineRasterizer` & `RleSpans`)**:
    - Chuyển đổi tọa độ sang số nguyên điểm cố định **24.8 fixed-point** (256 subpixels/pixel).
    - Cắt các cạnh đa giác qua lưới ô pixel, tích lũy độ che phủ (`_cellCover`) và diện tích hình thang (`_cellArea`) vào danh sách liên kết tĩnh theo từng hàng (`_rowHead`, `_cellX`, `_cellNext`), chỉ dọn dẹp dải dòng thực sự bị chạm tới (`_dirtyMinY .. _dirtyMaxY`).
-   - Pha quét (`sweep`) hỗ trợ cả quy tắc `NonZero` và `EvenOdd`, xuất ra danh sách đoạn ngang nén **Run-Length Encoding (`_RleSpans`)**, tự động gộp các pixel liền kề có cùng độ che phủ (`cov` từ `1..256`). Mỗi span được đóng gói vào đúng 2 từ 32-bit: `word0 = (y << 16) | x` và `word1 = (len << 8) | (cov - 1)`.
-4. **Bộ pha trộn 64-bit SWAR (`_SwarBlender`)**:
+   - Pha quét (`sweep`) hỗ trợ cả quy tắc `NonZero` và `EvenOdd`, xuất ra danh sách đoạn ngang nén **Run-Length Encoding (`RleSpans`)**, tự động gộp các pixel liền kề có cùng độ che phủ (`cov` từ `1..256`). Mỗi span được đóng gói vào đúng 2 từ 32-bit: `word0 = (y << 16) | x` và `word1 = (len << 8) | (cov - 1)`.
+4. **Bộ pha trộn 64-bit SWAR (`SwarBlender`)**:
    - Dùng kỹ thuật **SWAR (SIMD Within A Register)** để nhân alpha và trộn `SrcOver` đồng thời hai cặp kênh `R+B` (`0x00FF00FF`) và `A+G` (`0xFF00FF00`) trên số nguyên premultiplied BGRA8888.
    - Với các span đặc (`sa == 255`) dài $\ge 8$ pixels, gọi thẳng `dst.fillRange()` của VM.
    - Với **Linear & Radial Gradient**: Tạo bảng tra 1024 màu premultiplied BGRA8888 (`_evalGradientLut`, cache lại nếu gradient tĩnh). Trên mỗi span ngang của Linear Gradient, tọa độ chiếu $t$ chỉ cần cộng thêm một bước nhảy hằng số `t += dtx` cho từng pixel.
    - Với **Matte & Precomp**: Chỉ rasterize phần diện tích giao nhau thực tế (`mx0..mx1, my0..my1` cho `dstIn`) trên các bộ đệm tạm tái sử dụng theo độ sâu (`_acquireScratch`).
 
 ### 3.7. Lưu trữ Bitstream Hai Tầng (`BitstreamStore`), LZ4 & Sharded Worker Pool
-- **Sharding không khóa theo `FNV-1a(entryKey) % workerCount` (`_RasterWorkerPool`)**:
+- **Sharding không khóa theo `FNV-1a(entryKey) % workerCount` (`RasterWorkerPool`)**:
   - Pool khởi tạo `2..4` Worker Isolates bền vững (tùy số nhân CPU). Mọi yêu cầu cho cùng một `entryKey` luôn được định tuyến về cùng một shard.
   - Nhờ đó, mỗi file `.flcache` trên đĩa thuộc quyền đọc/ghi độc quyền của duy nhất một Worker Isolate, **không cần khóa file (file lock)** liên luồng, trong khi Host vẫn quản lý tổng dung lượng đĩa `_diskLru` (mặc định `128 MiB`) và ưu tiên giữ lại các file đang có player hoạt động (`activeKeys`).
 - **Bộ nén LZ4 thuần Dart không cấp phát bộ nhớ (`Lz4Codec` & `Lz4Scratch`)**:
@@ -233,32 +236,34 @@ Vì các đối tượng `dart:ui` (`Canvas`, `Path`, `Picture`) không thể kh
 
 | File mã nguồn | Vai trò kiến trúc cốt lõi |
 | :--- | :--- |
-| `lib/fastlottie.dart` | Public API: `FastLottieComposition`, `FastLottiePlayer`, `FastLottieCache`, `FastLottieOptions`, điều phối 3 tầng render trong `draw()`. |
+| `lib/fastlottie.dart` | Entry point public cho widget, composition, player, cache và tùy chọn. |
+| `lib/src/flutter/composition.dart` | Tải asset/bytes/network, biên dịch và giữ scene template. |
+| `lib/src/flutter/player.dart` | `FastLottiePlayer.draw()` điều phối ba đường render. |
 | `lib/decoding.dart` | `decodeLottieBytes()`: Phát hiện chữ ký GZip (`0x1f 0x8b`) cho `.tgs` và giải nén an toàn với giới hạn `maximumBytes` (16 MiB). |
-| `lib/src/raster_core.dart` | Library dùng chung cho Flutter/browser worker; `RasterScene` và `renderSceneSoftware` là các điểm vào. |
-| `lib/src/compiler.dart` | `_Compiler`: Kiểm tra schema, biên dịch track/mask/Layer Control, dựng layer/precomp và nối matte/parent. |
-| `lib/src/expressions.dart` | `_ExpressionResolver`, `_ShapePathCompiler`: Giải quyết expression thuộc tính và tham chiếu geometry, kiểm tra tham chiếu thiếu/trùng/vòng. |
-| `lib/src/track.dart` | `_Keyframes`, `_Track`, `_SpatialCurve`: Lưu trữ keyframe dạng cột, con trỏ $O(1)$, Newton-Raphson easing, SIMD `Float32x4`, LUT sRGB. |
-| `lib/src/scene.dart` | `_Transform`, `_Layer`, `_Group`, `_BezierGeometry`, `_Primitive`, `_Style`: Cây scene vector, tối ưu hóa ma trận và tính khung bao `worldBounds`. |
-| `lib/src/path_ops.dart` | `_Shape`, `_TrimPart`, `_Trim`, `_Dash`: Đồ thị alias DAG cho Trim Paths và Stroke Dash kèm bộ nhớ đệm `ui.PathMetric`. |
-| `lib/src/gradient.dart` | `_GradientSpec`: Hợp nhất các mốc màu/alpha bằng insertion sort tại chỗ và tạo `ui.Shader` cho đường vẽ `Canvas`. |
-| `lib/src/fork.dart` | `_Fork`: Nhân bản trạng thái mutable của scene cho mỗi player, dùng chung `_Keyframes` bất biến và làm nóng các cờ tĩnh. |
-| `lib/src/software_scene.dart` | `_renderSceneSoftware`: Duyệt scene và kết hợp mask, matte, hiệu ứng và paint. |
-| `lib/src/raster_workspace.dart` | `RasterWorkspace`: Quản lý scratch buffer và cache coverage của worker. |
-| `lib/src/raster_geometry.dart` / `path_flattening.dart` | `_PolyPath`, làm phẳng Bézier, trim, dash và mở rộng stroke. |
-| `lib/src/scanline_rasterizer.dart` / `swar_blender.dart` | Tính coverage theo scanline và blend các span BGRA. |
-| `lib/src/content_key.dart` | `_ContentKeyHasher`: Băm nội dung scene 128-bit. |
-| `lib/src/raster_cache.dart` | `FastLottieRasterCache`, `_RasterEntry`: Quản lý ngân sách VRAM, kiểm tra admission $O(1)$, bảo vệ poster và xả `ui.Image` theo lô. |
-| `lib/src/raster_coordinator.dart` | `_RasterCoordinator`: Điều phối cặp `renderingImage` / `backgroundImage`, lookahead prefetch và chống tràn hàng đợi. |
-| `lib/src/worker_pool.dart` | `_RasterWorkerPool`: Điều phối worker, phân mảnh request và quản lý LRU đĩa `.flcache` toàn cục. |
-| `lib/src/worker_messages.dart` / `raster_web_protocol.dart` | Record Dart có tên trường; codec chuyển đổi sang mảng theo phiên bản trên web. |
-| `lib/src/raster_worker.dart` | `softwareWorkerEntry`: Xử lý protocol, giữ scene/workspace và đọc/ghi frame trong worker. |
-| `lib/src/bitstream_cache.dart` | `BitstreamStore`: Cache frame nén trong RAM (LRU) và định dạng file `.flcache` (`FLC1`) kèm kiểm tra/phục hồi lỗi CRC31. |
-| `lib/src/lz4.dart` | `Lz4Codec`, `Lz4Scratch`: Bộ nén và giải nén LZ4 thuần Dart tối ưu cho buffer pixel BGRA8888 (fast-path `offset == 4`). |
-| `lib/src/widget.dart` | `FastLottie`, `FastLottieView`, `FastLottieNetwork`, `_FrameRepaint`, `_DefaultRasterCacheScope` (singleton ref-counted). |
-| `lib/src/isolate_io.dart` / `isolate_stub.dart` | Giao tiếp Worker Isolate qua `SendPort`/`ReceivePort` và `TransferableTypedData` (hoặc fallback trên Web). |
-| `lib/src/platform_io.dart` / `platform_stub.dart` | Truy cập file ngẫu nhiên đồng bộ (`PlatformFileHandle`) và quản lý thư mục cho `.flcache`. |
-| `lib/src/network_io.dart` / `network_stub.dart` / `network_types.dart` | Tải mạng HTTP/HTTPS có hỗ trợ hủy tức thì (`FastLottieCancelToken`) và cache đĩa nguyên bản `.tgsbin`. |
+| `lib/src/raster/raster_core.dart` | Library dùng chung cho Flutter/browser worker; `RasterScene` và `renderSceneSoftware` là các điểm vào. |
+| `lib/src/scene/compiler.dart` | `_Compiler`: Kiểm tra schema, biên dịch track/mask/Layer Control, dựng layer/precomp và nối matte/parent. |
+| `lib/src/scene/expressions.dart` | `_ExpressionResolver`, `_ShapePathCompiler`: Giải quyết expression thuộc tính và tham chiếu geometry, kiểm tra tham chiếu thiếu/trùng/vòng. |
+| `lib/src/scene/track.dart` | `Keyframes`, `Track`, `_SpatialCurve`: Lưu trữ keyframe dạng cột, con trỏ $O(1)$, Newton-Raphson easing, SIMD `Float32x4`, LUT sRGB. |
+| `lib/src/scene/scene.dart` | `_Transform`, `_Layer`, `_Group`, `_BezierGeometry`, `_Primitive`, `_Style`: Cây scene vector, tối ưu hóa ma trận và tính khung bao `worldBounds`. |
+| `lib/src/scene/path_ops.dart` | `_Shape`, `_TrimPart`, `_Trim`, `_Dash`: Đồ thị alias DAG cho Trim Paths và Stroke Dash kèm bộ nhớ đệm `ui.PathMetric`. |
+| `lib/src/scene/gradient.dart` | `_GradientSpec`: Hợp nhất các mốc màu/alpha bằng insertion sort tại chỗ và tạo `ui.Shader` cho đường vẽ `Canvas`. |
+| `lib/src/scene/fork.dart` | `_Fork`: Nhân bản trạng thái mutable của scene cho mỗi player, dùng chung `Keyframes` bất biến và làm nóng các cờ tĩnh. |
+| `lib/src/raster/software_scene.dart` | `_renderSceneSoftware`: Duyệt scene và kết hợp mask, matte, hiệu ứng và paint. |
+| `lib/src/raster/raster_workspace.dart` | `RasterWorkspace`: Quản lý scratch buffer và cache coverage của worker. |
+| `lib/src/raster/raster_geometry.dart` / `path_flattening.dart` | `PolyPath`, làm phẳng Bézier, trim, dash và mở rộng stroke. |
+| `lib/src/raster/scanline_rasterizer.dart` / `swar_blender.dart` | Tính coverage theo scanline và blend các span BGRA. |
+| `lib/src/scene/content_key.dart` | `_ContentKeyHasher`: Băm nội dung scene 128-bit. |
+| `lib/src/flutter/raster_cache.dart` | `FastLottieRasterCache`, `_RasterEntry`: Quản lý ngân sách VRAM, kiểm tra admission $O(1)$, bảo vệ poster và xả `ui.Image` theo lô. |
+| `lib/src/flutter/raster_coordinator.dart` | `_RasterCoordinator`: Điều phối cặp `renderingImage` / `backgroundImage`, lookahead prefetch và chống tràn hàng đợi. |
+| `lib/src/worker/worker_pool.dart` | `RasterWorkerPool`: Điều phối worker, phân mảnh request và quản lý LRU đĩa `.flcache` toàn cục. |
+| `lib/src/worker/worker_messages.dart` / `raster_web_protocol.dart` | Record Dart có tên trường; codec chuyển đổi sang mảng theo phiên bản trên web. |
+| `lib/src/worker/raster_worker.dart` | `softwareWorkerEntry`: Xử lý protocol, giữ scene/workspace và đọc/ghi frame trong worker. |
+| `lib/src/cache/bitstream_cache.dart` | `BitstreamStore`: Cache frame nén trong RAM (LRU) và định dạng file `.flcache` (`FLC1`) kèm kiểm tra/phục hồi lỗi CRC31. |
+| `lib/src/cache/lz4.dart` | `Lz4Codec`, `Lz4Scratch`: Bộ nén và giải nén LZ4 thuần Dart tối ưu cho buffer pixel BGRA8888 (fast-path `offset == 4`). |
+| `lib/src/flutter/widget.dart` | `FastLottie`, `FastLottieView`, `FastLottieNetwork` và `_FrameRepaint`. |
+| `lib/src/platform/isolate_io.dart` / `isolate_stub.dart` | Giao tiếp Worker Isolate qua `SendPort`/`ReceivePort` và `TransferableTypedData` (hoặc fallback trên Web). |
+| `lib/src/platform/platform_io.dart` / `platform_stub.dart` | Truy cập file ngẫu nhiên đồng bộ (`PlatformFileHandle`) và quản lý thư mục cho `.flcache`. |
+| `lib/src/network/network_io.dart` / `network_stub.dart` / `network_types.dart` | Tải mạng HTTP/HTTPS có hỗ trợ hủy tức thì (`FastLottieCancelToken`) và cache đĩa nguyên bản `.tgsbin`. |
 
 ---
 
@@ -293,7 +298,7 @@ Startup một frame, fused fill và bỏ upload trùng được bật mặc đ�
 
 ### 5.2. Chi tiết Thiết kế các Tối ưu Đã Triển khai (#3, #4, #5, #6, #9)
 
-#### 1. Tối ưu #3: Khử hàm lượng giác trong `_expandStroke` bằng Đệ quy Chia đôi Pháp tuyến Đơn vị (`lib/src/path_flattening.dart`)
+#### 1. Tối ưu #3: Khử hàm lượng giác trong `_expandStroke` bằng Đệ quy Chia đôi Pháp tuyến Đơn vị (`lib/src/raster/path_flattening.dart`)
 - **Vấn đề trước đây**: Mỗi khớp nối tròn (`join == 2`) và đầu mút tròn (`cap == 2`) gọi `math.atan2` hai lần, `math.acos` một lần và vòng lặp `math.cos` + `math.sin` cho từng điểm chia cung tròn. Trên các sticker nhiều nét vẽ cong, các lệnh siêu việt (transcendental functions) này chiếm tỷ trọng lớn chu kỳ CPU trên Worker Isolate.
 - **Giải pháp**:
   - Vì `_expandStroke` đã tính sẵn tiếp tuyến đơn vị `(tx[s], ty[s])` và pháp tuyến đơn vị `(n0x, n0y)`, `(n1x, n1y)` cho từng đoạn thẳng, hàm `addNormalArc` thực hiện chia đôi trực tiếp hai pháp tuyến đơn vị:
@@ -303,7 +308,7 @@ Startup một frame, fused fill và bỏ upload trùng được bật mặc đ�
   - Nếu $\text{sagitta} > \text{sagittaTol}$ (hoặc ở các mức chia cơ sở `depth < 2`), cung được chia đôi đệ quy về hai phía $(\vec{n}_0 \to \vec{m})$ và $(\vec{m} \to \vec{n}_1)$ mà **không cần bất kỳ lệnh `atan2`, `acos`, `cos`, `sin` nào**.
   - Các đầu mút tròn (`cap == 2`) được biểu diễn bằng 2 cung 90° qua đỉnh tiếp tuyến $\vec{u}$, và chấm tròn đơn điểm (`n == 1 && cap == 2`) được dựng từ 4 góc phần tư đơn vị.
 
-#### 2. Tối ưu #4: Cắt tỉa sớm theo Khung bao (`Early Bounding-Box Clip Culling`) trong `_renderStyleInto` (`lib/src/software_scene.dart`)
+#### 2. Tối ưu #4: Cắt tỉa sớm theo Khung bao (`Early Bounding-Box Clip Culling`) trong `_renderStyleInto` (`lib/src/raster/software_scene.dart`)
 - **Vấn đề trước đây**: `_renderStyleInto` luôn làm phẳng toàn bộ đường cong Bézier (`_appendSourceLocal`), tính độ dài cắt nét đứt (`_applyDash`), mở rộng đa giác nét vẽ (`_expandStroke`) và biến đổi toàn bộ đỉnh sang tọa độ thiết bị trước khi bộ quét scanline cắt bỏ các cạnh nằm ngoài vùng clip `(clipX0, clipY0, clipX1, clipY1)`.
 - **Giải pháp**:
   - Ngay đầu `_renderStyleInto`, gọi `style.drawBounds(frame)` để lấy khung bao cục bộ (đã tính cả độ nở `strokeWidth` và `miterLimit`), sau đó ánh xạ qua ma trận affine `(ma, mb, mc, md, mtx, mty)` sang khung bao thiết bị `(bx0, by0, bx1, by1)` (cộng biên an toàn `2px` cho khử răng cưa).
@@ -311,7 +316,7 @@ Startup một frame, fused fill và bỏ upload trùng được bật mặc đ�
   - Nếu `effClipX0 >= effClipX1 || effClipY0 >= effClipY1`, hàm thoát ngay lập tức với chi phí $O(1)$, bỏ qua toàn bộ quá trình chia nhỏ Bézier, dash, stroke và scanline.
   - Nếu còn giao cắt, truyền khung thu hẹp `(effClipX0, effClipY0, effClipX1, effClipY1)` vào `rasterizePolyPath` để giảm số dòng quét phải khởi tạo và duyệt.
 
-#### 3. Tối ưu #5: Hàng đợi Ưu tiên 2 Làn (`2-Lane Priority Queue`) trong `_RasterCoordinator` (`lib/src/raster_coordinator.dart`)
+#### 3. Tối ưu #5: Hàng đợi Ưu tiên 2 Làn (`2-Lane Priority Queue`) trong `_RasterCoordinator` (`lib/src/flutter/raster_coordinator.dart`)
 - **Vấn đề trước đây**: Các yêu cầu vẽ khung hình đang cần hiển thị ngay (`renderingImage == null`) và các yêu cầu nạp trước cho khung hình kế tiếp (`lookahead prefetch`) nằm chung trong một hàng đợi FIFO `_pendingQueue`. Khi nhiều sticker cuộn vào màn hình cùng lúc, các tác vụ prefetch của sticker trước làm trễ khung hình đầu tiên của các sticker sau, và khi chạm ngưỡng `maximumPendingFrames`, cả yêu cầu hiển thị tức thời cũng có thể bị từ chối như prefetch.
 - **Giải pháp**:
   - Tách `_pendingQueue` thành hai hàng đợi `Queue<_RasterEntry>`:
@@ -321,24 +326,24 @@ Startup một frame, fused fill và bỏ upload trùng được bật mặc đ�
   - **Thăng cấp tại chỗ (In-place Promotion)**: Nếu một mục đang nằm chờ trong `_lowPriorityQueue` nhưng bước sang frame mới cần hiển thị ngay (`!isPrefetch`), nó được chuyển thẳng sang `_highPriorityQueue`.
   - **Chống tràn thông minh (Priority Eviction)**: Khi tổng số mục chờ đạt `maximumPendingFrames`, nếu có một yêu cầu ưu tiên cao mới đến, bộ điều phối sẽ loại bỏ mục cũ nhất trong `_lowPriorityQueue` để nhường chỗ thay vì làm rơi khung hình đang cần vẽ.
 
-#### 4. Tối ưu #6: Chuẩn hóa Khóa Cache theo Khung hình Nguồn (`Canonical Source-Frame Indexing`) (`lib/src/bitstream_cache.dart`, `lib/src/raster_cache.dart`, `lib/src/raster_coordinator.dart`)
+#### 4. Tối ưu #6: Chuẩn hóa Khóa Cache theo Khung hình Nguồn (`Canonical Source-Frame Indexing`) (`lib/src/cache/bitstream_cache.dart`, `lib/src/flutter/raster_cache.dart`, `lib/src/flutter/raster_coordinator.dart`)
 - **Vấn đề trước đây**: Khóa định danh của `BitstreamStore` và tên file `.flcache` sử dụng `entry.frames` (số mẫu phụ thuộc vào `maximumFrameRate` và chế độ `poster`) cùng hậu tố `_p`. Do đó, cùng một composition ở cùng kích thước pixel nhưng hiển thị ở chế độ `poster` (1 frame), `30 FPS` và `60 FPS` bị tách thành 3 file `.flcache` riêng biệt và phải rasterize lại frame 0 nhiều lần.
 - **Giải pháp**:
   - Bổ sung trường `sourceFrames` trên `_RasterEntry` (`1` nếu composition tĩnh, ngược lại là `max(1, composition.frameCount)`).
   - Hàm `formatBitstreamEntryKey` định danh khóa chuẩn hóa `${contentKey}_${width}x${height}_f$sourceFrameCount`.
-  - Khi gửi yêu cầu tới `_RasterWorkerPool.renderFrame`, `_RasterCoordinator` ánh xạ chỉ số mẫu `frameIndex` (`0 .. entry.frames - 1`) sang chỉ số khung hình nguồn chuẩn hóa `sourceIndex = _sourceIndexForSample(entry, frameIndex)` (`0 .. entry.sourceFrames - 1`), trong khi vẫn giữ các con trỏ trạng thái giao diện (`renderingFrameIndex`, `backgroundFrameIndex`, `inFlightFrameIndex`) theo không gian mẫu của từng entry.
+  - Khi gửi yêu cầu tới `RasterWorkerPool.dispatchStrip`, `_RasterCoordinator` ánh xạ chỉ số mẫu `frameIndex` (`0 .. entry.frames - 1`) sang chỉ số khung hình nguồn chuẩn hóa `sourceIndex = _sourceIndexForSample(entry, frameIndex)` (`0 .. entry.sourceFrames - 1`), trong khi vẫn giữ các con trỏ trạng thái giao diện (`renderingFrameIndex`, `backgroundFrameIndex`, `inFlightFrameIndex`) theo không gian mẫu của từng entry.
   - Kết quả: Chế độ `poster`, `24 FPS`, `30 FPS` và `60 FPS` ở cùng độ phân giải dùng chung khóa RAM/đĩa và tái sử dụng các frame nguồn trùng nhau.
 
-#### 5. Tối ưu #9: Sai phân tiến bậc 2 + SIMD `Float32x4` cho Radial Gradient & Luma Matte nguyên không phép chia (`lib/src/swar_blender.dart`)
-- **Radial Gradient (`_SwarBlender.fillRadialGradientSpans`)**:
+#### 5. Tối ưu #9: Sai phân tiến bậc 2 + SIMD `Float32x4` cho Radial Gradient & Luma Matte nguyên không phép chia (`lib/src/raster/swar_blender.dart`)
+- **Radial Gradient (`SwarBlender.fillRadialGradientSpans`)**:
   - Thay vì nhân ma trận nghịch đảo và nhân `invRadius` cho từng pixel, các hệ số bước nhảy `(nia, nib, nic, nid, nitx, nity)` được chuẩn hóa sẵn theo `invRadius = 1.0 / radius` ngay đầu hàm.
   - Bình phương khoảng cách $D^2(k) = (dx_0 + k \cdot \text{nia})^2 + (dy_0 + k \cdot \text{nib})^2$ dọc theo mỗi span ngang được cập nhật bằng sai phân tiến bậc 2 chỉ với 2 phép cộng mỗi pixel:
     $$D^2 \leftarrow D^2 + \text{step}_1, \quad \text{step}_1 \leftarrow \text{step}_1 + \text{step}_2 \quad (\text{với } \text{step}_2 = 2(\text{nia}^2 + \text{nib}^2))$$
   - Với các span dài $\ge 4$ pixel, 4 giá trị $D^2$ liên tiếp được nạp vào thanh ghi SIMD `Float32x4` và khai căn đồng thời bằng một lệnh phần cứng `Float32x4.sqrt()`.
-- **Luma Matte nguyên không phép chia (`_renderCompilerInto` & `_SwarBlender._invAlphaLut`)**:
+- **Luma Matte nguyên không phép chia (`_renderCompilerInto` & `SwarBlender._invAlphaLut`)**:
   - Thay thế 3 phép chia nguyên `(r * 255) ~/ mAlpha` và biểu thức dấu phẩy động `(0.299 * r + 0.587 * g + 0.114 * b).toInt()` ở mỗi điểm ảnh bằng bảng tra nghịch đảo 16.16 fixed-point `_invAlphaLut[mAlpha] = ((255 << 16) + mAlpha - 1) ~/ mAlpha` (khớp tuyệt đối `(c * 255) ~/ mAlpha` với mọi $c \in [0, 255], \alpha \in [1, 255]$) kết hợp hệ số nguyên BT.601 (`19595`, `38470`, `7471`):
     ```dart
-    final inv = _SwarBlender._invAlphaLut[mAlpha];
+    final inv = SwarBlender._invAlphaLut[mAlpha];
     r = (r * inv) >>> 16;
     g = (g * inv) >>> 16;
     b = (b * inv) >>> 16;
@@ -347,12 +352,12 @@ Startup một frame, fused fill và bỏ upload trùng được bật mặc đ�
 
 ---
 
-## 6. Kiến trúc Mini-Strip ($K$-Frame Strip Ping-Pong) (`lib/src/raster_cache.dart`, `lib/src/raster_coordinator.dart`, `lib/src/worker_pool.dart`)
+## 6. Kiến trúc Mini-Strip ($K$-Frame Strip Ping-Pong) (`lib/src/flutter/raster_cache.dart`, `lib/src/flutter/raster_coordinator.dart`, `lib/src/worker/worker_pool.dart`)
 
 `FastLottieRasterCache` mở rộng mô hình Double-Buffered Ping-Pong truyền thống ($K = 1$) thành **Double-Buffered Strip Ping-Pong**, đóng gói tối đa $K$ khung hình liên tiếp theo chiều dọc vào một `ui.Image` duy nhất:
 
 1. **Bố cục Strip Dọc & Zero-Copy SublistView**:
-   - Trên `_softwareWorkerEntry` ([`lib/src/worker_pool.dart`](file:///Users/vsf/source/github.com/definev/fastlottie/lib/src/worker_pool.dart)), toàn bộ strip gồm $m \le K$ khung hình được cấp phát liên tục trên một buffer duy nhất có chiều cao $H_{\text{strip}} = m \cdot H + (m - 1) \cdot \text{padY}$.
+   - Trong `softwareWorkerEntry` ([`raster_worker.dart`](../lib/src/worker/raster_worker.dart)), toàn bộ strip gồm $m \le K$ khung hình được cấp phát liên tục trên một buffer duy nhất có chiều cao $H_{\text{strip}} = m \cdot H + (m - 1) \cdot \text{padY}$.
    - Mỗi slot $j \in [0, m - 1]$ tương ứng trực tiếp với hai lát cắt `Uint8List.sublistView` / `Uint32List.sublistView` không sao chép trung gian: `BitstreamStore.tryReadFrame` giải nén LZ4 trực tiếp vào slot nếu có trong cache, hoặc `_renderSceneSoftware` kết xuất trực tiếp vào lát cắt đó.
    - Chiều dọc luôn chèn **1 dòng đệm trong suốt (`padY = 1`)** giữa hai slot liền kề khi $m > 1$, triệt tiêu hiện tượng rò màu biên (texture bleeding) khi GPU lấy mẫu nội suy song tuyến (`FilterQuality.low`).
    - Toàn bộ strip $m$ khung hình chỉ cần **1 thông điệp IPC**, **1 `TransferableTypedData`**, và **1 lệnh GPU `ui.decodeImageFromPixels`**.

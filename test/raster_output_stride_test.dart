@@ -1,9 +1,9 @@
 import 'dart:ffi';
 
 import 'package:fastlottie/fastlottie.dart';
-import 'package:fastlottie/src/raster_core.dart';
-import 'package:fastlottie/src/simd_stub.dart'
-    if (dart.library.ffi) 'package:fastlottie/src/simd_io.dart';
+import 'package:fastlottie/src/platform/simd_stub.dart'
+    if (dart.library.ffi) 'package:fastlottie/src/platform/simd_io.dart';
+import 'package:fastlottie/src/raster/raster_core.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 

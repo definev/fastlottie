@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:fastlottie/src/geometry_kernel_io.dart';
+import 'package:fastlottie/src/platform/geometry_kernel_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

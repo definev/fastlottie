@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:fastlottie/src/bitstream_cache.dart';
-import 'package:fastlottie/src/lz4.dart';
+import 'package:fastlottie/src/cache/bitstream_cache.dart';
+import 'package:fastlottie/src/cache/lz4.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

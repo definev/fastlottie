@@ -2,11 +2,11 @@
 import 'dart:convert';
 
 import 'package:fastlottie/decoding.dart';
-import 'package:fastlottie/src/options.dart';
-import 'package:fastlottie/src/raster_core.dart';
-import 'package:fastlottie/src/simd_stub.dart'
-    if (dart.library.ffi) 'package:fastlottie/src/simd_io.dart'
-    if (dart.library.js_interop) 'package:fastlottie/src/simd_wasm.dart';
+import 'package:fastlottie/src/platform/simd_stub.dart'
+    if (dart.library.ffi) 'package:fastlottie/src/platform/simd_io.dart'
+    if (dart.library.js_interop) 'package:fastlottie/src/platform/simd_wasm.dart';
+import 'package:fastlottie/src/raster/raster_core.dart';
+import 'package:fastlottie/src/scene/options.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';

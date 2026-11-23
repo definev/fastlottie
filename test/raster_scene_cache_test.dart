@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
-import 'package:fastlottie/src/options.dart';
-import 'package:fastlottie/src/raster_core.dart';
-import 'package:fastlottie/src/simd_stub.dart'
-    if (dart.library.ffi) 'package:fastlottie/src/simd_io.dart'
-    if (dart.library.js_interop) 'package:fastlottie/src/simd_wasm.dart';
+import 'package:fastlottie/src/platform/simd_stub.dart'
+    if (dart.library.ffi) 'package:fastlottie/src/platform/simd_io.dart'
+    if (dart.library.js_interop) 'package:fastlottie/src/platform/simd_wasm.dart';
+import 'package:fastlottie/src/raster/raster_core.dart';
+import 'package:fastlottie/src/scene/options.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'path_ops_test.dart' show animated, constant, line, scene, stroke, trim;

@@ -12,7 +12,7 @@ việc tách từng tọa độ thành một mảng riêng.
 
 | Vùng | Bố cục | Quyết định |
 | --- | --- | --- |
-| Keyframe runtime | `_Keyframes`: thời gian `Float64List`, ba cột metadata trong `Int32List`, slab giá trị `Float32List` | Thay `List<_Key>` và các buffer nhỏ được giữ lại sau compile |
+| Keyframe runtime | `Keyframes`: thời gian `Float64List`, ba cột metadata trong `Int32List`, slab giá trị `Float32List` | Thay `List<_Key>` và các buffer nhỏ được giữ lại sau compile |
 | Giá trị vector/morph | Các component của một key liền nhau | Consumer đọc cả vector; stride làm tròn tới 4 floats khi bật SIMD, bỏ padding khi hash |
 | Temporal easing | Các tuple `(x1,y1,x2,y2)` Float64 liền nhau | Bốn control luôn được đọc cùng nhau; không tách thành bốn cột |
 | Spatial curve/tangent | Payload tùy chọn | Track không có tangent không cấp phát hai mảng này |
@@ -22,7 +22,7 @@ việc tách từng tọa độ thành một mảng riêng.
 | Scene graph, cache entries | Object có sẵn | Giữ thứ tự layer, matte, alias DAG, ownership và eviction |
 
 Compiler đọc header để tính kích thước buffer, sau đó ghi trực tiếp keyframe
-và easing vào các cột `TypedData`. Fork chia sẻ toàn bộ `_Keyframes`; cursor, last-frame
+và easing vào các cột `TypedData`. Fork chia sẻ toàn bộ `Keyframes`; cursor, last-frame
 memo và output vẫn riêng cho player. Không thêm public interface hoặc dependency.
 Các mảng chỉ được ghi trong compile (bao gồm chuẩn hóa RGB), sau đó chỉ đọc.
 

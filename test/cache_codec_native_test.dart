@@ -2,9 +2,9 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:fastlottie/src/bitstream_cache.dart';
-import 'package:fastlottie/src/cache_codec_io.dart';
-import 'package:fastlottie/src/lz4.dart';
+import 'package:fastlottie/src/cache/bitstream_cache.dart';
+import 'package:fastlottie/src/cache/cache_codec_io.dart';
+import 'package:fastlottie/src/cache/lz4.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

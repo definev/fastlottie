@@ -296,7 +296,7 @@ Giữ cấu hình RAM thấp nhất **trong các cấu hình cùng đạt tiêu 
 và độ mượt**. Với Mac hiện tại, 6/2 MiB, 1 worker, 2 job và hero vector 160
 là điểm đã đo; các bước 8–12 MiB, 2 worker hay thêm overscan cần A/B riêng.
 
-Nguồn implementation: [raster_cache.dart](../lib/src/raster_cache.dart),
-[worker_pool.dart](../lib/src/worker_pool.dart),
+Nguồn implementation: [raster_cache.dart](../lib/src/flutter/raster_cache.dart),
+[worker_pool.dart](../lib/src/worker/worker_pool.dart),
 [FastLottiePlayer](../lib/fastlottie.dart),
 [chat example](../example/lib/tgs/cupertino_chat.dart).

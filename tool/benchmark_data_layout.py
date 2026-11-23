@@ -155,17 +155,23 @@ void main() {
 
 
 def extract(root, kernel):
+    src = root / 'lib/src'
     if kernel == 'track':
-        source = (root / 'lib/src/track.dart').read_text().split('\n', 1)[1]
+        track = src / 'scene/track.dart'
+        source = track.read_text() if track.exists() else (src / 'track.dart').read_text()
+        source = ''.join(line for line in source.splitlines(keepends=True)
+                         if not line.startswith(('import ', 'part of ')))
         driver = (KEY_OBJECT_DRIVER if 'class _Key {' in source else PACKED_TRACK_DRIVER) + TRACK_DRIVER
+        if 'class Track {' in source:
+            driver = driver.replace('_Keyframes', 'Keyframes').replace('_Track', 'Track')
     else:
-        src = root / 'lib/src'
-        geometry_path = src / 'raster_geometry.dart'
+        raster = src / 'raster' if (src / 'raster').is_dir() else src
+        geometry_path = raster / 'raster_geometry.dart'
         if geometry_path.exists():
             geometry = geometry_path.read_text()
-            paths = (src / 'path_flattening.dart').read_text()
-            poly = geometry[geometry.index('class _PolyPath {'):]
-            scratch = geometry[geometry.index('class _Float64Scratch {'):
+            paths = (raster / 'path_flattening.dart').read_text()
+            poly = geometry[geometry.index('class PolyPath {' if raster != src else 'class _PolyPath {'):]
+            scratch = geometry[geometry.index('class Float64Scratch {' if raster != src else 'class _Float64Scratch {'):
                                geometry.index('/// Struct-of-arrays polyline')]
             stroke = paths[paths.index('class _StrokeScratch {'):]
         else:
@@ -188,11 +194,14 @@ def extract(root, kernel):
         packed = 'class _StrokeScratch {' in stroke
         source = poly + scratch + stroke + '\ndouble _hypot(double x, double y) => math.sqrt(x*x+y*y);\n'
         if 'expandStrokeNative(' in stroke:
-            stub = (src / 'geometry_kernel_stub.dart').read_text()
+            adapters = src / 'platform' if (src / 'platform').is_dir() else src
+            stub = (adapters / 'geometry_kernel_stub.dart').read_text()
             source += stub[stub.index('const nativeStrokePointLimit'):]
         driver = STROKE_DRIVER.replace(' STROKE_PARAMETER', ', _StrokeScratch scratch' if packed else '')
         driver = driver.replace(' STROKE_ARGUMENT', ', scratch' if packed else '')
         driver = driver.replace('STROKE_LOCAL', 'final scratch = _StrokeScratch();' if packed else '')
+        if raster != src:
+            driver = driver.replace('_PolyPath', 'PolyPath')
     return "import 'dart:math' as math;\nimport 'dart:typed_data';\nimport 'dart:convert';\nimport 'dart:io';\n" + source + driver
 
 

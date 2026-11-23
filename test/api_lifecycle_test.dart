@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fastlottie/fastlottie.dart';
-import 'package:fastlottie/src/simd_stub.dart' as stub;
+import 'package:fastlottie/src/platform/simd_stub.dart' as stub;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 

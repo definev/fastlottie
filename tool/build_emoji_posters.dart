@@ -9,7 +9,8 @@ import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
 import 'package:fastlottie/fastlottie.dart';
-import 'package:fastlottie/src/raster_core.dart' show resolveWorkerSourceIndex;
+import 'package:fastlottie/src/worker/raster_worker.dart'
+    show resolveWorkerSourceIndex;
 import 'package:flutter_test/flutter_test.dart';
 
 // The publishing tool shares the example's pure-Dart pack metadata.

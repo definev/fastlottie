@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Organize renderer internals by responsibility and split the public entry
+  point into focused libraries. Imports from `package:fastlottie/src/` need
+  the new paths. The `fastlottie.dart` and `decoding.dart` entry points keep
+  their exports.
+
 - Add `FastLottie.asset` and `FastLottie.bytes` loading widgets with placeholder,
   error and retry builders. Share playback configuration and source lifecycle
   with the network widget; asset loading follows `DefaultAssetBundle`.

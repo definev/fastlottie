@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:js_interop';
 
-import 'package:fastlottie/src/isolate_stub.dart';
-import 'package:fastlottie/src/raster_core.dart';
-import 'package:fastlottie/src/raster_web_protocol.dart';
-import 'package:fastlottie/src/simd_wasm.dart';
+import 'package:fastlottie/src/platform/isolate_stub.dart';
+import 'package:fastlottie/src/platform/simd_wasm.dart';
+import 'package:fastlottie/src/worker/raster_web_protocol.dart';
+import 'package:fastlottie/src/worker/raster_worker.dart';
 import 'package:web/web.dart' as web;
 
 @JS('self')
