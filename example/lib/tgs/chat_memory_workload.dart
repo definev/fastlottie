@@ -52,7 +52,6 @@ class ChatMemoryWorkload {
       (state.context as Element).visitChildren(visit);
       return {
         'mode': mode,
-        'compact_chat': _compactChat,
         'opaque_header': _opaqueChatHeader,
         'gpu_budget_bytes': cache.maximumBytes,
         'compressed_budget_bytes': cache.maximumCompressedMemoryBytes,

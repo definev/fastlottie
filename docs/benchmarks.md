@@ -9,6 +9,9 @@ Phép đo RAM giữa FastLottie, rlottie và ThorVG chạy riêng. Xem
 [benchmark RAM](memory-benchmark.md) để so load, render nhiều instance và
 bộ nhớ sau nhiều vòng tạo/hủy.
 
+Để đo cùng lúc frame timing và bộ nhớ trên từng animation phức tạp ở Android
+hoặc macOS, xem [benchmark render animation phức tạp](complex-benchmark.md).
+
 ## Chạy lại
 
 Từ root:

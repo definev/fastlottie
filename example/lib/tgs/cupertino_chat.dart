@@ -44,16 +44,7 @@ class HeroStickerCacheScope extends InheritedWidget {
       cache != oldWidget.cache;
 }
 
-// Measured on macOS. Keep other platforms on their existing profile until
-// separately validated. Explicit defines allow A/B runs on the same workload.
-final _compactChat = const bool.hasEnvironment('CHAT_COMPACT')
-    ? const bool.fromEnvironment('CHAT_COMPACT')
-    : !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
-final _androidQualityPicker =
-    !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-final _opaqueChatHeader = const bool.hasEnvironment('CHAT_OPAQUE_HEADER')
-    ? const bool.fromEnvironment('CHAT_OPAQUE_HEADER')
-    : _compactChat || _androidQualityPicker;
+final _opaqueChatHeader = true;
 
 enum _DrawerTab { all, pack, emoji }
 
@@ -521,39 +512,27 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     framePaced: true,
     // Visible cells stay pinned. This only bounds models that have
     // already scrolled off; compiling them again reads the disk cache.
-    maximumEntries:
-        widget.memoryWorkload?.modelCacheEntries ?? (_compactChat ? 8 : 48),
+    maximumEntries: widget.memoryWorkload?.modelCacheEntries ?? 8,
     modelCacheObserver: widget.memoryWorkload?.modelCacheObserver,
     maximumCompiledBytes: widget.memoryWorkload?.compiledCacheBytes ?? 0,
     fetcher: _packAssets.fetch,
   );
 
-  int? get _preferredStripSize =>
-      widget.framesPerStrip ?? (_androidQualityPicker ? 3 : null);
+  int? get _preferredStripSize => widget.framesPerStrip;
   late int? _framesPerStrip =
       widget.memoryWorkload?.framesPerStrip ?? _preferredStripSize;
   late FastLottieRasterCache _rasterCache = _createRasterCache(_framesPerStrip);
 
   FastLottieRasterCache _createRasterCache(int? framesPerStrip) =>
       FastLottieRasterCache(
-        maximumBytes: (_compactChat ? 6 : 48) * 1024 * 1024,
-        maximumInFlight: _compactChat
-            ? 2
-            : _androidQualityPicker
-            ? 16
-            : 8,
-        maximumCompressedMemoryBytes: (_compactChat ? 2 : 16) * 1024 * 1024,
+        maximumBytes: 6 * 1024 * 1024,
+        maximumInFlight: 2,
+        maximumCompressedMemoryBytes: 2 * 1024 * 1024,
         maximumDiskBytes: 128 * 1024 * 1024,
         maximumFrameRate: stickerThumbnailFrameRate,
         framesPerStrip: framesPerStrip,
-        progressiveFirstFrame: !_androidQualityPicker,
-        workerCount:
-            widget.rasterWorkerCount ??
-            (_compactChat
-                ? 1
-                : _androidQualityPicker
-                ? 8
-                : null),
+        progressiveFirstFrame: true,
+        workerCount: widget.rasterWorkerCount ?? 1,
       );
 
   final StickerClock _clock = StickerClock();
@@ -1097,8 +1076,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     }
     if (oldWidget.framesPerStrip != widget.framesPerStrip ||
         oldWidget.rasterWorkerCount != widget.rasterWorkerCount) {
-      final nextFrames =
-          widget.framesPerStrip ?? (_androidQualityPicker ? 3 : null);
+      final nextFrames = widget.framesPerStrip;
       final force =
           oldWidget.framesPerStrip != widget.framesPerStrip ||
           oldWidget.rasterWorkerCount != widget.rasterWorkerCount;
@@ -1795,9 +1773,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                 physics: const BouncingScrollPhysics(
                                   parent: AlwaysScrollableScrollPhysics(),
                                 ),
-                                scrollCacheExtent: _compactChat
-                                    ? const ScrollCacheExtent.pixels(0)
-                                    : null,
+                                scrollCacheExtent:
+                                    const ScrollCacheExtent.pixels(0),
                                 addAutomaticKeepAlives: false,
                                 padding: const EdgeInsets.fromLTRB(
                                   12,
@@ -2328,9 +2305,7 @@ class _StickerPickerDrawer extends StatelessWidget {
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
-                    scrollCacheExtent: _compactChat
-                        ? const ScrollCacheExtent.pixels(0)
-                        : null,
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(0),
                     addAutomaticKeepAlives: false,
                     addRepaintBoundaries: false,
                     itemCount: items.length,
@@ -2462,7 +2437,7 @@ class _ChatMessageRow extends StatelessWidget {
                       store: store,
                       renderer: renderer,
                       animate: animateHero,
-                      size: _compactChat ? 160 : 220,
+                      size: 160,
                       placeholderColor: palette.tilePlaceholder,
                       borderColor: palette.incomingBorder,
                       accentColor: palette.accent,
