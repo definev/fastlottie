@@ -26,7 +26,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   final _awaitingImages = <_RasterEntry>{};
   // A non-owning image reference: reuse only while it is still a front/back
   // buffer. Independent clone handles let the normal disposal path stay intact.
-  final _duplicateFrames = <_RasterEntry, (Uint8List, ui.Image)>{};
+  final _duplicateFrames = <_RasterEntry, (int, ui.Image)>{};
   final _decodeStarts = <_RasterEntry, int>{};
   final _telemetryClock = Stopwatch()..start();
   int duplicateFrameBytes = 0;
@@ -34,18 +34,23 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
 
   void _forgetDuplicate(_RasterEntry entry) {
     final previous = _duplicateFrames.remove(entry);
-    if (previous != null) duplicateFrameBytes -= previous.$1.lengthInBytes;
+    if (previous != null) {
+      final img = previous.$2;
+      duplicateFrameBytes -= img.width * img.height * 4;
+    }
   }
 
-  void _rememberDuplicate(_RasterEntry entry, Uint8List bytes, ui.Image image) {
+  void _rememberDuplicate(_RasterEntry entry, int crc, ui.Image image) {
     _forgetDuplicate(entry);
-    if (bytes.lengthInBytes > cache.maximumDuplicateFrameBytes) return;
-    while (duplicateFrameBytes + bytes.lengthInBytes >
-        cache.maximumDuplicateFrameBytes) {
+    if (crc == 0 || cache.maximumDuplicateFrameBytes <= 0) return;
+    final imgBytes = image.width * image.height * 4;
+    if (imgBytes > cache.maximumDuplicateFrameBytes) return;
+    while (_duplicateFrames.isNotEmpty &&
+        duplicateFrameBytes + imgBytes > cache.maximumDuplicateFrameBytes) {
       _forgetDuplicate(_duplicateFrames.keys.first);
     }
-    _duplicateFrames[entry] = (bytes, image);
-    duplicateFrameBytes += bytes.lengthInBytes;
+    _duplicateFrames[entry] = (crc, image);
+    duplicateFrameBytes += imgBytes;
   }
 
   int _activeJobs = 0;
@@ -501,6 +506,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     required int kernelCalls,
     required int geometryCopyBytes,
     required int transferBytes,
+    int? frameCrc,
   }) {
     cache
       .._workerRenderMicros += renderMicros
@@ -585,13 +591,15 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     }
 
     try {
+      final int crc = frameCrc ?? 0;
       final previous = _duplicateFrames[entry];
-      if (previous != null &&
+      if (crc != 0 &&
+          previous != null &&
           (identical(previous.$2, entry.renderingImage) ||
               identical(previous.$2, entry.backgroundImage)) &&
           previous.$2.width == stripWidth &&
           previous.$2.height == stripHeight &&
-          listEquals(previous.$1, bgraBytes)) {
+          previous.$1 == crc) {
         final image = previous.$2.clone();
         skippedImageUploads++;
         _onImageDecoded(
@@ -600,7 +608,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
           stripCount,
           dispatchedGen,
           image,
-          duplicateBytes: previous.$1,
+          frameCrc: crc,
         );
         return;
       }
@@ -622,11 +630,8 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
           stripCount,
           dispatchedGen,
           image,
-          // The worker sends an owned snapshot of its raster buffer, including
-          // on web and inline fallback. Retain that snapshot instead of copying it.
-          duplicateBytes:
-              bgraBytes.lengthInBytes <= cache.maximumDuplicateFrameBytes
-              ? bgraBytes
+          frameCrc: bgraBytes.lengthInBytes <= cache.maximumDuplicateFrameBytes
+              ? crc
               : null,
         ),
       );
@@ -669,7 +674,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     int stripCount,
     int dispatchedGen,
     ui.Image image, {
-    Uint8List? duplicateBytes,
+    int? frameCrc,
   }) {
     final decodeStartedMicros = _decodeStarts.remove(entry);
     if (decodeStartedMicros != null) {
@@ -807,13 +812,20 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       image.dispose();
     }
 
-    if (duplicateBytes != null &&
+    if (frameCrc != null &&
         !_disposed &&
         !entry.retired &&
         entry.users.isNotEmpty &&
         (identical(image, entry.renderingImage) ||
             identical(image, entry.backgroundImage))) {
-      _rememberDuplicate(entry, duplicateBytes, image);
+      _rememberDuplicate(entry, frameCrc, image);
+    } else {
+      final current = _duplicateFrames[entry];
+      if (current != null &&
+          !identical(current.$2, entry.renderingImage) &&
+          !identical(current.$2, entry.backgroundImage)) {
+        _forgetDuplicate(entry);
+      }
     }
     _finishJob(entry, scheduleFollowup: true);
   }

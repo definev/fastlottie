@@ -151,6 +151,8 @@ final class RasterScene {
 
   void draw(Object canvas, double frame) =>
       _compiler.draw(canvas as Canvas, frame);
+
+  void dispose() => _compilerState?.dispose();
 }
 
 /// Draw into caller-owned pixels. [rowStride] is in pixels (not bytes) and

@@ -48,6 +48,7 @@ final class Offset {
 }
 
 final class Canvas {
+  Canvas([PictureRecorder? recorder]);
   void save() => _noCanvas();
   void restore() => _noCanvas();
   void clipRect(Rect rect) => _noCanvas();
@@ -58,6 +59,15 @@ final class Canvas {
   void drawRect(Rect rect, Paint paint) => _noCanvas();
   void drawRRect(RRect rect, Paint paint) => _noCanvas();
   void drawPath(Path path, Paint paint) => _noCanvas();
+  void drawPicture(Picture picture) => _noCanvas();
+}
+
+final class Picture {
+  void dispose() => _noCanvas();
+}
+
+final class PictureRecorder {
+  Picture endRecording() => _noCanvas();
 }
 
 final class Path {

@@ -24,6 +24,7 @@ final class TilePlaybackPage {
     this._index,
     this._tiles,
     this.bytes,
+    this._frameCrcs,
   );
 
   static const tileSize = 16;
@@ -36,9 +37,22 @@ final class TilePlaybackPage {
   final List<Uint8List> _tiles;
   final Object _identity = Object();
   final int bytes;
+  final Int32List _frameCrcs;
+
   bool contains(int frame) {
     final index = frame - firstFrame;
     return index >= 0 && index < maxFrames && _slots[index] != _absent;
+  }
+
+  int crcOf(int frame) {
+    final index = frame - firstFrame;
+    if (index >= 0 && index < maxFrames) {
+      final slot = _slots[index];
+      if (slot != _absent) {
+        return _frameCrcs[slot];
+      }
+    }
+    return 0;
   }
 
   int _offset(int frame) => _slots[frame - firstFrame] * _tileCount;
@@ -55,6 +69,7 @@ final class TilePlaybackPage {
     required int maxBytes,
     required Uint8List scratch,
     required bool Function(int frame, Uint8List scratch) readFrame,
+    int Function(int frame)? getCrc,
   }) {
     final pixels = width * height;
     final frameCount = frames.length;
@@ -70,7 +85,14 @@ final class TilePlaybackPage {
     final tileCount = columns * ((height + tileSize - 1) ~/ tileSize);
     final index = Uint16List(frameCount * tileCount);
     final slots = Uint8List(maxFrames)..fillRange(0, maxFrames, _absent);
-    final words = Uint32List.sublistView(scratch, 0, pixels * 4);
+    final frameCrcs = Int32List(maxFrames);
+    final Uint32List words;
+    if (scratch.offsetInBytes & 3 == 0) {
+      words = Uint32List.sublistView(scratch, 0, pixels * 4);
+    } else {
+      final aligned = Uint8List(pixels * 4)..setRange(0, pixels * 4, scratch);
+      words = Uint32List.sublistView(aligned, 0, pixels * 4);
+    }
     final tiles = <Uint32List>[];
     final hashes = <(int, int, int), List<int>>{};
     // Include conservative object and index overhead in the RAM budget.
@@ -86,6 +108,7 @@ final class TilePlaybackPage {
         return null;
       }
       slots[relative] = f;
+      frameCrcs[f] = getCrc?.call(frame) ?? 0;
       for (var t = 0; t < tileCount; t++) {
         final x = (t % columns) * tileSize;
         final y = (t ~/ columns) * tileSize;
@@ -133,9 +156,16 @@ final class TilePlaybackPage {
       }
     }
     if (changed * 3 > (frameCount - 1) * tileCount) return null;
-    return TilePlaybackPage._(width, height, firstFrame, slots, index, [
-      for (final tile in tiles) tile.buffer.asUint8List(),
-    ], bytes);
+    return TilePlaybackPage._(
+      width,
+      height,
+      firstFrame,
+      slots,
+      index,
+      [for (final tile in tiles) tile.buffer.asUint8List()],
+      bytes,
+      frameCrcs,
+    );
   }
 
   void read(int frame, Uint8List dst, TilePlaybackCursor? cursor) {

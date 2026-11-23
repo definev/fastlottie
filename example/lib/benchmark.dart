@@ -36,8 +36,8 @@ void main() {
       );
       // ignore: avoid_print
       final payload = jsonEncode(result);
-      for (var i = 0; i < payload.length; i += 2000) {
-        final end = i + 2000 < payload.length ? i + 2000 : payload.length;
+      for (var i = 0; i < payload.length; i += 500) {
+        final end = i + 500 < payload.length ? i + 500 : payload.length;
         // ignore: avoid_print
         print('FASTLOTTIE_CHUNK:${payload.substring(i, end)}');
       }

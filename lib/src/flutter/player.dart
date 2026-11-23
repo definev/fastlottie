@@ -482,6 +482,8 @@ class FastLottiePlayer extends ChangeNotifier {
       picture.dispose();
     }
     _pictures.clear();
+    _sceneState?.dispose();
+    _sceneState = null;
   }
 
   @override

@@ -12,6 +12,8 @@ export 'dart:ui'
         PathFillType,
         PathMetric,
         PathOperation,
+        Picture,
+        PictureRecorder,
         Radius,
         Rect,
         RRect,

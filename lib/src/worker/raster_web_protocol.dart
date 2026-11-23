@@ -124,6 +124,7 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
     kernelCalls: final int kernelCalls,
     geometryCopyBytes: final int geometryCopyBytes,
     transferBytes: final int transferBytes,
+    frameCrc: final int frameCrc,
   ) =>
     [
       repFrameReady,
@@ -137,6 +138,7 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
       kernelCalls,
       geometryCopyBytes,
       transferBytes,
+      frameCrc,
     ],
   (
     repStripReady,
@@ -155,6 +157,7 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
     kernelCalls: final int kernelCalls,
     geometryCopyBytes: final int geometryCopyBytes,
     transferBytes: final int transferBytes,
+    frameCrc: final int frameCrc,
   ) =>
     [
       repStripReady,
@@ -173,6 +176,7 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
       kernelCalls,
       geometryCopyBytes,
       transferBytes,
+      frameCrc,
     ],
   (repFrameError, requestId: final int id, message: final String error) => [
     repFrameError,
@@ -257,6 +261,7 @@ final class WorkerMessage {
       kernelCalls: i(8),
       geometryCopyBytes: i(9),
       transferBytes: i(10),
+      frameCrc: _fields.length > 11 ? i(11) : 0,
     ),
     repStripReady => (
       repStripReady,
@@ -275,6 +280,7 @@ final class WorkerMessage {
       kernelCalls: i(13),
       geometryCopyBytes: i(14),
       transferBytes: i(15),
+      frameCrc: _fields.length > 16 ? i(16) : 0,
     ),
     repFrameError => (repFrameError, requestId: i(1), message: s(2)),
     repSceneMissing => (repSceneMissing, requestId: i(1), contentKey: s(2)),

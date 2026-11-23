@@ -57,6 +57,8 @@ class _Compiler {
     (l) => l.isStatic && l.ip <= start && l.op >= end,
   );
 
+  void dispose() {}
+
   Never fail(_JsonPath path, String feature) =>
       throw UnsupportedLottieException(path.toString(), feature);
   Map<String, dynamic> map(dynamic value, _JsonPath path) {

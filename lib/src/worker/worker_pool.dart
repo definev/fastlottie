@@ -56,6 +56,7 @@ abstract interface class RasterWorkerListener<T> {
     required int kernelCalls,
     required int geometryCopyBytes,
     required int transferBytes,
+    int? frameCrc,
   });
 
   void onStripError(T context, Object error);
@@ -386,6 +387,7 @@ final class RasterWorkerPool<T> {
         kernelCalls: final int kernelCalls,
         geometryCopyBytes: final int geometryCopyBytes,
         transferBytes: final int transferBytes,
+        frameCrc: final int frameCrc,
       ):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
@@ -414,6 +416,7 @@ final class RasterWorkerPool<T> {
           kernelCalls: kernelCalls,
           geometryCopyBytes: geometryCopyBytes,
           transferBytes: transferBytes,
+          frameCrc: frameCrc,
         );
       case (
         repStripReady,
@@ -432,6 +435,7 @@ final class RasterWorkerPool<T> {
         kernelCalls: final int kernelCalls,
         geometryCopyBytes: final int geometryCopyBytes,
         transferBytes: final int transferBytes,
+        frameCrc: final int frameCrc,
       ):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
@@ -460,6 +464,7 @@ final class RasterWorkerPool<T> {
           kernelCalls: kernelCalls,
           geometryCopyBytes: geometryCopyBytes,
           transferBytes: transferBytes,
+          frameCrc: frameCrc,
         );
       case (
         repFrameError,

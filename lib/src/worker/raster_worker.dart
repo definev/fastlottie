@@ -197,6 +197,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           if (cacheHit) {
             releaseSceneIfCached(contentKey, entryKey, totalFrames);
             final packed = packBytesForIsolate(dstBytes);
+            final frameCrc = store.lastFrameCrc ?? 0;
             endpoint.send((
               repFrameReady,
               requestId: reqId,
@@ -209,6 +210,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
               kernelCalls: 0,
               geometryCopyBytes: 0,
               transferBytes: dstBytes.lengthInBytes,
+              frameCrc: frameCrc,
             ));
             recordPixelUse(pxCount);
             if (!poster) {
@@ -264,6 +266,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             kernelCalls: telemetry.$2,
             geometryCopyBytes: telemetry.$3,
             transferBytes: renderedBytes.lengthInBytes,
+            frameCrc: stored.crc31,
           ));
           recordPixelUse(pxCount);
           releaseSceneIfCached(contentKey, entryKey, totalFrames);
@@ -373,7 +376,11 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             }
           }
 
-          final packed = packBytesForIsolate(pixelBytes(pxCount));
+          final stripBytes = pixelBytes(pxCount);
+          final packed = packBytesForIsolate(stripBytes);
+          final frameCrc = stripCount == 1
+              ? (store.lastFrameCrc ?? 0)
+              : BitstreamStore.crc31(stripBytes, 0, stripBytes.lengthInBytes);
           endpoint.send((
             repStripReady,
             requestId: reqId,
@@ -391,6 +398,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             kernelCalls: kernelCalls,
             geometryCopyBytes: geometryCopyBytes,
             transferBytes: pxCount * 4,
+            frameCrc: frameCrc,
           ));
           recordPixelUse(pxCount);
           releaseSceneIfCached(contentKey, entryKey, totalFrames);

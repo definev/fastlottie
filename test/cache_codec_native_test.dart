@@ -18,15 +18,15 @@ void main() {
         return crc;
       })(),
   ]);
-  bool? decode(Uint8List src, Uint8List dst, {bool raw = false, int? crc}) =>
+  bool? decode(Uint8List src, Uint8List dst, int? crc) =>
       decodeCacheFrameNative(
         src,
         0,
         src.length,
         dst,
         dst.length,
-        raw,
-        crc ?? BitstreamStore.crc31(src, 0, src.length),
+        false,
+        crc,
         table,
       );
 
@@ -234,17 +234,17 @@ void main() {
   });
 
   test('native decoder rejects corrupt CRC before writing and bounds malformed LZ4', () {
-    final valid = Lz4Codec.compress(Uint8List(512)..fillRange(0, 512, 0x33));
-    final output = Uint8List(512)..fillRange(0, 512, 0xa5);
+    final pixels = Uint8List(512)..fillRange(0, 512, 0x33);
+    final valid = Lz4Codec.compress(pixels);
+    final output = Uint8List(pixels.length)..fillRange(0, pixels.length, 0xa5);
     expect(
-      decode(
-        valid,
-        output,
-        crc: BitstreamStore.crc31(valid, 0, valid.length) ^ 1,
-      ),
+      decode(valid, output, BitstreamStore.crc31(valid, 0, valid.length) ^ 1),
       isFalse,
     );
+    expect(decode(valid, output, 0), isFalse);
     expect(output, everyElement(0xa5));
+    expect(decode(valid, output, null), isTrue);
+    expect(output, pixels);
     final rng = Random(1829);
     for (var i = 0; i < 2000; i++) {
       final data = i < valid.length
@@ -261,10 +261,12 @@ void main() {
       } on FormatException {
         // Compare rejection after computing a valid CRC for the malformed block.
       }
-      expect(decode(data, dst), expected != null);
-      if (expected != null) expect(dst, orderedEquals(expected));
-      expect(guarded.take(2), everyElement(0xa5));
-      expect(guarded.skip(size + 2), everyElement(0xa5));
+      for (final crc in [BitstreamStore.crc31(data, 0, data.length), null]) {
+        expect(decode(data, dst, crc), expected != null);
+        if (expected != null) expect(dst, orderedEquals(expected));
+        expect(guarded.take(2), everyElement(0xa5));
+        expect(guarded.skip(size + 2), everyElement(0xa5));
+      }
     }
   });
 
@@ -326,4 +328,44 @@ void main() {
       }
     }
   });
+
+  test(
+    'simdXorBytes performs SIMD XOR with exact byte parity and self-inversion',
+    () {
+      final rng = Random(42);
+      for (final len in [
+        0,
+        1,
+        7,
+        8,
+        15,
+        16,
+        31,
+        32,
+        63,
+        64,
+        127,
+        128,
+        255,
+        256,
+        1024,
+        65536,
+      ]) {
+        final a = Uint8List(len);
+        final b = Uint8List(len);
+        final dst = Uint8List(len);
+        for (var i = 0; i < len; i++) {
+          a[i] = rng.nextInt(256);
+          b[i] = rng.nextInt(256);
+        }
+        simdXorBytes(a, b, dst, len);
+        for (var i = 0; i < len; i++) {
+          expect(dst[i], a[i] ^ b[i]);
+        }
+        final roundtrip = Uint8List(len);
+        simdXorBytes(dst, b, roundtrip, len);
+        expect(roundtrip, a);
+      }
+    },
+  );
 }
