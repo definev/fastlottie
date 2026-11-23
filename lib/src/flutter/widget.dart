@@ -299,11 +299,11 @@ class _FastLottieState extends State<FastLottie>
         widget.controller == null && _reducedMotion,
       );
     }
-    if (_playback != FastLottiePlayback.hidden && _player.rasterCache != null) {
-      final target = Size(
-        widget.width ?? widget.composition.width,
-        widget.height ?? widget.composition.height,
-      );
+    if (_playback != FastLottiePlayback.hidden &&
+        _player.rasterCache != null &&
+        widget.width != null &&
+        widget.height != null) {
+      final target = Size(widget.width!, widget.height!);
       _player.prewarm(
         destinationSize: target,
         fit: widget.fit,

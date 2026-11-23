@@ -117,7 +117,6 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
       maximumFrameRate: tgsRasterFrameRate,
       resolutionScale: lod ? tgsLodScale : 1,
       framesPerStrip: framesPerStrip,
-      allowUiVectorFallback: false,
     );
     unawaited(attachExampleDiskCache(rasterCache));
     widget.onRasterCacheCreated?.call(rasterCache);
@@ -274,7 +273,6 @@ class _TgsGalleryState extends State<TgsGallery> with WidgetsBindingObserver {
                       key: const ValueKey('tgs-grid'),
                       controller: scroll,
                       padding: const EdgeInsets.all(8),
-                      scrollCacheExtent: const ScrollCacheExtent.pixels(300),
                       addAutomaticKeepAlives: false,
                       // Both renderers already isolate their own canvas.
                       addRepaintBoundaries: false,

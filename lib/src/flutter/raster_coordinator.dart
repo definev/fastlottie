@@ -453,6 +453,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     if (!canDispatch ||
         entry.queuedForRaster ||
         _highPriorityQueue.isNotEmpty ||
+        (!highPriority && _activeJobs > 0) ||
         (!highPriority && _lowPriorityQueue.isNotEmpty)) {
       if (!entry.queuedForRaster) {
         final totalQueued =

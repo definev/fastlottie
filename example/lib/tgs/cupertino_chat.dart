@@ -81,6 +81,24 @@ class ChatMessage {
   final String? senderName;
   final int reloadEpoch;
 
+  static final _inlineItemsExpando =
+      Expando<Map<int, (int, TgsRemoteItem)>>('inline_items');
+
+  Map<int, (int, TgsRemoteItem)> resolveInlineItems(TgsRemoteCatalog catalog) {
+    if (inlineItems.isNotEmpty) return inlineItems;
+    final cached = _inlineItemsExpando[this];
+    if (cached != null) return cached;
+    final rawText = text;
+    if (rawText == null || rawText.isEmpty) return const {};
+    final result = <int, (int, TgsRemoteItem)>{};
+    for (final match in catalog.richMessageRegex.allMatches(rawText)) {
+      if (catalog.findItem(match[0]!) case final item?) {
+        result[match.start] = (match.end - match.start, item);
+      }
+    }
+    return _inlineItemsExpando[this] = result;
+  }
+
   ChatMessage withReloadEpoch(int nextEpoch) => sticker != null
       ? ChatMessage.sticker(
           id: id,
@@ -1775,7 +1793,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                   parent: AlwaysScrollableScrollPhysics(),
                                 ),
                                 scrollCacheExtent:
-                                    const ScrollCacheExtent.pixels(0),
+                                    const ScrollCacheExtent.pixels(350),
                                 addAutomaticKeepAlives: false,
                                 padding: const EdgeInsets.fromLTRB(
                                   12,
@@ -1814,35 +1832,37 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                           Positioned(
                             right: 12,
                             bottom: 12,
-                            child: ValueListenableBuilder<bool>(
-                              valueListenable: _showScrollBottom,
-                              builder: (context, visible, _) => IgnorePointer(
-                                ignoring: !visible,
-                                child: AnimatedOpacity(
-                                  duration: _reduced
-                                      ? Duration.zero
-                                      : const Duration(milliseconds: 160),
-                                  opacity: visible ? 1 : 0,
-                                  child: CupertinoButton(
-                                    key: const ValueKey('scroll-to-bottom-btn'),
-                                    padding: EdgeInsets.zero,
-                                    minimumSize: const Size.square(38),
-                                    onPressed: _scrollToBottom,
-                                    child: Container(
-                                      width: 38,
-                                      height: 38,
-                                      decoration: BoxDecoration(
-                                        color: palette.composerBar,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: palette.fieldBorder,
-                                          width: 0.7,
+                            child: RepaintBoundary(
+                              child: ValueListenableBuilder<bool>(
+                                valueListenable: _showScrollBottom,
+                                builder: (context, visible, _) => IgnorePointer(
+                                  ignoring: !visible,
+                                  child: AnimatedOpacity(
+                                    duration: _reduced
+                                        ? Duration.zero
+                                        : const Duration(milliseconds: 160),
+                                    opacity: visible ? 1 : 0,
+                                    child: CupertinoButton(
+                                      key: const ValueKey('scroll-to-bottom-btn'),
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: const Size.square(38),
+                                      onPressed: _scrollToBottom,
+                                      child: Container(
+                                        width: 38,
+                                        height: 38,
+                                        decoration: BoxDecoration(
+                                          color: palette.composerBar,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: palette.fieldBorder,
+                                            width: 0.7,
+                                          ),
                                         ),
-                                      ),
-                                      child: Icon(
-                                        CupertinoIcons.chevron_down,
-                                        size: 18,
-                                        color: palette.textPrimary,
+                                        child: Icon(
+                                          CupertinoIcons.chevron_down,
+                                          size: 18,
+                                          color: palette.textPrimary,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -2306,7 +2326,7 @@ class _StickerPickerDrawer extends StatelessWidget {
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
-                    scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(250),
                     addAutomaticKeepAlives: false,
                     addRepaintBoundaries: false,
                     itemCount: items.length,
@@ -2597,13 +2617,7 @@ class _ChatMessageRow extends StatelessWidget {
     double emojiSize,
     Color placeholderColor,
   ) {
-    final references = message.inlineItems.isEmpty
-        ? {
-            for (final match in catalog.richMessageRegex.allMatches(text))
-              if (catalog.findItem(match[0]!) case final item?)
-                match.start: (match.end - match.start, item),
-          }
-        : message.inlineItems;
+    final references = message.resolveInlineItems(catalog);
     var cursor = 0;
     var stickerOnly = references.isNotEmpty;
     for (final MapEntry(key: start, value: (length, _)) in references.entries) {
