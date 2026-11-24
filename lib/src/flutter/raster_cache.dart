@@ -41,7 +41,8 @@ enum FastLottieRasterMode {
 class FastLottieRasterCache {
   /// Creates a shared raster cache with adaptive frames per strip by default.
   /// Set [framesPerStrip] to 1 for one frame per buffer, or a larger value for
-  /// strips of up to that many frames. Null adapts to resolution and budget.
+  /// fixed-size strips. [adaptiveStripBudget] lets those strips shrink under
+  /// budget pressure. Null adapts to resolution and budget.
   FastLottieRasterCache({
     this.maximumBytes = 32 * 1024 * 1024,
     this.maximumFrameRate,
@@ -53,6 +54,7 @@ class FastLottieRasterCache {
     this.maximumCompressedMemoryBytes = 16 * 1024 * 1024,
     this.maximumDiskBytes = 128 * 1024 * 1024,
     this.framesPerStrip,
+    this.adaptiveStripBudget = false,
     this.progressiveFirstFrame = true,
     this.maximumDuplicateFrameBytes = 1024 * 1024,
     this.allowUiVectorFallback = true,
@@ -101,6 +103,18 @@ class FastLottieRasterCache {
 
   /// Maximum number of outstanding render and image decode jobs.
   final int maximumInFlight;
+  int? _inFlightLimit;
+
+  /// Temporarily caps new jobs while the caller is busy, leaving in-flight
+  /// work intact. Pass null to restore [maximumInFlight].
+  set inFlightLimit(int? value) {
+    if (value != null) {
+      RangeError.checkValueInInterval(value, 1, maximumInFlight);
+    }
+    if (_inFlightLimit == value) return;
+    _inFlightLimit = value;
+    _coordinator._pumpPending();
+  }
 
   /// Base number of retired images disposed in one batch.
   final int disposalBatchSize;
@@ -114,6 +128,10 @@ class FastLottieRasterCache {
   /// Maximum frames packed vertically into each buffer.
   /// One uses a single frame; null adapts to resolution and memory budget.
   final int? framesPerStrip;
+
+  /// Allows configured strips to shrink to fit more active animations.
+  /// Has no effect when [framesPerStrip] is null or one.
+  final bool adaptiveStripBudget;
 
   /// Render only the requested sample before starting normal strip playback.
   /// Enabled by default. Set false for full-strip startup. Clips fitting in a
@@ -222,6 +240,10 @@ class FastLottieRasterCache {
   @visibleForTesting
   /// Number of attempts to admit new or existing entries.
   int get debugAdmissionAttempts => _admissionAttempts;
+  @visibleForTesting
+  /// Number of unpinned cached entries (entries without active players).
+  int get debugUnpinnedEntries =>
+      _unpinnedAnims.length + _unpinnedPosters.length;
   @visibleForTesting
   /// Number of retired images waiting for disposal.
   int get debugPendingDisposals => _disposalQueue.length - _disposalHead;
@@ -350,19 +372,17 @@ class FastLottieRasterCache {
     if (count <= 1) return 1;
     final maxByHeight = ph > 0 ? math.max(1, (4096 + 1) ~/ (ph + 1)) : 1;
     final configured = framesPerStrip;
-    if (configured != null) {
-      return math.min(configured, math.min(count, maxByHeight));
-    }
     final frameBytes = pw * ph * 4;
-    var targetK = 1;
-    if (frameBytes <= 64 * 1024) {
-      targetK = count <= 6 ? count : 4;
-    } else if (frameBytes <= 256 * 1024) {
-      targetK = 4;
-    } else if (frameBytes <= 1024 * 1024) {
-      targetK = 2;
-    }
+    var targetK =
+        configured ??
+        switch (frameBytes) {
+          <= 64 * 1024 => count <= 6 ? count : 4,
+          <= 256 * 1024 => 4,
+          <= 1024 * 1024 => 2,
+          _ => 1,
+        };
     targetK = math.min(targetK, math.min(count, maxByHeight));
+    if (configured != null && !adaptiveStripBudget) return targetK;
     final budget = entryBudget != null
         ? math.min(maximumBytes, math.max(0, entryBudget))
         : maximumBytes;
@@ -482,10 +502,9 @@ class FastLottieRasterCache {
     }
     if (!fits()) return null;
     final sourceFrames = c.isStatic ? 1 : math.max(1, c.frameCount);
-    final entryMinWeight =
-        framesPerStrip != null || c.isStatic || poster || effectiveStrip <= 1
-        ? weight
-        : minWeight;
+    final entryMinWeight = framesPerStrip == null || adaptiveStripBudget
+        ? math.min(weight, minWeight)
+        : weight;
     entry = _RasterEntry(
       key,
       weight,
@@ -590,8 +609,15 @@ class FastLottieRasterCache {
   (ui.Image?, _RasterEntry?, int) _lookup(
     FastLottiePlayer player,
     Size size,
-    double relative,
-  ) => _coordinator.lookup(player, size, relative);
+    double relative, {
+    required bool requestRaster,
+  }) =>
+      _coordinator.lookup(player, size, relative, requestRaster: requestRaster);
+
+  static Size _rasterPixelSize(Size rawPixels) => Size(
+    math.max(1, (rawPixels.width - 1e-4).ceil()).toDouble(),
+    math.max(1, (rawPixels.height - 1e-4).ceil()).toDouble(),
+  );
 
   void _prewarm(FastLottiePlayer player, Size size) {
     if (_disposed || !_enabled || lastError != null) return;
@@ -722,6 +748,18 @@ class FastLottieRasterCache {
       }
       entry.users.clear();
     }
+  }
+
+  /// Evicts all unpinned entries (entries with no active players/widgets) to free GPU textures.
+  void evictUnpinned() {
+    _admissionGeneration++;
+    while (_unpinnedAnims.isNotEmpty) {
+      _evict(_unpinnedAnims.first, immediateDispose: true);
+    }
+    while (_unpinnedPosters.isNotEmpty) {
+      _evict(_unpinnedPosters.first, immediateDispose: true);
+    }
+    _flushAllDisposals();
   }
 
   /// Releases all images, including active entries; players reacquire on draw.

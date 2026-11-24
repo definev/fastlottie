@@ -2,12 +2,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
-#include <arm_neon.h>
-#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
-#include <emmintrin.h>
-#endif
-
 #if defined(_WIN32)
 #define FL_EXPORT __declspec(dllexport)
 #else
@@ -58,6 +52,11 @@ static uint32_t crc31(const uint8_t *src, size_t count,
     while (count--) crc = table[(crc ^ *src++) & 255u] ^ (crc >> 8);
     return (crc ^ UINT32_MAX) & 0x7fffffffu;
 #endif
+}
+
+FL_EXPORT uint32_t fastlottie_cache_crc31(const uint8_t *src, size_t count,
+                                         const uint32_t *table) {
+    return crc31(src, count, table);
 }
 
 static uint32_t read32le(const uint8_t *src) {
@@ -255,65 +254,4 @@ FL_EXPORT int32_t fastlottie_decode_cache_frame(
         out += match;
     }
     return out == dst_len;
-}
-
-FL_EXPORT void fastlottie_xor_bytes(
-    const uint8_t *src1, const uint8_t *src2, uint8_t *dst, size_t count
-) {
-    size_t i = 0;
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
-    for (; i + 64 <= count; i += 64) {
-        uint8x16_t a0 = vld1q_u8(src1 + i);
-        uint8x16_t b0 = vld1q_u8(src2 + i);
-        uint8x16_t a1 = vld1q_u8(src1 + i + 16);
-        uint8x16_t b1 = vld1q_u8(src2 + i + 16);
-        uint8x16_t a2 = vld1q_u8(src1 + i + 32);
-        uint8x16_t b2 = vld1q_u8(src2 + i + 32);
-        uint8x16_t a3 = vld1q_u8(src1 + i + 48);
-        uint8x16_t b3 = vld1q_u8(src2 + i + 48);
-
-        vst1q_u8(dst + i, veorq_u8(a0, b0));
-        vst1q_u8(dst + i + 16, veorq_u8(a1, b1));
-        vst1q_u8(dst + i + 32, veorq_u8(a2, b2));
-        vst1q_u8(dst + i + 48, veorq_u8(a3, b3));
-    }
-    for (; i + 16 <= count; i += 16) {
-        uint8x16_t a = vld1q_u8(src1 + i);
-        uint8x16_t b = vld1q_u8(src2 + i);
-        vst1q_u8(dst + i, veorq_u8(a, b));
-    }
-#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
-    for (; i + 64 <= count; i += 64) {
-        __m128i a0 = _mm_loadu_si128((const __m128i*)(src1 + i));
-        __m128i b0 = _mm_loadu_si128((const __m128i*)(src2 + i));
-        __m128i a1 = _mm_loadu_si128((const __m128i*)(src1 + i + 16));
-        __m128i b1 = _mm_loadu_si128((const __m128i*)(src2 + i + 16));
-        __m128i a2 = _mm_loadu_si128((const __m128i*)(src1 + i + 32));
-        __m128i b2 = _mm_loadu_si128((const __m128i*)(src2 + i + 32));
-        __m128i a3 = _mm_loadu_si128((const __m128i*)(src1 + i + 48));
-        __m128i b3 = _mm_loadu_si128((const __m128i*)(src2 + i + 48));
-
-        _mm_storeu_si128((__m128i*)(dst + i), _mm_xor_si128(a0, b0));
-        _mm_storeu_si128((__m128i*)(dst + i + 16), _mm_xor_si128(a1, b1));
-        _mm_storeu_si128((__m128i*)(dst + i + 32), _mm_xor_si128(a2, b2));
-        _mm_storeu_si128((__m128i*)(dst + i + 48), _mm_xor_si128(a3, b3));
-    }
-    for (; i + 16 <= count; i += 16) {
-        __m128i a = _mm_loadu_si128((const __m128i*)(src1 + i));
-        __m128i b = _mm_loadu_si128((const __m128i*)(src2 + i));
-        _mm_storeu_si128((__m128i*)(dst + i), _mm_xor_si128(a, b));
-    }
-#endif
-    while (i + 8 <= count) {
-        uint64_t a, b;
-        memcpy(&a, src1 + i, 8);
-        memcpy(&b, src2 + i, 8);
-        uint64_t r = a ^ b;
-        memcpy(dst + i, &r, 8);
-        i += 8;
-    }
-    while (i < count) {
-        dst[i] = src1[i] ^ src2[i];
-        i++;
-    }
 }

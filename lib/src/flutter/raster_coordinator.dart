@@ -59,12 +59,12 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
 
   // Cap the total of worker jobs and images being decoded. Browser uploads
   // also have a limit relative to the number of live workers.
-  int get _maximumInFlight => kIsWeb
-      ? math.min(
-          cache.maximumInFlight,
-          math.max(1, workerPool.browserWorkers * 2),
-        )
-      : cache.maximumInFlight;
+  int get _maximumInFlight {
+    final limit = cache._inFlightLimit ?? cache.maximumInFlight;
+    return kIsWeb
+        ? math.min(limit, math.max(1, workerPool.browserWorkers * 2))
+        : limit;
+  }
 
   int _workerShard(_RasterEntry entry) =>
       entry.workerShard ??= workerPool.shardForKey(entry.entryKey);
@@ -73,11 +73,9 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     if (_activeJobs >= _maximumInFlight) return false;
     final shard = _workerShard(entry);
     // Keep first-image work cancelable during viewport churn. Once an entry
-    // has an image, native workers retain their playback lookahead throughput.
-    if ((kIsWeb || entry.renderingImage == null) &&
-        (_activeWorkerShards[shard] ?? 0) > 0) {
-      return false;
-    }
+    // has an image, one queued lookahead keeps the native shard fed.
+    final shardLimit = kIsWeb || entry.renderingImage == null ? 1 : 2;
+    if ((_activeWorkerShards[shard] ?? 0) >= shardLimit) return false;
     if (!kIsWeb) return true;
     // Multiple browser workers can fail asynchronously. Keep new inline
     // work on a single slot even when more than one shard fell back.
@@ -206,9 +204,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
 
   void prewarm(FastLottiePlayer player, Size rawPixels) {
     if (!cache._enabled || cache.lastError != null || player.isDisposed) return;
-    final pw = math.max(1, (rawPixels.width - 1e-4).ceil());
-    final ph = math.max(1, (rawPixels.height - 1e-4).ceil());
-    final keySize = Size(pw.toDouble(), ph.toDouble());
+    final keySize = FastLottieRasterCache._rasterPixelSize(rawPixels);
     final c = player.composition;
     final poster = player.rasterMode == FastLottieRasterMode.poster;
     final rateKey = poster || c.isStatic
@@ -250,11 +246,11 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   (ui.Image?, _RasterEntry?, int) lookup(
     FastLottiePlayer player,
     Size rawPixels,
-    double relative,
-  ) {
-    final pw = math.max(1, (rawPixels.width - 1e-4).ceil());
-    final ph = math.max(1, (rawPixels.height - 1e-4).ceil());
-    final keySize = Size(pw.toDouble(), ph.toDouble());
+    double relative, {
+    required bool requestRaster,
+  }) {
+    final keySize = FastLottieRasterCache._rasterPixelSize(rawPixels);
+    final ph = keySize.height.toInt();
     final c = player.composition;
     final poster = player.rasterMode == FastLottieRasterMode.poster;
     final rateKey = poster || c.isStatic
@@ -267,6 +263,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         entry.key.$2 != keySize ||
         entry.key.$3 != poster ||
         entry.key.$4 != rateKey) {
+      if (!requestRaster) return (null, null, 0);
       if (entry == null &&
           player._rasterRejectedKey == (keySize, rateKey) &&
           player._rasterRejectedGeneration == cache._admissionGeneration) {
@@ -312,7 +309,8 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       final slot = index - entry.renderingStripStart;
       entry.lastRenderingSlot = slot;
       cache.hits++;
-      if (!entry.poster &&
+      if (requestRaster &&
+          !entry.poster &&
           total > entry.renderingStripCount &&
           entry.hasPlayedAdvance) {
         final nextStart = _nextStripStart(
@@ -353,7 +351,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         cache._bytes -= dBytes;
         cache._enqueueDisposal(displaced, dBytes);
       }
-      if (!entry.poster && total > entry.renderingStripCount) {
+      if (requestRaster && !entry.poster && total > entry.renderingStripCount) {
         final nextStart = _nextStripStart(
           entry,
           entry.renderingStripStart,
@@ -375,7 +373,8 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         )) {
       entry.hasPlayedAdvance = true;
     }
-    if (entry.backgroundImage != null &&
+    if (requestRaster &&
+        entry.backgroundImage != null &&
         !_stripContains(
           entry.backgroundStripStart,
           entry.backgroundStripCount,
@@ -391,7 +390,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     }
 
     entry.desiredFrameIndex = index;
-    if (cache._enabled && cache.lastError == null && !entry.retired) {
+    if (requestRaster && cache._enabled && cache.lastError == null) {
       final stripStart = _stripStartFor(entry, index);
       final stripCount = _stripCountFor(entry, stripStart, total);
       _requestStrip(entry, stripStart, stripCount, highPriority: true);
@@ -400,8 +399,10 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     // If a valid front buffer already exists, hold the last rendered slot
     // to avoid stalling the UI thread with costly vector rasterization.
     if (entry.renderingImage != null && entry.renderingStripCount > 0) {
-      final fallbackSlot =
-          entry.lastRenderingSlot.clamp(0, entry.renderingStripCount - 1);
+      final fallbackSlot = entry.lastRenderingSlot.clamp(
+        0,
+        entry.renderingStripCount - 1,
+      );
       return (entry.renderingImage, entry, offsetYForSlot(fallbackSlot));
     }
 

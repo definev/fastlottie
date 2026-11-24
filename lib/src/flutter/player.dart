@@ -110,6 +110,7 @@ class FastLottiePlayer extends ChangeNotifier {
 
   /// Per-player sample rate cap; null uses the shared cache setting.
   final double? maximumFrameRate;
+
   _RasterEntry? _rasterEntry;
   (Size, int)? _rasterRejectedKey;
   int _rasterRejectedGeneration = -1;
@@ -319,6 +320,8 @@ class FastLottiePlayer extends ChangeNotifier {
 
   /// Paint progress in [0,1]. By default, quantize to the composition frame rate.
   /// Set [useFrameRate] false for subframe rendering (subframes are not cached).
+  /// With [requestRaster] false, shared playback uses available raster frames
+  /// or paints [coldFallback] without requesting new raster work.
   void draw(
     Canvas canvas,
     Rect destination,
@@ -329,6 +332,7 @@ class FastLottiePlayer extends ChangeNotifier {
     double devicePixelRatio = 1,
     FilterQuality? filterQuality,
     FastLottieFallbackPainter? coldFallback,
+    bool requestRaster = true,
   }) {
     if (_disposed) throw StateError('FastLottiePlayer has been disposed');
     if (!progress.isFinite) throw ArgumentError.value(progress, 'progress');
@@ -404,6 +408,7 @@ class FastLottiePlayer extends ChangeNotifier {
         this,
         pixels,
         rasterRelative,
+        requestRaster: requestRaster,
       );
       if (image != null) {
         final pw = entry?.key.$2.width ?? image.width.toDouble();
@@ -433,7 +438,7 @@ class FastLottiePlayer extends ChangeNotifier {
       } else if (coldFallback != null) {
         coldFallback(canvas, target);
         return;
-      } else if (!shared.allowUiVectorFallback) {
+      } else if (!requestRaster || !shared.allowUiVectorFallback) {
         return;
       }
     }
@@ -486,7 +491,10 @@ class FastLottiePlayer extends ChangeNotifier {
     final dest = destinationSize ?? composition.size;
     final fitted = applyBoxFit(fit, composition.size, dest);
     final target = alignment.inscribe(fitted.destination, Offset.zero & dest);
-    final source = alignment.inscribe(fitted.source, Offset.zero & composition.size);
+    final source = alignment.inscribe(
+      fitted.source,
+      Offset.zero & composition.size,
+    );
     final pixels = Size(
       composition.width * target.width / source.width * dpr * scale,
       composition.height * target.height / source.height * dpr * scale,

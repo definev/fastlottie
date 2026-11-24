@@ -155,14 +155,6 @@ final class RasterWorkerPool<T> {
   bool get needsDiskBudgetEnforcement =>
       _diskDir != null && maximumDiskBytes > 0 && _diskBytes > maximumDiskBytes;
 
-  bool _rememberScene(int shard, String contentKey) {
-    final scenes = _registeredScenes[shard];
-    final known = scenes.remove(contentKey);
-    if (scenes.length >= maxWorkerScenes) scenes.remove(scenes.first);
-    scenes.add(contentKey);
-    return known;
-  }
-
   void _ensureStarted() {
     if (_started || _disposed) return;
     _started = true;
@@ -246,6 +238,10 @@ final class RasterWorkerPool<T> {
   }
 
   void _registerScene(_PendingRequest<T> request) {
+    final scenes = _registeredScenes[request.shard];
+    scenes.remove(request.contentKey);
+    if (scenes.length >= maxWorkerScenes) scenes.remove(scenes.first);
+    scenes.add(request.contentKey);
     final handle = _handles[request.shard];
     if (isBrowserRasterWorker(handle)) {
       handle.send((
@@ -263,11 +259,8 @@ final class RasterWorkerPool<T> {
     }
   }
 
-  void _sendRequest(_PendingRequest<T> request, {bool register = false}) {
+  void _sendRequest(_PendingRequest<T> request) {
     final shard = request.shard;
-    if (!_rememberScene(shard, request.contentKey) || register) {
-      _registerScene(request);
-    }
     final handle = _handles[shard];
     if (request.stripCount > 1) {
       handle.send((
@@ -490,7 +483,8 @@ final class RasterWorkerPool<T> {
           return;
         }
         pending.retried = true;
-        _sendRequest(pending, register: true);
+        _registerScene(pending);
+        _sendRequest(pending);
       case (
         repDeleted,
         entryKey: final String entryKey,
@@ -593,6 +587,15 @@ final class RasterWorkerPool<T> {
       totalFrames: totalFrames,
       poster: poster,
     );
+    // A new disk entry needs vector pixels. Send its first scene with the
+    // request to avoid a round trip. For existing files (including partial
+    // ones), let the worker check its pixels before copying a scene.
+    if (maximumDiskBytes > 0 &&
+        _diskDir != null &&
+        !_diskLru.containsKey(entryKey) &&
+        !_registeredScenes[shard].contains(contentKey)) {
+      _registerScene(request);
+    }
     _sendRequest(request);
   }
 

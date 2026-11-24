@@ -32,18 +32,11 @@ final class BitstreamReadStats {
 }
 
 final class _RamFrame {
-  _RamFrame({
-    required this.payload,
-    required this.isRaw,
-    required this.crc31,
-    this.deltaBase = -1,
-  });
+  _RamFrame({required this.payload, required this.isRaw, required this.crc31});
 
   final Uint8List payload;
   final bool isRaw;
   final int crc31;
-  final int deltaBase;
-  bool get isDelta => deltaBase >= 0;
 }
 
 final class _OpenFlCacheFile {
@@ -140,6 +133,11 @@ class BitstreamStore {
     return (crc ^ 0xFFFFFFFF) & 0x7FFFFFFF;
   }
 
+  /// Fingerprint a complete raster strip before sending it to the UI isolate.
+  static int stripCrc31(Uint8List pixels) =>
+      cacheCrc31Native(pixels, _crcTable) ??
+      crc31(pixels, 0, pixels.lengthInBytes);
+
   String? _diskDir;
   int _maximumRamBytes;
   int get maximumRamBytes => _maximumRamBytes;
@@ -163,35 +161,11 @@ class BitstreamStore {
   final _ramLru = <_RamKey, _RamFrame>{};
   final _ramFramesByEntry = <String, Set<int>>{};
   int _ramBytes = 0;
-  final _decodedAnchors = <(String, int), Uint8List>{};
-  static const _maxDecodedAnchors = 16;
-  int _decodedAnchorBytes = 0;
-  static const int _maxDecodedAnchorBytes = 4 * 1024 * 1024;
   final _tilePages = <_RamKey, TilePlaybackPage>{};
   final _attemptedPages = <_RamKey>{};
   int _tileBytes = 0;
   Uint8List? _tileScratch;
   int? lastFrameCrc;
-  Uint8List? _anchorPixels;
-  String? _anchorKey;
-  int _anchorIndex = -1;
-  Uint8List? _deltaScratch;
-  Uint8List? _deltaOutScratch;
-
-  Uint8List _ensureDeltaScratch(int needed) {
-    if (_deltaScratch != null && _deltaScratch!.length >= needed) {
-      return _deltaScratch!;
-    }
-    return _deltaScratch = Uint8List(needed);
-  }
-
-  Uint8List _ensureDeltaOutScratch(int needed) {
-    if (_deltaOutScratch != null && _deltaOutScratch!.length >= needed) {
-      return _deltaOutScratch!;
-    }
-    return _deltaOutScratch = Uint8List(needed);
-  }
-
   static const int _defaultIoScratchBytes = 64 * 1024;
   static const int _softIoScratchLimit = 512 * 1024;
 
@@ -337,7 +311,14 @@ class BitstreamStore {
     final ram = _ramLru.remove(ramKey);
     if (ram != null) {
       _ramLru[ramKey] = ram;
-      if (_decodeRamFrame(entryKey, ram, dstBgra, expectedBytes)) {
+      if (_decodePayload(
+        ram.payload,
+        0,
+        ram.payload.length,
+        ram.isRaw,
+        dstBgra,
+        expectedBytes,
+      )) {
         readStats?.ramHits++;
         lastFrameCrc = ram.crc31;
         return true;
@@ -417,89 +398,6 @@ class BitstreamStore {
     return true;
   }
 
-  void _removeDecodedAnchor((String, int) key) {
-    final removed = _decodedAnchors.remove(key);
-    if (removed != null) {
-      _decodedAnchorBytes -= removed.length;
-    }
-  }
-
-  bool _decodeRamFrame(
-    String entryKey,
-    _RamFrame ram,
-    Uint8List dst,
-    int expectedBytes,
-  ) {
-    // RAM payloads are private copies of encoded frames or verified disk reads.
-    if (ram.isDelta) {
-      final anchorKey = (entryKey, ram.deltaBase);
-      Uint8List? anchorPixels = _decodedAnchors.remove(anchorKey);
-      if (anchorPixels == null || anchorPixels.length < expectedBytes) {
-        if (anchorPixels != null) {
-          _decodedAnchorBytes -= anchorPixels.length;
-        }
-        final anchor = _ramLru.remove(anchorKey);
-        if (anchor != null) {
-          _ramLru[anchorKey] = anchor;
-          if (!anchor.isDelta) {
-            final decoded = Uint8List(expectedBytes);
-            if (_decodePayload(
-              anchor.payload,
-              0,
-              anchor.payload.length,
-              anchor.isRaw,
-              decoded,
-              expectedBytes,
-            )) {
-              while (_decodedAnchors.isNotEmpty &&
-                  (_decodedAnchors.length >= _maxDecodedAnchors ||
-                      _decodedAnchorBytes + expectedBytes >
-                          _maxDecodedAnchorBytes)) {
-                _removeDecodedAnchor(_decodedAnchors.keys.first);
-              }
-              _decodedAnchors[anchorKey] = decoded;
-              _decodedAnchorBytes += decoded.length;
-              anchorPixels = decoded;
-            } else {
-              return false;
-            }
-          } else {
-            return false;
-          }
-        } else {
-          return false;
-        }
-      } else {
-        _decodedAnchors[anchorKey] = anchorPixels;
-        final anchor = _ramLru.remove(anchorKey);
-        if (anchor != null) {
-          _ramLru[anchorKey] = anchor;
-        }
-      }
-
-      if (_decodePayload(
-        ram.payload,
-        0,
-        ram.payload.length,
-        ram.isRaw,
-        dst,
-        expectedBytes,
-      )) {
-        simdXorBytes(dst, anchorPixels, dst, expectedBytes);
-        return true;
-      }
-      return false;
-    }
-    return _decodePayload(
-      ram.payload,
-      0,
-      ram.payload.length,
-      ram.isRaw,
-      dst,
-      expectedBytes,
-    );
-  }
-
   /// Compile a hot RAM page after replying to the current playback request.
   /// Cold frames, disk layout and first-frame latency use the existing path.
   bool preparePlaybackPage({
@@ -554,7 +452,14 @@ class BitstreamStore {
       scratch: scratch,
       readFrame: (f, dst) {
         final ram = _ramLru[(entryKey, f)]!;
-        return _decodeRamFrame(entryKey, ram, dst, expectedBytes);
+        return _decodePayload(
+          ram.payload,
+          0,
+          ram.payload.length,
+          ram.isRaw,
+          dst,
+          expectedBytes,
+        );
       },
       getCrc: (f) => _ramLru[(entryKey, f)]?.crc31 ?? 0,
     );
@@ -632,72 +537,13 @@ class BitstreamStore {
     final check = native?.crc ?? crc31(srcPayload, 0, payloadLen);
     lastFrameCrc = check;
 
-    // Delta-frame compression (star-GOP K=8) in RAM LRU.
-    // Small clips (totalFrames <= TilePlaybackPage.maxFrames) use tile deduplication.
-    final canUseDelta = totalFrames > TilePlaybackPage.maxFrames;
-    const gopSize = 8;
-    final gopIndex = frameIndex % gopSize;
-    final anchorIndex = frameIndex - gopIndex;
-    int deltaBase = -1;
-    Uint8List ramPayload = srcPayload;
-    int ramLen = payloadLen;
-    bool ramIsRaw = isRaw;
-
-    if (canUseDelta && gopIndex == 0) {
-      _anchorKey = entryKey;
-      _anchorIndex = frameIndex;
-      if (_anchorPixels == null || _anchorPixels!.length < expectedBytes) {
-        _anchorPixels = Uint8List(expectedBytes);
-      }
-      _anchorPixels!.setRange(0, expectedBytes, srcBgra);
-    } else if (canUseDelta &&
-        _anchorKey == entryKey &&
-        _anchorIndex == anchorIndex &&
-        _anchorPixels != null &&
-        _anchorPixels!.length >= expectedBytes &&
-        _ramLru.containsKey((entryKey, anchorIndex))) {
-      final delta = _ensureDeltaScratch(expectedBytes);
-      simdXorBytes(srcBgra, _anchorPixels!, delta, expectedBytes);
-      final deltaOut = _ensureDeltaOutScratch(maxOut);
-      final nativeDelta = useNativeEncoder && expectedBytes > 0
-          ? encodeCacheFrameNative(
-              delta,
-              expectedBytes,
-              deltaOut,
-              scratch.hashTable,
-              _crcTable,
-            )
-          : null;
-      final int writtenDelta;
-      if (nativeDelta != null) {
-        writtenDelta = nativeDelta.length;
-      } else {
-        writtenDelta = Lz4Codec.compressInto(
-          delta,
-          expectedBytes,
-          deltaOut,
-          scratch.hashTable,
-          abortAtLength: payloadLen,
-        );
-      }
-      // Require delta to save at least 15% RAM vs standalone frame to eliminate marginal overhead
-      final savingsThreshold = (payloadLen * 85) ~/ 100;
-      if (writtenDelta > 0 && writtenDelta < savingsThreshold) {
-        deltaBase = anchorIndex;
-        ramPayload = deltaOut;
-        ramLen = writtenDelta;
-        ramIsRaw = false;
-      }
-    }
-
     _putRam(
       ramKey: (entryKey, frameIndex),
-      bytes: ramPayload,
+      bytes: srcPayload,
       start: 0,
-      length: ramLen,
-      isRaw: ramIsRaw,
+      length: payloadLen,
+      isRaw: isRaw,
       crc31: check,
-      deltaBase: deltaBase,
     );
     scratch.recordOutputUse(maxOut);
 
@@ -723,7 +569,11 @@ class BitstreamStore {
         );
       }
     }
-    return (compressedBytes: ramLen, entryDiskBytes: diskSize, crc31: check);
+    return (
+      compressedBytes: payloadLen,
+      entryDiskBytes: diskSize,
+      crc31: check,
+    );
   }
 
   bool deleteDiskEntry(String entryKey) {
@@ -739,17 +589,6 @@ class BitstreamStore {
   }
 
   void evictEntryRam(String entryKey) {
-    if (_anchorKey == entryKey) {
-      _anchorKey = null;
-      _anchorIndex = -1;
-      _anchorPixels = null;
-    }
-    final anchorKeys = _decodedAnchors.keys
-        .where((k) => k.$1 == entryKey)
-        .toList();
-    for (final k in anchorKeys) {
-      _removeDecodedAnchor(k);
-    }
     for (final key in _tilePages.keys.where((k) => k.$1 == entryKey).toList()) {
       _removeTilePage(key);
     }
@@ -775,13 +614,6 @@ class BitstreamStore {
 
   void clearRam() {
     _ramLru.clear();
-    _decodedAnchors.clear();
-    _decodedAnchorBytes = 0;
-    _anchorKey = null;
-    _anchorIndex = -1;
-    _anchorPixels = null;
-    _deltaScratch = null;
-    _deltaOutScratch = null;
     _ramFramesByEntry.clear();
     _ramBytes = 0;
     _tilePages.clear();
@@ -851,18 +683,12 @@ class BitstreamStore {
     required int length,
     required bool isRaw,
     required int crc31,
-    int deltaBase = -1,
   }) {
     if (maximumRamBytes <= 0 || length > maximumRamBytes) return;
     _removeRamKey(ramKey);
     _makeRamRoom(length);
     final copy = Uint8List(length)..setRange(0, length, bytes, start);
-    final frame = _RamFrame(
-      payload: copy,
-      isRaw: isRaw,
-      crc31: crc31,
-      deltaBase: deltaBase,
-    );
+    final frame = _RamFrame(payload: copy, isRaw: isRaw, crc31: crc31);
     _ramLru[ramKey] = frame;
     (_ramFramesByEntry[ramKey.$1] ??= <int>{}).add(ramKey.$2);
     _ramBytes += length;
@@ -886,7 +712,6 @@ class BitstreamStore {
   }
 
   void _removeRamKey(_RamKey ramKey) {
-    _removeDecodedAnchor(ramKey);
     final removed = _ramLru.remove(ramKey);
     if (removed == null) return;
     _ramBytes -= removed.payload.length;
@@ -894,20 +719,6 @@ class BitstreamStore {
     if (set != null) {
       set.remove(ramKey.$2);
       if (set.isEmpty) _ramFramesByEntry.remove(ramKey.$1);
-    }
-    // If an anchor is evicted, its dependent deltas cannot be decoded anymore.
-    // Evict them immediately so they don't leak RAM as dead weight.
-    if (!removed.isDelta) {
-      const gopSize = 8;
-      for (var d = 1; d < gopSize; d++) {
-        final deltaKey = (ramKey.$1, ramKey.$2 + d);
-        final candidate = _ramLru[deltaKey];
-        if (candidate != null &&
-            candidate.isDelta &&
-            candidate.deltaBase == ramKey.$2) {
-          _removeRamKey(deltaKey);
-        }
-      }
     }
   }
 

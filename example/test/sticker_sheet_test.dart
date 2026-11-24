@@ -101,7 +101,8 @@ void main() {
         frameRate: 30,
         framesPerStrip: 4,
       );
-      final clock = StickerClock();
+      final clock = StickerClock()
+        ..configure(playing: true, reducedMotion: false, maximumFrameRate: 30);
       addTearDown(() {
         clock.dispose();
         sheet.dispose();
@@ -119,6 +120,24 @@ void main() {
       expect({
         for (final asset in assets.take(4)) sheet.progressFor(asset, clock),
       }, hasLength(4));
+
+      final asset = assets.first;
+      final listenable = sheet.listenableFor(asset, clock);
+      void repaint() {}
+      listenable.addListener(repaint);
+      addTearDown(() => listenable.removeListener(repaint));
+      await tester.pump();
+      final firstSample = sheet.progressFor(asset, clock);
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(sheet.progressFor(asset, clock), firstSample);
+      await tester.pump(const Duration(microseconds: 17334));
+      expect(
+        sheet.progressFor(asset, clock),
+        closeTo(
+          firstSample + composition.frameRate / 30 / composition.frameCount,
+          1e-7,
+        ),
+      );
 
       for (final asset in assets.take(9)) {
         sheet.releasePin(asset);

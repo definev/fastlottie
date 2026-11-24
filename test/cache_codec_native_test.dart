@@ -30,6 +30,18 @@ void main() {
         table,
       );
 
+  test('native strip checksum matches Dart for a pixel buffer view', () {
+    final bytes = Uint8List(96 * (4 * 96 + 3) * 4 + 5);
+    final pixels = Uint8List.sublistView(bytes, 3, bytes.length - 2);
+    final random = Random(30);
+    for (var i = 0; i < pixels.length; i++) {
+      pixels[i] = random.nextInt(256);
+    }
+    final expected = BitstreamStore.crc31(pixels, 0, pixels.length);
+    expect(cacheCrc31Native(pixels, table), expected);
+    expect(BitstreamStore.stripCrc31(pixels), expected);
+  });
+
   test('native FLC1 encode preserves Dart payload and CRC', () {
     final rng = Random(609);
     final scratch = Lz4Scratch();
@@ -183,6 +195,48 @@ void main() {
     expect(stats.dartEncodes, 1);
   });
 
+  test('a frame stays readable after the preceding frame is evicted', () {
+    const size = 96;
+    const frameBytes = size * size * 4;
+    final random = Random(53);
+    final first = Uint8List.fromList(
+      List.generate(frameBytes, (_) => random.nextInt(256)),
+    );
+    final next = Uint8List.fromList(first)..[0] ^= 0xff;
+    final scratch = Lz4Scratch();
+    final cache = BitstreamStore(maximumRamBytes: frameBytes + 16);
+    addTearDown(cache.dispose);
+
+    for (final (index, pixels) in [(0, first), (1, next)]) {
+      cache.storeFrame(
+        entryKey: 'animation',
+        width: size,
+        height: size,
+        totalFrames: 8,
+        poster: false,
+        frameIndex: index,
+        srcBgra: pixels,
+        scratch: scratch,
+      );
+    }
+
+    final output = Uint8List(frameBytes);
+    bool read(int index) => cache.tryReadFrame(
+      entryKey: 'animation',
+      width: size,
+      height: size,
+      totalFrames: 8,
+      poster: false,
+      frameIndex: index,
+      dstBgra: output,
+    );
+
+    expect(read(1), isTrue);
+    expect(output, next);
+    expect(read(0), isFalse);
+    expect(cache.ramBytes, frameBytes);
+  });
+
   test('native FLC1 decode matches Dart for raw, LZ4, slices and overlap matches', () {
     final rng = Random(829);
     for (final length in [
@@ -328,44 +382,4 @@ void main() {
       }
     }
   });
-
-  test(
-    'simdXorBytes performs SIMD XOR with exact byte parity and self-inversion',
-    () {
-      final rng = Random(42);
-      for (final len in [
-        0,
-        1,
-        7,
-        8,
-        15,
-        16,
-        31,
-        32,
-        63,
-        64,
-        127,
-        128,
-        255,
-        256,
-        1024,
-        65536,
-      ]) {
-        final a = Uint8List(len);
-        final b = Uint8List(len);
-        final dst = Uint8List(len);
-        for (var i = 0; i < len; i++) {
-          a[i] = rng.nextInt(256);
-          b[i] = rng.nextInt(256);
-        }
-        simdXorBytes(a, b, dst, len);
-        for (var i = 0; i < len; i++) {
-          expect(dst[i], a[i] ^ b[i]);
-        }
-        final roundtrip = Uint8List(len);
-        simdXorBytes(dst, b, roundtrip, len);
-        expect(roundtrip, a);
-      }
-    },
-  );
 }

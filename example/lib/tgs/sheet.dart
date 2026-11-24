@@ -246,22 +246,22 @@ class StickerSheet extends ChangeNotifier {
     if (c.isStatic || span <= 0) return 0;
     final rate = math.min(c.frameRate, entry.playbackRate);
     final sourceStep = math.max(1.0, c.frameRate / rate);
-    final now = clock.microseconds;
+    final sample = entry.clockSample(clock);
     final double phaseFrames;
-    final int elapsed;
+    final int elapsedSamples;
     if (poster == null) {
       phaseFrames = entry.phaseSample * sourceStep;
-      elapsed = now;
+      elapsedSamples = sample;
     } else {
-      if (entry.playbackStart == null && player.rasterBytes == 0) {
+      if (entry.playbackStartSample == null && player.rasterBytes == 0) {
         return poster.progress;
       }
-      // Hold the poster's sample until the shared player has a raster image.
-      entry.playbackStart ??= now;
+      // Start on the shared sample grid even if the image arrived between ticks.
+      entry.playbackStartSample ??= sample;
       phaseFrames = poster.progress * span;
-      elapsed = now - entry.playbackStart!;
+      elapsedSamples = sample - entry.playbackStartSample!;
     }
-    final frame = (((elapsed + 1) / 1000000 * c.frameRate + phaseFrames) % span)
+    final frame = ((elapsedSamples * sourceStep + phaseFrames) % span)
         .clamp(0.0, span > 1 ? span - 1 : 0.0)
         .toDouble();
     return frame / span;
@@ -438,8 +438,14 @@ final class _SheetAsset {
   int pins = 0;
   double playbackRate;
   int phaseSample;
-  int? playbackStart;
+  int? playbackStartSample;
   bool disposed = false;
+
+  int clockSample(StickerClock clock) {
+    final sourceRate = composition?.frameRate ?? playbackRate;
+    final rate = math.min(sourceRate, playbackRate);
+    return ((clock.microseconds + 1) * rate / 1000000).floor();
+  }
 
   void configurePlayback(double rate, int phase) {
     if (playbackRate == rate && phaseSample == phase) return;
@@ -469,7 +475,7 @@ final class _SheetAsset {
     final p = player;
     if (p == null) return;
     player = null;
-    playbackStart = null;
+    playbackStartSample = null;
     p.removeListener(_onPlayerFrame);
     p.dispose();
   }
@@ -510,9 +516,9 @@ class _MergedAssetClock extends ChangeNotifier {
   }
 
   void _forwardClock() {
-    if (_disposed) return;
-    final bucket = ((clock.microseconds + 1) * asset.playbackRate / 1000000)
-        .floor();
+    final composition = asset.player?.composition;
+    if (_disposed || composition == null || composition.isStatic) return;
+    final bucket = asset.clockSample(clock);
     if (bucket == _clockBucket) return;
     _clockBucket = bucket;
     notifyListeners();

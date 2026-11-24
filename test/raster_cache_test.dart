@@ -31,6 +31,7 @@ void record(
   double progress, {
   double size = 32,
   double dpr = 1,
+  bool requestRaster = true,
 }) {
   final recorder = ui.PictureRecorder();
   player.draw(
@@ -38,6 +39,7 @@ void record(
     ui.Rect.fromLTWH(0, 0, size, size),
     progress,
     devicePixelRatio: dpr,
+    requestRaster: requestRaster,
   );
   recorder.endRecording().dispose();
 }
@@ -52,6 +54,106 @@ double mae(Uint8List a, Uint8List b) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('holding raster playback skips requests until it resumes', (
+    tester,
+  ) async {
+    final cache = FastLottieRasterCache(workerCount: 1);
+    final player = FastLottiePlayer(distinctIcon(1), rasterCache: cache);
+    addTearDown(() {
+      player.dispose();
+      cache.dispose();
+    });
+    record(player, 0, requestRaster: false);
+    expect(cache.entries, 0);
+    expect(player.debugHasScene, isFalse);
+
+    record(player, 0);
+    await drain(tester, cache);
+    final dispatches = cache.workerDispatches;
+    final held = await tester.runAsync(
+      () => render(
+        (canvas) => player.draw(
+          canvas,
+          const ui.Rect.fromLTWH(0, 0, 32, 32),
+          .8,
+          requestRaster: false,
+        ),
+        size: 32,
+      ),
+    );
+    final first = await tester.runAsync(
+      () => render(
+        (canvas) => player.draw(
+          canvas,
+          const ui.Rect.fromLTWH(0, 0, 32, 32),
+          0,
+          requestRaster: false,
+        ),
+        size: 32,
+      ),
+    );
+    expect(held, first);
+    expect(held!.any((byte) => byte != 0), isTrue);
+    expect(cache.workerDispatches, dispatches);
+
+    record(player, .8);
+    await drain(tester, cache);
+    expect(cache.workerDispatches, greaterThan(dispatches));
+  });
+
+  testWidgets('deferring raster still plays frames from both buffers', (
+    tester,
+  ) async {
+    final composition = FastLottieComposition.fromJson(fixture('icon'));
+    final cache = FastLottieRasterCache(
+      framesPerStrip: 3,
+      progressiveFirstFrame: false,
+      workerCount: 1,
+    );
+    final player = FastLottiePlayer(composition, rasterCache: cache);
+    final vector = FastLottiePlayer(composition);
+    addTearDown(() {
+      player.dispose();
+      vector.dispose();
+      cache.dispose();
+    });
+    double progress(int index) => index / composition.frameCount;
+
+    record(player, progress(0));
+    await drain(tester, cache);
+    record(player, progress(1));
+    await drain(tester, cache);
+    final dispatches = cache.workerDispatches;
+    final swaps = cache.bufferSwaps;
+
+    for (final frame in [2, 3]) {
+      final actual = await tester.runAsync(
+        () => render(
+          (canvas) => player.draw(
+            canvas,
+            const ui.Rect.fromLTWH(0, 0, 32, 32),
+            progress(frame),
+            requestRaster: false,
+          ),
+          size: 32,
+        ),
+      );
+      final expected = await tester.runAsync(
+        () => render(
+          (canvas) => vector.draw(
+            canvas,
+            const ui.Rect.fromLTWH(0, 0, 32, 32),
+            progress(frame),
+          ),
+          size: 32,
+        ),
+      );
+      expect(mae(actual!, expected!), lessThan(1.2));
+    }
+    expect(cache.bufferSwaps, swaps + 1);
+    expect(cache.workerDispatches, dispatches);
+  });
 
   testWidgets(
     'an entry beyond the 2-buffer ping-pong budget is rejected without reducing LoD',
@@ -432,6 +534,37 @@ void main() {
     },
   );
 
+  testWidgets('restoring the job limit resumes queued raster work', (
+    tester,
+  ) async {
+    final cache = FastLottieRasterCache(workerCount: 2, maximumInFlight: 4)
+      ..inFlightLimit = 1;
+    final players = [
+      for (var i = 0; i < 5; i++)
+        FastLottiePlayer(distinctIcon(i), rasterCache: cache),
+    ];
+    addTearDown(() {
+      for (final player in players) {
+        player.dispose();
+      }
+      cache.dispose();
+    });
+
+    for (final player in players) {
+      record(player, 0);
+    }
+    expect(cache.workerDispatches, 1);
+    expect(cache.pendingFrames, players.length);
+
+    cache.inFlightLimit = null;
+    await drain(tester, cache);
+    expect(cache.workerDispatches, players.length);
+    expect(
+      players.map((player) => player.rasterBytes),
+      everyElement(greaterThan(0)),
+    );
+  });
+
   testWidgets(
     'completion repaints a static player and disposing during worker work releases images',
     (tester) async {
@@ -516,6 +649,45 @@ void main() {
       cache.clear();
       expect(cache.debugPendingDisposals, 0);
       expect(cache.bytes, 0);
+      await drain(tester, cache);
+    },
+  );
+
+  testWidgets(
+    'evictUnpinned purges detached entries while keeping active pinned entries',
+    (tester) async {
+      final compA = distinctIcon(0);
+      final compB = distinctIcon(1);
+      final cache = FastLottieRasterCache(
+        maximumBytes: 256 * 1024,
+        workerCount: 1,
+      );
+      addTearDown(cache.dispose);
+
+      final pA = FastLottiePlayer(compA, rasterCache: cache);
+      final pB = FastLottiePlayer(compB, rasterCache: cache);
+
+      final rec = ui.PictureRecorder();
+      final canvas = ui.Canvas(rec);
+      pA.draw(canvas, const ui.Rect.fromLTWH(0, 0, 32, 32), 0);
+      pB.draw(canvas, const ui.Rect.fromLTWH(0, 0, 48, 48), 0);
+      rec.endRecording().dispose();
+
+      expect(cache.entries, 2);
+      expect(cache.debugUnpinnedEntries, 0);
+
+      // Disposing pA unpins its raster entry
+      pA.dispose();
+      expect(cache.debugUnpinnedEntries, 1);
+      expect(cache.entries, 2);
+
+      cache.evictUnpinned();
+      expect(cache.debugUnpinnedEntries, 0);
+      expect(cache.entries, 1); // pB is still pinned!
+
+      pB.dispose();
+      cache.evictUnpinned();
+      expect(cache.entries, 0);
       await drain(tester, cache);
     },
   );

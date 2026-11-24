@@ -488,6 +488,7 @@ void main() {
         await _drain(tester, cache1);
       }
       expect(cache1.diskBytes, greaterThan(0));
+      expect(cache1.debugRegisteredWorkerScenes, 1);
       p1.dispose();
       cache1.dispose();
 
@@ -509,6 +510,7 @@ void main() {
         await _drain(tester, cache2);
       }
       expect(cache2.vectorRasterizedFrames, 0);
+      expect(cache2.debugRegisteredWorkerScenes, 0);
       expect(
         cache2.compressedCacheHits,
         greaterThanOrEqualTo(comp2.frameCount),

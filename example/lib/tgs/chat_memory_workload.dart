@@ -79,9 +79,13 @@ class ChatMemoryWorkload {
         'strip_swaps': cache.bufferSwaps,
         'raster_error': cache.lastError?.toString(),
         'sticker_errors': state._stickerSheet?.errors.length,
-        'emoji_errors': state._emojiSheet?.errors.length,
+        'emoji_errors':
+            (state._emojiSheet?.errors.length ?? 0) +
+            (state._pickerEmojiSheet?.errors.length ?? 0),
         'sticker_players': state._stickerSheet?.activePlayers,
-        'emoji_players': state._emojiSheet?.activePlayers,
+        'emoji_players':
+            (state._emojiSheet?.activePlayers ?? 0) +
+            (state._pickerEmojiSheet?.activePlayers ?? 0),
         'cached_models': store.cached,
         'model_cache_entries': store.maximumEntries,
         'model_decodes': store.decodes,

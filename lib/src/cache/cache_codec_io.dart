@@ -4,6 +4,25 @@ import 'dart:typed_data';
 // Use a value outside the CRC31 range so zero still verifies a checksum.
 const _skipCacheCrc = 0x80000000;
 
+@Native<Uint32 Function(Pointer<Uint8>, Size, Pointer<Uint32>)>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fastlottie_cache_crc31',
+  isLeaf: true,
+)
+external int _crc31(Pointer<Uint8> src, int length, Pointer<Uint32> table);
+
+bool _crcUnavailable = false;
+
+int? cacheCrc31Native(Uint8List src, Uint32List table) {
+  if (_crcUnavailable || src.length > 256 * 1024) return null;
+  try {
+    return _crc31(src.address, src.length, table.address);
+  } on ArgumentError {
+    _crcUnavailable = true;
+    return null;
+  }
+}
+
 @Native<
   Int32 Function(
     Pointer<Uint8>,
@@ -134,61 +153,3 @@ external int _encode(
 }
 
 bool _encoderUnavailable = false;
-
-@Native<Void Function(Pointer<Uint8>, Pointer<Uint8>, Pointer<Uint8>, Size)>(
-  assetId: 'package:fastlottie/fastlottie_simd.dart',
-  symbol: 'fastlottie_xor_bytes',
-  isLeaf: true,
-)
-external void _xor(
-  Pointer<Uint8> src1,
-  Pointer<Uint8> src2,
-  Pointer<Uint8> dst,
-  int count,
-);
-
-void simdXorBytes(Uint8List src1, Uint8List src2, Uint8List dst, int count) {
-  if (!_xorUnavailable &&
-      count > 0 &&
-      count <= src1.length &&
-      count <= src2.length &&
-      count <= dst.length) {
-    try {
-      _xor(src1.address, src2.address, dst.address, count);
-      return;
-    } on ArgumentError {
-      _xorUnavailable = true;
-    }
-  }
-  if ((src1.offsetInBytes | src2.offsetInBytes | dst.offsetInBytes) & 7 == 0) {
-    final count64 = count ~/ 8;
-    final u64Src1 = Uint64List.view(src1.buffer, src1.offsetInBytes, count64);
-    final u64Src2 = Uint64List.view(src2.buffer, src2.offsetInBytes, count64);
-    final u64Dst = Uint64List.view(dst.buffer, dst.offsetInBytes, count64);
-    for (var i = 0; i < count64; i++) {
-      u64Dst[i] = u64Src1[i] ^ u64Src2[i];
-    }
-    for (var i = count64 * 8; i < count; i++) {
-      dst[i] = src1[i] ^ src2[i];
-    }
-  } else if ((src1.offsetInBytes | src2.offsetInBytes | dst.offsetInBytes) &
-          3 ==
-      0) {
-    final count32 = count ~/ 4;
-    final u32Src1 = Uint32List.view(src1.buffer, src1.offsetInBytes, count32);
-    final u32Src2 = Uint32List.view(src2.buffer, src2.offsetInBytes, count32);
-    final u32Dst = Uint32List.view(dst.buffer, dst.offsetInBytes, count32);
-    for (var i = 0; i < count32; i++) {
-      u32Dst[i] = u32Src1[i] ^ u32Src2[i];
-    }
-    for (var i = count32 * 4; i < count; i++) {
-      dst[i] = src1[i] ^ src2[i];
-    }
-  } else {
-    for (var i = 0; i < count; i++) {
-      dst[i] = src1[i] ^ src2[i];
-    }
-  }
-}
-
-bool _xorUnavailable = false;

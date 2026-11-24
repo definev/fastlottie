@@ -380,7 +380,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           final packed = packBytesForIsolate(stripBytes);
           final frameCrc = stripCount == 1
               ? (store.lastFrameCrc ?? 0)
-              : BitstreamStore.crc31(stripBytes, 0, stripBytes.lengthInBytes);
+              : BitstreamStore.stripCrc31(stripBytes);
           endpoint.send((
             repStripReady,
             requestId: reqId,

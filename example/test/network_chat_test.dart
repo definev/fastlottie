@@ -16,12 +16,26 @@ import 'package:fastlottie_example/tgs/store.dart';
 // Keep compatible with Flutter versions before the cupertino_ui split.
 // ignore: deprecated_member_use
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../tool/pack_server.dart';
 
 class _PassthroughHttpOverrides extends HttpOverrides {}
+
+class _CountingBundle extends CachingAssetBundle {
+  final pageLoads = <String, int>{};
+
+  @override
+  Future<ByteData> load(String key) {
+    if (key.endsWith('.bin')) {
+      pageLoads.update(key, (count) => count + 1, ifAbsent: () => 1);
+    }
+    return rootBundle.load(key);
+  }
+}
 
 TgsModel _dummyModel([int sourceBytes = 10]) => TgsModel(
   fast: FastLottieComposition.fromJson({
@@ -38,6 +52,20 @@ TgsModel _dummyModel([int sourceBytes = 10]) => TgsModel(
 );
 
 void main() {
+  testWidgets('opening All reads each visible poster page once', (tester) async {
+    final bundle = _CountingBundle();
+    final assets = PackAssets(bundle: bundle);
+    addTearDown(assets.dispose);
+    await tester.runAsync(() async {
+      final catalog = await assets.catalog(PackAssets.bundleOrigin);
+      for (final item in catalog.stickers.take(20)) {
+        await assets.fetch(item.poster!.uri);
+      }
+    });
+    expect(bundle.pageLoads, isNotEmpty);
+    expect(bundle.pageLoads.values, everyElement(1));
+  });
+
   test(
     'Pack server provides immutable assets and a reusable offline catalog',
     () async {
@@ -566,7 +594,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 350));
       expect(
         find.textContaining(
-          RegExp(r'Use (adaptive strips|3 frames per strip)'),
+          RegExp(r'Use (adaptive strips|6 frames per strip)'),
         ),
         findsOneWidget,
       );
@@ -584,7 +612,7 @@ void main() {
         find.descendant(
           of: find.byType(CupertinoAlertDialog),
           matching: find.textContaining(
-            RegExp(r'Buffering: (Adaptive strips|Frames per strip: 3)'),
+            RegExp(r'Buffering: (Adaptive strips|Frames per strip: 6)'),
           ),
         ),
         findsOneWidget,
@@ -609,6 +637,219 @@ void main() {
       await tester.pump();
     },
   );
+
+  testWidgets('Android All picker animates every sticker at the bottom', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.5;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final assets = PackAssets();
+    addTearDown(assets.dispose);
+    final catalog = (await tester.runAsync(
+      () => assets.catalog(PackAssets.bundleOrigin),
+    ))!;
+    final bottomItems = catalog.stickers.skip(80).toList();
+    // Keep rootBundle futures out of fake time when other tests reuse them.
+    await tester.runAsync(
+      () => Future.wait([
+        for (final item in bottomItems) assets.fetch(item.poster!.uri),
+      ]),
+    );
+    final store = NetworkTgsStore(framePaced: false, fetcher: assets.fetch);
+    addTearDown(store.dispose);
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoChatScreen(
+          initialCatalog: Future.value(catalog),
+          store: store,
+        ),
+      ),
+    );
+
+    Future<void> advance() async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(microseconds: 33334));
+    }
+
+    final toggle = find.byKey(const ValueKey('composer-picker-toggle'));
+    for (var i = 0; i < 80 && toggle.evaluate().isEmpty; i++) {
+      await advance();
+    }
+    await tester.tap(toggle);
+    await tester.pump();
+
+    final grid = find.byKey(const ValueKey('sticker-picker-grid'));
+    final position = tester
+        .state<ScrollableState>(
+          find.descendant(of: grid, matching: find.byType(Scrollable)),
+        )
+        .position;
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
+
+    final cells = tester
+        .widgetList<InlineNetworkSticker>(
+          find.descendant(
+            of: grid,
+            matching: find.byType(InlineNetworkSticker),
+          ),
+        )
+        .toList();
+    expect(cells.map((cell) => cell.item), containsAll(bottomItems));
+    final sheet = cells.first.sheet;
+    final missingRaster = {for (final item in bottomItems) item.urlString};
+    for (var i = 0; i < 150 && missingRaster.isNotEmpty; i++) {
+      await advance();
+      missingRaster.removeWhere(
+        (url) => (sheet.playerFor(url)?.rasterBytes ?? 0) > 0,
+      );
+    }
+    expect(sheet.errors, isEmpty);
+    expect(sheet.activePlayers, cells.length);
+    expect(missingRaster, isEmpty);
+    expect(sheet.rasterCache.maximumBytes, 8 * 1024 * 1024);
+    expect(
+      sheet.rasterCache.reservedBytes,
+      lessThanOrEqualTo(sheet.rasterCache.maximumBytes),
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('Android chat and picker keep playing the same sent emoji', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.5;
+
+    final assets = PackAssets();
+    addTearDown(assets.dispose);
+    const id = 'NotoEmoji/emoji_u1f331.tgs';
+    final bundle = (await tester.runAsync(
+      () => assets.catalog(PackAssets.bundleOrigin),
+    ))!;
+    final item = bundle.emojis.firstWhere((item) => item.id == id);
+    // Preload the bundled poster page outside the widget test's fake clock.
+    await tester.runAsync(() => assets.fetch(item.poster!.uri));
+    final source = (await tester.runAsync(
+      () => rootBundle.load('assets/tgs/$id'),
+    ))!;
+    final store = NetworkTgsStore(
+      framePaced: false,
+      fetcher: (_, {cancelToken, sourceCacheDirectory}) async =>
+          FastLottieNetworkFetchResult(
+            Uint8List.sublistView(source),
+            fromDiskCache: false,
+          ),
+    );
+    addTearDown(store.dispose);
+    final catalog = TgsRemoteCatalog(
+      baseUri: bundle.baseUri,
+      packs: const [],
+      stickers: const [],
+      emojis: [item],
+    );
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoChatScreen(
+          initialCatalog: Future.value(catalog),
+          store: store,
+        ),
+      ),
+    );
+
+    Future<void> advance() async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(microseconds: 33334));
+    }
+
+    final toggle = find.byKey(const ValueKey('composer-picker-toggle'));
+    for (var i = 0; i < 80 && toggle.evaluate().isEmpty; i++) {
+      await advance();
+    }
+    await tester.tap(toggle);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('picker-tab-__emoji__')));
+    await tester.pump();
+
+    final tile = find.byKey(const ValueKey('picker-emoji-0'));
+    await tester.tap(tile);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('composer-send-button')));
+    await tester.pump();
+
+    final sentRow = find.byWidgetPredicate((widget) {
+      final key = widget.key;
+      return key is ValueKey<String> && key.value.startsWith('msg_');
+    });
+    final messageEmoji = find.descendant(
+      of: sentRow,
+      matching: find.byType(InlineNetworkSticker),
+    );
+    final pickerEmoji = find.descendant(
+      of: tile,
+      matching: find.byType(InlineNetworkSticker),
+    );
+    expect(pickerEmoji, findsOneWidget);
+    expect(messageEmoji, findsOneWidget);
+
+    FastLottiePlayer? playerFor(Finder emoji) => tester
+        .widget<InlineNetworkSticker>(emoji)
+        .sheet
+        .playerFor(item.urlString);
+
+    for (
+      var i = 0;
+      i < 60 && (playerFor(pickerEmoji)?.rasterBytes ?? 0) == 0;
+      i++
+    ) {
+      await advance();
+    }
+    final messagePlayer = playerFor(messageEmoji)!;
+    final pickerPlayer = playerFor(pickerEmoji)!;
+    expect(messagePlayer.composition, same(pickerPlayer.composition));
+    expect(messagePlayer.rasterSize, const Size.square(64));
+    expect(pickerPlayer.rasterSize, const Size.square(96));
+    for (var i = 0; i < 60 && messagePlayer.rasterBytes == 0; i++) {
+      await advance();
+    }
+    expect(messagePlayer.rasterBytes, greaterThan(0));
+    expect(pickerPlayer.rasterBytes, greaterThan(0));
+
+    double progress(Finder emoji) {
+      final widget = tester.widget<InlineNetworkSticker>(emoji);
+      return widget.sheet.progressFor(
+        item.urlString,
+        widget.clock,
+        poster: item.poster,
+      );
+    }
+
+    final messageProgress = progress(messageEmoji);
+    final pickerProgress = progress(pickerEmoji);
+    for (var i = 0; i < 8; i++) {
+      await advance();
+      expect(messagePlayer.rasterSize, const Size.square(64));
+      expect(pickerPlayer.rasterSize, const Size.square(96));
+      expect(messagePlayer.rasterBytes, greaterThan(0));
+      expect(pickerPlayer.rasterBytes, greaterThan(0));
+    }
+    expect(progress(messageEmoji), isNot(messageProgress));
+    expect(progress(pickerEmoji), isNot(pickerProgress));
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('Inline emoji paints its bundled pose before TGS is available', (
     tester,
@@ -755,6 +996,13 @@ void main() {
       (i) => (firstRaster[i] - firstPaint[i]).abs(),
     ).reduce((a, b) => a > b ? a : b);
     expect(largestChannelDelta, lessThanOrEqualTo(2));
+
+    // A loaded model can temporarily lose its raster image on eviction.
+    raster.clear();
+    expect(raster.gpuBytes, 0);
+    final coldPaint = await paintEmoji();
+    expect(sheet.playerFor(item.urlString)!.debugHasScene, isFalse);
+    expect(coldPaint, firstPaint);
     await tester.pumpWidget(const SizedBox());
   });
 

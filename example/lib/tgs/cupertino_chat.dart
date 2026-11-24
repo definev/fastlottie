@@ -6,6 +6,7 @@ import 'package:fastlottie/fastlottie.dart';
 // ignore: deprecated_member_use
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:lottie/lottie.dart';
@@ -81,8 +82,9 @@ class ChatMessage {
   final String? senderName;
   final int reloadEpoch;
 
-  static final _inlineItemsExpando =
-      Expando<Map<int, (int, TgsRemoteItem)>>('inline_items');
+  static final _inlineItemsExpando = Expando<Map<int, (int, TgsRemoteItem)>>(
+    'inline_items',
+  );
 
   Map<int, (int, TgsRemoteItem)> resolveInlineItems(TgsRemoteCatalog catalog) {
     if (inlineItems.isNotEmpty) return inlineItems;
@@ -530,32 +532,35 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     framePaced: true,
     // Visible cells stay pinned. This only bounds models that have
     // already scrolled off; compiling them again reads the disk cache.
-    maximumEntries: widget.memoryWorkload?.modelCacheEntries ?? 32,
+    maximumEntries: widget.memoryWorkload?.modelCacheEntries ?? 8,
     modelCacheObserver: widget.memoryWorkload?.modelCacheObserver,
     maximumCompiledBytes: widget.memoryWorkload?.compiledCacheBytes ?? 0,
     fetcher: _packAssets.fetch,
   );
 
+  // Longer strips amortize uploads for the inline emoji visible during a fling.
   int? get _preferredStripSize =>
-      widget.framesPerStrip ??
-      (!kIsWeb && defaultTargetPlatform == TargetPlatform.android ? 3 : null);
+      widget.framesPerStrip ?? (_android ? 6 : null);
   late int? _framesPerStrip =
       widget.memoryWorkload?.framesPerStrip ?? _preferredStripSize;
   late FastLottieRasterCache _rasterCache = _createRasterCache(_framesPerStrip);
 
+  bool get _android =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  int get _rasterWorkerCount => widget.rasterWorkerCount ?? (_android ? 2 : 1);
+
   FastLottieRasterCache _createRasterCache(int? framesPerStrip) =>
       FastLottieRasterCache(
-        maximumBytes: 48 * 1024 * 1024,
-        maximumInFlight: 16,
-        maximumCompressedMemoryBytes: 16 * 1024 * 1024,
+        maximumBytes: 8 * 1024 * 1024,
+        maximumInFlight: _rasterWorkerCount == 1 ? 2 : 4,
+        maximumCompressedMemoryBytes: 2 * 1024 * 1024,
         maximumDiskBytes: 128 * 1024 * 1024,
         maximumFrameRate: stickerThumbnailFrameRate,
         framesPerStrip: framesPerStrip,
-        progressiveFirstFrame: true,
-        workerCount: widget.rasterWorkerCount ??
-            (!kIsWeb && defaultTargetPlatform == TargetPlatform.android
-                ? 8
-                : null),
+        adaptiveStripBudget: _android,
+        progressiveFirstFrame: !_android,
+        workerCount: _rasterWorkerCount,
         allowUiVectorFallback: true,
       );
 
@@ -564,7 +569,16 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   late final StickerPressure _pressure = StickerPressure()
     ..addListener(_onPressureChanged);
 
-  final ScrollController _messageScroll = ScrollController();
+  late final ScrollController _messageScroll = ScrollController(
+    onAttach: (position) {
+      position.isScrollingNotifier.addListener(_syncMessageScrollWork);
+      _syncMessageScrollWork();
+    },
+    onDetach: (position) {
+      position.isScrollingNotifier.removeListener(_syncMessageScrollWork);
+      _rasterCache.inFlightLimit = null;
+    },
+  );
   final ScrollController _pickerScroll = ScrollController();
   late final EmojiComposerController _composerController =
       EmojiComposerController();
@@ -581,6 +595,10 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   TgsRemoteCatalog? _catalog;
   StickerSheet? _stickerSheet;
   StickerSheet? _emojiSheet;
+  StickerSheet? _pickerEmojiSheet;
+  Iterable<StickerSheet> get _sheets =>
+      [_stickerSheet, _emojiSheet, _pickerEmojiSheet].nonNulls;
+
   final _packAssets = PackAssets();
   late final _posters = PackPosterCache(_packAssets);
   final List<StickerSheet> _disposingSheets = <StickerSheet>[];
@@ -719,29 +737,21 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   }
 
   void _scheduleDisposeStale({
-    StickerSheet? stickerSheet,
-    StickerSheet? emojiSheet,
+    List<StickerSheet> sheets = const [],
     FastLottieRasterCache? cache,
   }) {
-    if (stickerSheet != null) {
-      stickerSheet.active = false;
-      _disposingSheets.add(stickerSheet);
-    }
-    if (emojiSheet != null) {
-      emojiSheet.active = false;
-      _disposingSheets.add(emojiSheet);
+    for (final sheet in sheets) {
+      sheet.active = false;
+      _disposingSheets.add(sheet);
     }
     if (cache != null) {
       cache.enabled = false;
       _disposingCaches.add(cache);
     }
-    if (stickerSheet == null && emojiSheet == null && cache == null) return;
+    if (sheets.isEmpty && cache == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (stickerSheet != null && _disposingSheets.remove(stickerSheet)) {
-        stickerSheet.dispose();
-      }
-      if (emojiSheet != null && _disposingSheets.remove(emojiSheet)) {
-        emojiSheet.dispose();
+      for (final sheet in sheets) {
+        if (_disposingSheets.remove(sheet)) sheet.dispose();
       }
       if (cache != null && _disposingCaches.remove(cache)) {
         cache.dispose();
@@ -753,13 +763,14 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     TgsRemoteCatalog catalog, {
     FastLottieRasterCache? staleCache,
   }) {
-    final oldStickerSheet = _stickerSheet;
-    final oldEmojiSheet = _emojiSheet;
+    final staleSheets = _sheets.toList();
 
     _catalog = catalog;
     _stickerSheet = StickerSheet(
       assets: [for (final item in catalog.stickers) item.urlString],
-      pixelSize: stickerThumbnailPixels,
+      // At 112 px, three-frame strips force many visible tiles down to one
+      // frame per upload. Smaller thumbnails leave room for more lookahead.
+      pixelSize: _android ? 96 : stickerThumbnailPixels,
       store: _store,
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
@@ -768,9 +779,10 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       playbackBudget: _playbackBudget,
     )..constrained = _pressure.constrained;
 
-    _emojiSheet = StickerSheet(
-      assets: [for (final item in catalog.emojis) item.urlString],
-      pixelSize: 96,
+    final emojiAssets = [for (final item in catalog.emojis) item.urlString];
+    StickerSheet createEmojiSheet(int pixels) => StickerSheet(
+      assets: emojiAssets,
+      pixelSize: pixels,
       store: _store,
       rasterCache: _rasterCache,
       frameRate: stickerThumbnailFrameRate,
@@ -778,6 +790,11 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       posterCache: _enableEmojiPosters ? _posters : null,
       playbackBudget: _playbackBudget,
     )..constrained = _pressure.constrained;
+
+    // Each player holds one raster size. The two Android surfaces use
+    // independent players backed by the same store and raster cache.
+    _emojiSheet = createEmojiSheet(_android ? 64 : 96);
+    _pickerEmojiSheet = _android ? createEmojiSheet(96) : null;
 
     _composerController.catalog = catalog;
     _composerController.clock = _clock;
@@ -802,16 +819,12 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       _seedInitialConversation(catalog);
     }
 
-    _syncPlayback(forceComposerNotify: !identical(oldEmojiSheet, _emojiSheet));
+    _syncPlayback();
     setState(() {
       _booting = false;
       _bootError = null;
     });
-    _scheduleDisposeStale(
-      stickerSheet: oldStickerSheet,
-      emojiSheet: oldEmojiSheet,
-      cache: staleCache,
-    );
+    _scheduleDisposeStale(sheets: staleSheets, cache: staleCache);
   }
 
   void _seedInitialConversation(TgsRemoteCatalog catalog) {
@@ -952,11 +965,10 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   void _onPressureChanged() {
     if (!mounted) return;
-    _stickerSheet?.constrained = _pressure.constrained;
-    _emojiSheet?.constrained = _pressure.constrained;
-    if (!_pressure.constrained) {
-      _stickerSheet?.resumePreparation();
-      _emojiSheet?.resumePreparation();
+    final constrained = _pressure.constrained;
+    for (final sheet in _sheets) {
+      sheet.constrained = constrained;
+      if (!constrained) sheet.resumePreparation();
     }
     _syncPlayback();
     setState(() {});
@@ -968,6 +980,14 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     if (show != _showScrollBottom.value) {
       _showScrollBottom.value = show;
     }
+  }
+
+  void _syncMessageScrollWork() {
+    if (_rasterWorkerCount <= 1) return;
+    final scrolling = _messageScroll.positions.any(
+      (position) => position.isScrollingNotifier.value,
+    );
+    _rasterCache.inFlightLimit = scrolling ? 1 : null;
   }
 
   void _onComposerTextChanged() {
@@ -1044,7 +1064,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     return false;
   }
 
-  void _syncPlayback({bool forceComposerNotify = false}) {
+  void _syncPlayback() {
     final active = _foreground && TickerMode.valuesOf(context).enabled;
     final sheetEnabled =
         active &&
@@ -1056,12 +1076,12 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       reducedMotion: _reduced,
       maximumFrameRate: stickerThumbnailFrameRate,
     );
-    _stickerSheet?.active = sheetEnabled;
-    _emojiSheet?.active = sheetEnabled;
+    for (final sheet in _sheets) {
+      sheet.active = sheetEnabled;
+    }
     _rasterCache.enabled = fastEnabled;
     final nextStill = _reduced || _pressure.constrained;
     final composerVisualChanged =
-        forceComposerNotify ||
         !identical(_composerController.sheet, _emojiSheet) ||
         _composerController.renderer != _renderer ||
         _composerController.still != nextStill;
@@ -1123,6 +1143,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     oldCache.enabled = false;
     _framesPerStrip = next;
     _rasterCache = nextCache;
+    _syncMessageScrollWork();
     final cat = _catalog;
     if (cat != null) {
       _setupCatalog(cat, staleCache: oldCache);
@@ -1146,12 +1167,15 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   void didHaveMemoryPressure() {
     _store.evictCompiledSnapshots();
     _posters.clearIdle();
+    _rasterCache.evictUnpinned();
   }
 
   void _toggleDrawer() {
     if (_drawerOpen) {
       setState(() => _drawerOpen = false);
       _composerFocus.requestFocus();
+      _rasterCache.evictUnpinned();
+      _stickerSheet?.clearLoadedModels();
     } else {
       _composerFocus.unfocus();
       _prewarmPickerPosters(_selectedTabIndex);
@@ -1162,11 +1186,16 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   void _dismissPicker() {
     if (_composerFocus.hasFocus) _composerFocus.unfocus();
-    if (_drawerOpen) setState(() => _drawerOpen = false);
+    if (_drawerOpen) {
+      setState(() => _drawerOpen = false);
+      _rasterCache.evictUnpinned();
+      _stickerSheet?.clearLoadedModels();
+    }
     _syncPlayback();
   }
 
   void _selectPickerTab(int index) {
+    _rasterCache.evictUnpinned();
     _prewarmPickerPosters(index);
     setState(() => _selectedTabIndex = index);
     if (_pickerScroll.hasClients) _pickerScroll.jumpTo(0);
@@ -1321,8 +1350,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   Future<void> _clearAllCaches() async {
     _posters.clearIdle();
     await _packAssets.clearDisk();
-    _stickerSheet?.clearLoadedModels();
-    _emojiSheet?.clearLoadedModels();
+    for (final sheet in _sheets) {
+      sheet.clearLoadedModels();
+    }
     await _store.clearMemoryAndUrlDiskCache();
     _rasterCache.clear();
     await clearExampleDiskCache();
@@ -1335,8 +1365,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         }
       }
     });
-    _stickerSheet?.resumePreparation();
-    _emojiSheet?.resumePreparation();
+    for (final sheet in _sheets) {
+      sheet.resumePreparation();
+    }
   }
 
   String get _multiFrameActionLabel {
@@ -1656,8 +1687,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _showScrollBottom.dispose();
     _hasDraft.dispose();
     _pressure.dispose();
-    _stickerSheet?.dispose();
-    _emojiSheet?.dispose();
+    for (final sheet in _sheets) {
+      sheet.dispose();
+    }
     for (final stale in _disposingSheets) {
       stale.dispose();
     }
@@ -1798,7 +1830,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                   parent: AlwaysScrollableScrollPhysics(),
                                 ),
                                 scrollCacheExtent:
-                                    const ScrollCacheExtent.pixels(250),
+                                    const ScrollCacheExtent.pixels(0),
                                 addAutomaticKeepAlives: false,
                                 padding: const EdgeInsets.fromLTRB(
                                   12,
@@ -1848,7 +1880,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                         : const Duration(milliseconds: 160),
                                     opacity: visible ? 1 : 0,
                                     child: CupertinoButton(
-                                      key: const ValueKey('scroll-to-bottom-btn'),
+                                      key: const ValueKey(
+                                        'scroll-to-bottom-btn',
+                                      ),
                                       padding: EdgeInsets.zero,
                                       minimumSize: const Size.square(38),
                                       onPressed: _scrollToBottom,
@@ -1897,7 +1931,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                         onTabChanged: _selectPickerTab,
                         scrollController: _pickerScroll,
                         stickerSheet: _stickerSheet!,
-                        emojiSheet: _emojiSheet!,
+                        emojiSheet: _pickerEmojiSheet ?? _emojiSheet!,
                         clock: _clock,
                         store: _store,
                         renderer: _renderer,
@@ -2269,6 +2303,10 @@ class _StickerPickerDrawer extends StatelessWidget {
     final isEmojiTab = activeTab.$1 == _DrawerTab.emoji;
     final items = activeTab.$4;
     final sheet = isEmojiTab ? emojiSheet : stickerSheet;
+    final deferStickerRasterDuringFling =
+        !isEmojiTab &&
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android;
     final panelHeight = math.min(
       310.0,
       math.max(220.0, MediaQuery.sizeOf(context).height * 0.34),
@@ -2331,7 +2369,7 @@ class _StickerPickerDrawer extends StatelessWidget {
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
                     padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
-                    scrollCacheExtent: const ScrollCacheExtent.pixels(250),
+                    scrollCacheExtent: const ScrollCacheExtent.pixels(0),
                     addAutomaticKeepAlives: false,
                     addRepaintBoundaries: false,
                     itemCount: items.length,
@@ -2370,7 +2408,9 @@ class _StickerPickerDrawer extends StatelessWidget {
                               still: still,
                               size: constraints.maxWidth / 4.8,
                               placeholderColor: palette.tilePlaceholder,
-                              repaintBoundary: true,
+                              repaintBoundary: false,
+                              deferRasterNearFlingExit:
+                                  deferStickerRasterDuringFling,
                             ),
                           ),
                         ),
@@ -2650,6 +2690,7 @@ class _ChatMessageRow extends StatelessWidget {
             still: still,
             size: stickerSize,
             placeholderColor: placeholderColor,
+            deferRasterNearFlingExit: true,
           ),
         ),
       );
@@ -2679,6 +2720,7 @@ class InlineNetworkSticker extends StatefulWidget {
     this.size = 24,
     this.placeholderColor = const Color(0xff232636),
     this.repaintBoundary = true,
+    this.deferRasterNearFlingExit = false,
   });
 
   final TgsRemoteItem item;
@@ -2691,6 +2733,10 @@ class InlineNetworkSticker extends StatefulWidget {
   final Color placeholderColor;
   final bool repaintBoundary;
 
+  /// Reuses the current image when a vertical fling is about to carry this
+  /// emoji out of its viewport.
+  final bool deferRasterNearFlingExit;
+
   @override
   State<InlineNetworkSticker> createState() => _InlineNetworkStickerState();
 }
@@ -2698,6 +2744,46 @@ class InlineNetworkSticker extends StatefulWidget {
 class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
   bool _pinned = false;
   EmojiPosterLease? _poster;
+  ScrollPosition? _scrollPosition;
+  RenderAbstractViewport? _viewport;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncScrollPosition();
+  }
+
+  void _syncScrollPosition() {
+    _scrollPosition = widget.deferRasterNearFlingExit
+        ? Scrollable.maybeOf(context, axis: Axis.vertical)?.position
+        : null;
+    _viewport = null;
+  }
+
+  bool _shouldDeferRaster(Size size) {
+    final position = _scrollPosition;
+    if (position == null || !position.isScrollingNotifier.value) return false;
+    // ScrollPosition exposes the activity to ScrollPosition subclasses.
+    // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+    final activity = position.activity;
+    if (activity is! BallisticScrollActivity) return false;
+    final velocity = activity.velocity;
+    if (velocity.abs() < 600) return false;
+
+    final box = context.findRenderObject();
+    if (box is! RenderBox || !box.attached) return false;
+    final viewport = _viewport ??= RenderAbstractViewport.maybeOf(box);
+    if (viewport == null || !viewport.attached) return false;
+    final bounds = viewport.paintBounds;
+    final top = box.localToGlobal(Offset.zero, ancestor: viewport).dy;
+    final movesUp =
+        (velocity > 0) == (position.axisDirection == AxisDirection.down);
+    final distance = movesUp
+        ? top + size.height - bounds.top
+        : bounds.bottom - top;
+    // Leave enough time for several raster and upload slots under load.
+    return distance <= velocity.abs() * .12;
+  }
 
   void _syncPin() {
     final staticPoster =
@@ -2747,6 +2833,9 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
   @override
   void didUpdateWidget(InlineNetworkSticker oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.deferRasterNearFlingExit != widget.deferRasterNearFlingExit) {
+      _syncScrollPosition();
+    }
     if (oldWidget.sheet.posterCache != widget.sheet.posterCache) {
       _poster?.release();
       _poster = null;
@@ -2819,6 +2908,7 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
             placeholderColor: widget.placeholderColor,
             poster: _poster,
             pose: _poster == null ? null : widget.item.poster,
+            deferRaster: _scrollPosition == null ? null : _shouldDeferRaster,
             repaint: _poster == null
                 ? listenable
                 : Listenable.merge([listenable, _poster]),
@@ -2872,6 +2962,7 @@ class _NetworkInlinePainter extends CustomPainter {
     required this.placeholderColor,
     required this.poster,
     required this.pose,
+    required this.deferRaster,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
@@ -2885,6 +2976,7 @@ class _NetworkInlinePainter extends CustomPainter {
   final Color placeholderColor;
   final EmojiPosterLease? poster;
   final PackPoster? pose;
+  final bool Function(Size)? deferRaster;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -2898,14 +2990,12 @@ class _NetworkInlinePainter extends CustomPainter {
       return;
     }
     final maxEdge = math.max(size.width, size.height);
-    // Lock raster key size to `sheet.pixelSize` across all inline sizes
-    // (header avatar, chat bubbles, 5-column picker) so consumers share one
-    // entry without thrashing or dropping background decodes.
+    final targetPixels = maxEdge * devicePixelRatio;
+    final rasterPixels = sheet.pixelSize;
     final effectiveDpr = maxEdge <= 0
         ? devicePixelRatio
-        : sheet.pixelSize / maxEdge;
-    final targetPixels = maxEdge * devicePixelRatio;
-    final filterQuality = (targetPixels - sheet.pixelSize).abs() > 1
+        : rasterPixels / maxEdge;
+    final filterQuality = (targetPixels - rasterPixels).abs() > 1
         ? FilterQuality.low
         : null;
     final progress = sheet.progressFor(url, clock, still: still, poster: pose);
@@ -2915,7 +3005,11 @@ class _NetworkInlinePainter extends CustomPainter {
       progress,
       devicePixelRatio: math.max(0.1, effectiveDpr),
       filterQuality: filterQuality,
-      coldFallback: still || (player.rasterCache?.allowUiVectorFallback ?? true)
+      requestRaster:
+          still ||
+          player.composition.isStatic ||
+          !(deferRaster?.call(size) ?? false),
+      coldFallback: still
           ? null
           : (c, target) {
               if (!_drawPoster(c, Offset.zero & size)) {
@@ -2959,6 +3053,7 @@ class _NetworkInlinePainter extends CustomPainter {
       old.still != still ||
       old.poster != poster ||
       old.pose != pose ||
+      old.deferRaster != deferRaster ||
       old.devicePixelRatio != devicePixelRatio ||
       old.placeholderColor != placeholderColor;
 }

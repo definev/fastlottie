@@ -142,8 +142,14 @@ def run_probe(worktree, device, output_path, timeout_s=180):
                     print(f"  [PROBE] {line.strip()}", flush=True)
 
                 if 'CHAT_PROBE_FINISHED' in line:
-                    print("Observed CHAT_PROBE_FINISHED, giving app 3s to flush...")
-                    time.sleep(3)
+                    print("Observed CHAT_PROBE_FINISHED, capturing dumpsys meminfo immediately...")
+                    time.sleep(1)
+                    dumpsys = subprocess.run(
+                        ['adb', '-s', device, 'shell', 'dumpsys', 'meminfo', PACKAGE],
+                        capture_output=True, text=True, check=False
+                    )
+                    out_f.write("\n=== DUMPSYS MEMINFO ===\n" + dumpsys.stdout + "\n")
+                    out_f.flush()
                     finished = True
                     break
     finally:
@@ -179,6 +185,17 @@ def main():
         print(f"{r['phase']:<15} | FPS: {r['effective_fps']:>5.1f} | Gaps >16.5ms: {r['moving_gaps_count']:>2} | Busy >11.1ms: {r['busy_frames_count']:>2} | {peaks_str}")
         if r['moving_gaps_ms']:
             print(f"    Gaps (ms): {r['moving_gaps_ms']}")
+
+    # Print memory if available in output file
+    if os.path.exists(args.output):
+        with open(args.output, 'r', errors='ignore') as f:
+            content = f.read()
+            if '=== DUMPSYS MEMINFO ===' in content:
+                print("\n--- Memory (Dumpsys Meminfo) ---")
+                mem_part = content.split('=== DUMPSYS MEMINFO ===')[1]
+                for line in mem_part.splitlines():
+                    if any(k in line for k in ['Java Heap:', 'Native Heap:', 'Graphics:', 'TOTAL PSS:', 'TOTAL RSS:']):
+                        print(line)
 
 
 if __name__ == '__main__':
