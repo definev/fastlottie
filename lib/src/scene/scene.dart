@@ -1047,9 +1047,15 @@ class _PolyStarGeometry extends _Geometry {
   @override
   Rect computeBounds(double frame) {
     final p = position.at(frame);
-    final r = outerRadius.scalar(frame).abs();
-    final roundness = (outerRoundness.scalar(frame) * 0.01).abs();
-    final maxR = r * (1.0 + roundness * 0.5);
+    final outerR = outerRadius.scalar(frame).abs();
+    final outerRound = (outerRoundness.scalar(frame) * 0.01).abs();
+    var maxR = outerR * (1.0 + outerRound * 0.5);
+    if (isStar) {
+      final innerR = (innerRadius?.scalar(frame) ?? 0.0).abs();
+      final innerRound = (innerRoundness?.scalar(frame) ?? 0.0).abs() * 0.01;
+      final innerMax = innerR * (1.0 + innerRound * 0.5);
+      if (innerMax > maxR) maxR = innerMax;
+    }
     return Rect.fromLTRB(p[0] - maxR, p[1] - maxR, p[0] + maxR, p[1] + maxR);
   }
 

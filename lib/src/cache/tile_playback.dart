@@ -38,6 +38,7 @@ final class TilePlaybackPage {
   final Object _identity = Object();
   final int bytes;
   final Int32List _frameCrcs;
+  int lastUsed = 0;
 
   bool contains(int frame) {
     final index = frame - firstFrame;
@@ -86,11 +87,13 @@ final class TilePlaybackPage {
     final index = Uint16List(frameCount * tileCount);
     final slots = Uint8List(maxFrames)..fillRange(0, maxFrames, _absent);
     final frameCrcs = Int32List(maxFrames);
+    final Uint8List? aligned;
     final Uint32List words;
     if (scratch.offsetInBytes & 3 == 0) {
+      aligned = null;
       words = Uint32List.sublistView(scratch, 0, pixels * 4);
     } else {
-      final aligned = Uint8List(pixels * 4)..setRange(0, pixels * 4, scratch);
+      aligned = Uint8List(pixels * 4);
       words = Uint32List.sublistView(aligned, 0, pixels * 4);
     }
     final tiles = <Uint32List>[];
@@ -106,6 +109,9 @@ final class TilePlaybackPage {
           slots[relative] != _absent ||
           !readFrame(frame, scratch)) {
         return null;
+      }
+      if (aligned != null) {
+        aligned.setRange(0, pixels * 4, scratch);
       }
       slots[relative] = f;
       frameCrcs[f] = getCrc?.call(frame) ?? 0;

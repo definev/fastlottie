@@ -272,7 +272,12 @@ class _FastLottieState extends State<FastLottie>
         resolutionScale: widget.resolutionScale,
         maximumFrameRate: widget.maximumFrameRate,
       );
-      _repaint = _FrameRepaint(_player, animation, widget.useFrameRate, false);
+      _repaint = _FrameRepaint(
+        _player,
+        _paintAnimation,
+        widget.useFrameRate,
+        widget.controller == null && _reducedMotion,
+      );
     } else if (nextPlayback != _playback) {
       final previous = _playerInstance!;
       _playback = nextPlayback;

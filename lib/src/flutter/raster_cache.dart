@@ -764,6 +764,7 @@ class FastLottieRasterCache {
 
   /// Releases all images, including active entries; players reacquire on draw.
   void clear() {
+    lastError = null;
     _admissionGeneration++;
     for (final entry in _entries.values.toList(growable: false)) {
       _evict(entry, immediateDispose: true);

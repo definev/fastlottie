@@ -534,7 +534,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       width: pw,
       height: ph,
       totalFrames: entry.sourceFrames,
-      poster: false,
+      poster: entry.poster,
     );
   }
 
@@ -635,7 +635,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     final queuedOverride =
         entry.pendingStripStart >= 0 &&
         entry.pendingStripStart != stripStart &&
-        stripStart != expectedLookahead;
+        (entry.queuedHighPriority || stripStart != expectedLookahead);
     if (entry.renderingImage != null && queuedOverride && !wantedNow) {
       _finishJob(entry, scheduleFollowup: true);
       return;
@@ -843,8 +843,13 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         cache._bytes -= oBytes;
         cache._enqueueDisposal(oldBack, oBytes);
       }
-    } else if (entry.pendingStripStart < 0 ||
-        entry.pendingStripStart == stripStart) {
+    } else if (!(_stripContains(
+          entry.renderingStripStart,
+          entry.renderingStripCount,
+          entry.desiredFrameIndex,
+        )) &&
+        (entry.pendingStripStart < 0 ||
+            entry.pendingStripStart == stripStart)) {
       final displaced = entry.renderingImage;
       entry.renderingImage = image;
       entry.renderingStripStart = stripStart;

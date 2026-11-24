@@ -619,8 +619,8 @@ double _measureSourceLength(
   int groupDepth,
 ) {
   if (src.isPathStatic) {
-    final cached = ws._staticTrimMetrics[src];
-    if (cached != null) return cached.value;
+    final cached = ws._getStaticTrimMetric(src);
+    if (cached != null) return cached;
   }
   late final PolyPath poly;
   if (alreadyFlattened != null) {
@@ -655,10 +655,7 @@ double _measureSourceLength(
     }
   }
   if (src.isPathStatic) {
-    if (ws._staticTrimMetrics.length >= RasterWorkspace.maxStaticMetrics) {
-      ws._staticTrimMetrics.clear();
-    }
-    ws._staticTrimMetrics[src] = _SceneCacheEntry(ws._renderingScene!, total);
+    ws._putStaticTrimMetric(src, total);
   }
   return total;
 }

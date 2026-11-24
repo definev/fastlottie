@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -142,5 +143,91 @@ void main() {
     expect(dst, frames[2]);
     store.evictEntryRam('clip');
     expect(store.ramBytes, 0);
+  });
+
+  test('TilePlaybackPage.build handles unaligned scratch views accurately', () {
+    final frames = makeFrames(sparse: true);
+    final backing = Uint8List(width * height * 4 + 3);
+    final unalignedScratch = Uint8List.sublistView(
+      backing,
+      1,
+      1 + width * height * 4,
+    );
+    expect(unalignedScratch.offsetInBytes & 3, isNot(0));
+
+    final page = TilePlaybackPage.build(
+      width: width,
+      height: height,
+      firstFrame: 0,
+      frames: const [0, 1, 2, 3],
+      maxBytes: 512 * 1024,
+      scratch: unalignedScratch,
+      readFrame: (f, dst) {
+        dst.setAll(0, frames[f]);
+        return true;
+      },
+    );
+    expect(page, isNotNull);
+
+    final out = Uint8List(width * height * 4);
+    for (var f = 0; f < totalFrames; f++) {
+      page!.read(f, out, null);
+      expect(out, frames[f]);
+    }
+  });
+
+  test('BitstreamStore shares .flcache across poster and animation modes', () {
+    final tempDir = Directory.systemTemp.createTempSync('fastlottie_poster_');
+    addTearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+    final frames = makeFrames(sparse: false);
+    final scratch = Lz4Scratch();
+    final key = formatBitstreamEntryKey('shared_key', width, height, totalFrames);
+
+    final store1 = BitstreamStore(diskCacheDirectory: tempDir.path);
+    store1.storeFrame(
+      entryKey: key,
+      width: width,
+      height: height,
+      totalFrames: totalFrames,
+      poster: true,
+      frameIndex: 0,
+      srcBgra: frames[0],
+      scratch: scratch,
+    );
+    store1.dispose();
+
+    final store2 = BitstreamStore(diskCacheDirectory: tempDir.path);
+    addTearDown(store2.dispose);
+    final dst = Uint8List(width * height * 4);
+    expect(
+      store2.tryReadFrame(
+        entryKey: key,
+        width: width,
+        height: height,
+        totalFrames: totalFrames,
+        poster: false,
+        frameIndex: 0,
+        dstBgra: dst,
+      ),
+      isTrue,
+    );
+    expect(dst, frames[0]);
+    expect(store2.recoveredCorruptions, 0);
+  });
+
+  test('BitstreamStore retries tile promotion after partial page completes', () {
+    final store = BitstreamStore(maximumRamBytes: 512 * 1024);
+    addTearDown(store.dispose);
+    final denseFrames = makeFrames(sparse: false);
+    final sparseFrames = makeFrames(sparse: true);
+    // Store two incompatible frames first so partial page build returns null,
+    // then replace with a complete sparse 4-frame window.
+    storeFrames(store, [denseFrames[0], denseFrames[1]], [0, 1]);
+    expect(prepare(store, 0), isFalse);
+
+    storeFrames(store, sparseFrames, [0, 1, 2, 3]);
+    expect(prepare(store, 0), isTrue);
   });
 }

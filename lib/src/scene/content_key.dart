@@ -143,6 +143,9 @@ final class _ContentKeyHasher {
       if (s.innerRoundness != null) _mixTrack(s.innerRoundness!);
     } else if (s is _TrimPart) {
       _mixInt(5 + s.index);
+      if (s.index >= 0 && s.index < s.trim.inputs.length) {
+        _mixSource(s.trim.inputs[s.index]);
+      }
       _mixTrack(s.trim.start);
       _mixTrack(s.trim.end);
       _mixTrack(s.trim.offset);
@@ -216,6 +219,18 @@ final class _ContentKeyHasher {
       _mixDouble(l.ip);
       _mixDouble(l.op);
       _mixDouble(l.offset);
+      if (l.stretch != 1.0) {
+        _mixInt(0x53545243);
+        _mixDouble(l.stretch);
+      }
+      if (l.timeRemap != null) {
+        _mixInt(0x54524d50);
+        _mixTrack(l.timeRemap!);
+      }
+      if (l.parent != null) {
+        _mixInt(0x50524e54);
+        _mixInt(comp.layers.indexOf(l.parent!));
+      }
       _mixInt((l.hidden ? 1 : 0) | (l.matteType << 2) | (l.blendMode << 6));
       if (l.blendMode != 0) _mixInt(0x424c454e); // Blend raster revision.
       if (l.usesSetMatte) {

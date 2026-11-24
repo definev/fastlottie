@@ -18,10 +18,10 @@ import '../raster/raster_core.dart';
 import '../scene/options.dart';
 import 'worker_messages.dart';
 
-// A scene is only needed while a vector miss is in flight. Eight covers the
-// jobs one worker can overlap; a finished entry is dropped once every frame
-// is in the compressed cache.
-const int maxWorkerScenes = 8;
+// A scene is only needed while a vector miss is in flight or a clip is still
+// warming frames. Twenty-four covers a full picker/chat viewport per shard
+// without thrashing; a finished entry is dropped once every frame is cached.
+const int maxWorkerScenes = 24;
 
 int resolveWorkerSourceIndex(int sampleIdx, int totalFrames, double frameStep) {
   if (frameStep <= 0.0 || totalFrames <= 1) return 0;

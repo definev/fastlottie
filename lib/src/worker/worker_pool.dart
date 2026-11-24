@@ -261,6 +261,10 @@ final class RasterWorkerPool<T> {
 
   void _sendRequest(_PendingRequest<T> request) {
     final shard = request.shard;
+    final scenes = _registeredScenes[shard];
+    if (scenes.remove(request.contentKey)) {
+      scenes.add(request.contentKey);
+    }
     final handle = _handles[shard];
     if (request.stripCount > 1) {
       handle.send((
@@ -387,8 +391,10 @@ final class RasterWorkerPool<T> {
         final bgra = unpackBytesFromIsolate(packed);
         _updateWorkerRam(shard, workerRam);
         if (entryDiskBytes > 0) {
-          _recordDiskWrite(entryKey, entryDiskBytes);
-        } else {
+          if (!_pendingDiskDeletes.contains(entryKey)) {
+            _recordDiskWrite(entryKey, entryDiskBytes);
+          }
+        } else if (!_pendingDiskDeletes.contains(entryKey)) {
           touchDiskEntry(entryKey);
         }
         listener.onStripReady(
@@ -435,8 +441,10 @@ final class RasterWorkerPool<T> {
         final bgra = unpackBytesFromIsolate(packed);
         _updateWorkerRam(shard, workerRam);
         if (entryDiskBytes > 0) {
-          _recordDiskWrite(entryKey, entryDiskBytes);
-        } else {
+          if (!_pendingDiskDeletes.contains(entryKey)) {
+            _recordDiskWrite(entryKey, entryDiskBytes);
+          }
+        } else if (!_pendingDiskDeletes.contains(entryKey)) {
           touchDiskEntry(entryKey);
         }
         listener.onStripReady(
@@ -587,13 +595,14 @@ final class RasterWorkerPool<T> {
       totalFrames: totalFrames,
       poster: poster,
     );
-    // A new disk entry needs vector pixels. Send its first scene with the
-    // request to avoid a round trip. For existing files (including partial
-    // ones), let the worker check its pixels before copying a scene.
-    if (maximumDiskBytes > 0 &&
+    // A cold entry (or any entry when disk caching is disabled) needs vector
+    // pixels, so send its scene with the first request to avoid a round trip.
+    // For existing disk files, let the worker check its pixels first.
+    final mayHitDisk =
+        maximumDiskBytes > 0 &&
         _diskDir != null &&
-        !_diskLru.containsKey(entryKey) &&
-        !_registeredScenes[shard].contains(contentKey)) {
+        _diskLru.containsKey(entryKey);
+    if (!mayHitDisk && !_registeredScenes[shard].contains(contentKey)) {
       _registerScene(request);
     }
     _sendRequest(request);

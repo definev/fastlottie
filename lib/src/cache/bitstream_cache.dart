@@ -32,11 +32,17 @@ final class BitstreamReadStats {
 }
 
 final class _RamFrame {
-  _RamFrame({required this.payload, required this.isRaw, required this.crc31});
+  _RamFrame({
+    required this.payload,
+    required this.isRaw,
+    required this.crc31,
+    this.lastUsed = 0,
+  });
 
   final Uint8List payload;
   final bool isRaw;
   final int crc31;
+  int lastUsed;
 }
 
 final class _OpenFlCacheFile {
@@ -161,6 +167,7 @@ class BitstreamStore {
   final _ramLru = <_RamKey, _RamFrame>{};
   final _ramFramesByEntry = <String, Set<int>>{};
   int _ramBytes = 0;
+  int _ramClock = 0;
   final _tilePages = <_RamKey, TilePlaybackPage>{};
   final _attemptedPages = <_RamKey>{};
   int _tileBytes = 0;
@@ -261,8 +268,7 @@ class BitstreamStore {
     if (existing == null) return null;
     if (existing.width == width &&
         existing.height == height &&
-        existing.frameCount == frameCount &&
-        existing.poster == poster) {
+        existing.frameCount == frameCount) {
       _openFiles[entryKey] = existing;
       return existing;
     }
@@ -299,6 +305,7 @@ class BitstreamStore {
       if (page.width == width &&
           page.height == height &&
           page.contains(frameIndex)) {
+        page.lastUsed = ++_ramClock;
         page.read(frameIndex, dstBgra, cursor);
         lastFrameCrc = page.crcOf(frameIndex);
         return true;
@@ -310,6 +317,7 @@ class BitstreamStore {
     final ramKey = (entryKey, frameIndex);
     final ram = _ramLru.remove(ramKey);
     if (ram != null) {
+      ram.lastUsed = ++_ramClock;
       _ramLru[ramKey] = ram;
       if (_decodePayload(
         ram.payload,
@@ -434,10 +442,6 @@ class BitstreamStore {
       }
     }
     if (frames.length < 2) return false;
-    _attemptedPages.add(key);
-    if (_attemptedPages.length > 128) {
-      _attemptedPages.remove(_attemptedPages.first);
-    }
     final expectedBytes = pixels * 4;
     var scratch = _tileScratch;
     if (scratch == null || scratch.length < expectedBytes) {
@@ -463,11 +467,22 @@ class BitstreamStore {
       },
       getCrc: (f) => _ramLru[(entryKey, f)]?.crc31 ?? 0,
     );
-    if (page == null) return false;
+    if (page == null) {
+      // Only blacklist a complete page that failed tile admission; partial pages
+      // may succeed once the remaining frames of the window arrive.
+      if (frames.length == end - first) {
+        _attemptedPages.add(key);
+        if (_attemptedPages.length > 128) {
+          _attemptedPages.remove(_attemptedPages.first);
+        }
+      }
+      return false;
+    }
     for (final frame in frames) {
       _removeRamKey((entryKey, frame));
     }
     _makeRamRoom(page.bytes);
+    page.lastUsed = ++_ramClock;
     _tilePages[key] = page;
     _tileBytes += page.bytes;
     return true;
@@ -493,6 +508,7 @@ class BitstreamStore {
     }
 
     final pageKey = (entryKey, frameIndex ~/ TilePlaybackPage.maxFrames);
+    _attemptedPages.remove(pageKey);
     if (_tilePages[pageKey]?.contains(frameIndex) ?? false) {
       _removeTilePage(pageKey);
     }
@@ -689,7 +705,12 @@ class BitstreamStore {
     _removeRamKey(ramKey);
     _makeRamRoom(length);
     final copy = Uint8List(length)..setRange(0, length, bytes, start);
-    final frame = _RamFrame(payload: copy, isRaw: isRaw, crc31: crc31);
+    final frame = _RamFrame(
+      payload: copy,
+      isRaw: isRaw,
+      crc31: crc31,
+      lastUsed: ++_ramClock,
+    );
     _ramLru[ramKey] = frame;
     (_ramFramesByEntry[ramKey.$1] ??= <int>{}).add(ramKey.$2);
     _ramBytes += length;
@@ -702,9 +723,17 @@ class BitstreamStore {
 
   void _makeRamRoom(int added) {
     while (ramBytes + added > maximumRamBytes) {
-      if (_ramLru.isNotEmpty) {
+      final hasRam = _ramLru.isNotEmpty;
+      final hasTile = _tilePages.isNotEmpty;
+      if (hasRam && hasTile) {
+        if (_ramLru.values.first.lastUsed <= _tilePages.values.first.lastUsed) {
+          _removeRamKey(_ramLru.keys.first);
+        } else {
+          _removeTilePage(_tilePages.keys.first);
+        }
+      } else if (hasRam) {
         _removeRamKey(_ramLru.keys.first);
-      } else if (_tilePages.isNotEmpty) {
+      } else if (hasTile) {
         _removeTilePage(_tilePages.keys.first);
       } else {
         break;
@@ -750,7 +779,8 @@ class BitstreamStore {
       return null;
     }
 
-    while (_openFiles.length >= maximumOpenFiles) {
+    final maxOpen = math.max(1, maximumOpenFiles);
+    while (_openFiles.length >= maxOpen) {
       final oldestKey = _openFiles.keys.first;
       final victim = _openFiles.remove(oldestKey);
       readStats?.fileEvictions++;
@@ -778,14 +808,12 @@ class BitstreamStore {
         final fCount = bd.getInt32(16, Endian.little);
         final flags = bd.getUint32(20, Endian.little);
         final fUncomp = bd.getUint32(28, Endian.little);
-        final isPoster = (flags & flagPoster) != 0;
 
         if (fileMagic == magic &&
             fileVersion == version &&
             fw == width &&
             fh == height &&
             fCount == frameCount &&
-            isPoster == poster &&
             fUncomp == expectedBytes) {
           final indexBytesLen = frameCount * slotSize;
           final idxBuf = _ensureIoScratch(indexBytesLen);

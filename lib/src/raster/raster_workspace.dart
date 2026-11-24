@@ -186,14 +186,34 @@ class RasterWorkspace {
   }
 
   PolyPath _staticPolyline(_PathSource source, double frame) {
-    final cached = _staticPaths[source];
-    if (cached != null) return cached.value;
-    if (_staticPaths.length >= maxStaticPaths) _staticPaths.clear();
+    final cached = _staticPaths.remove(source);
+    if (cached != null) {
+      _staticPaths[source] = cached;
+      return cached.value;
+    }
+    if (_staticPaths.length >= maxStaticPaths) {
+      _staticPaths.remove(_staticPaths.keys.first);
+    }
     final local = _flattenLeafPoly..clear();
     _flattenLeaf(source, frame, 0.01, local);
     final path = local.cloneImmutable();
     _staticPaths[source] = _SceneCacheEntry(_renderingScene!, path);
     return path;
+  }
+
+  double? _getStaticTrimMetric(_PathSource source) {
+    final cached = _staticTrimMetrics.remove(source);
+    if (cached == null) return null;
+    _staticTrimMetrics[source] = cached;
+    return cached.value;
+  }
+
+  void _putStaticTrimMetric(_PathSource source, double length) {
+    _staticTrimMetrics.remove(source);
+    if (_staticTrimMetrics.length >= maxStaticMetrics) {
+      _staticTrimMetrics.remove(_staticTrimMetrics.keys.first);
+    }
+    _staticTrimMetrics[source] = _SceneCacheEntry(_renderingScene!, length);
   }
 
   static const int maxStaticPaths = 512;
