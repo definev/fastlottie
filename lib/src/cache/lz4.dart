@@ -349,9 +349,7 @@ abstract final class Lz4Codec {
     final s = scratch ?? Lz4Scratch();
     final dst = s.ensureOutputCapacity(maxCompressedLength(src.length));
     final written = compressInto(src, src.length, dst, s.hashTable);
-    if (written < 0) {
-      throw StateError('Unexpected LZ4 output capacity shortfall');
-    }
+    assert(written >= 0, 'Unexpected LZ4 output capacity shortfall');
     if (written == 0) return Uint8List(0);
     return Uint8List(written)..setRange(0, written, dst);
   }

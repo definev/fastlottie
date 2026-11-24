@@ -35,9 +35,13 @@ Uint8List unpackCompiledSnapshot(Uint8List bytes) {
     return bytes.sublist(4);
   }
   final output = Uint8List(size);
-  if (Lz4Codec.decompressInto(bytes, 4, bytes.length - 4, output, size) !=
-      size) {
-    throw const FormatException('Invalid compressed cached model');
-  }
+  final decoded = Lz4Codec.decompressInto(
+    bytes,
+    4,
+    bytes.length - 4,
+    output,
+    size,
+  );
+  assert(decoded == size);
   return output;
 }

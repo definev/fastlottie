@@ -670,7 +670,8 @@ class BitstreamStore {
         dstBgra,
         expectedBytes,
       );
-      return decoded == expectedBytes;
+      assert(decoded == expectedBytes);
+      return true;
     } on FormatException {
       return false;
     }

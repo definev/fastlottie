@@ -630,7 +630,8 @@ class _SnapshotReader {
   final ByteData data;
   int end, position;
   void need(int n) {
-    if (n < 0 || n > end - position) {
+    assert(n >= 0);
+    if (n > end - position) {
       throw const FormatException('Truncated scene snapshot');
     }
   }
