@@ -14,6 +14,7 @@ import 'package:lottie/lottie.dart';
 import 'cache_dir.dart';
 import 'clock.dart';
 import 'emoji_posters.dart';
+import 'fast_scroll_physics.dart';
 import 'network_server.dart';
 import 'network_store.dart';
 import 'pack_assets.dart';
@@ -1884,50 +1885,47 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                           GestureDetector(
                             behavior: HitTestBehavior.translucent,
                             onTap: _dismissPicker,
-                            child: CupertinoScrollbar(
+                            child: ListView.builder(
+                              key: const ValueKey('cupertino-message-list'),
                               controller: _messageScroll,
-                              child: ListView.builder(
-                                key: const ValueKey('cupertino-message-list'),
-                                controller: _messageScroll,
-                                reverse: true,
-                                physics: const BouncingScrollPhysics(
-                                  parent: AlwaysScrollableScrollPhysics(),
-                                ),
-                                scrollCacheExtent:
-                                    const ScrollCacheExtent.pixels(0),
-                                addAutomaticKeepAlives: false,
-                                padding: const EdgeInsets.fromLTRB(
-                                  12,
-                                  12,
-                                  12,
-                                  12,
-                                ),
-                                itemCount: _messages.length,
-                                itemBuilder: (context, visualIndex) {
-                                  final index =
-                                      _messages.length - 1 - visualIndex;
-                                  final msg = _messages[index];
-                                  return _ChatMessageRow(
-                                    key: ValueKey(
-                                      '${msg.id}_${msg.reloadEpoch}',
-                                    ),
-                                    message: msg,
-                                    catalog: catalog,
-                                    emojiSheet: _emojiSheet!,
-                                    posters: _enableEmojiPosters
-                                        ? _posters
-                                        : null,
-                                    clock: _clock,
-                                    store: _store,
-                                    renderer: _renderer,
-                                    still: _reduced || _pressure.constrained,
-                                    animateHero: !_reduced,
-                                    palette: palette,
-                                    onStickerLongPress: _showStickerPreview,
-                                    onMessageLongPress: _showMessageOptions,
-                                  );
-                                },
+                              reverse: true,
+                              physics: const FastBouncingScrollPhysics(
+                                parent: AlwaysScrollableScrollPhysics(),
                               ),
+                              scrollCacheExtent:
+                                  const ScrollCacheExtent.pixels(0),
+                              addAutomaticKeepAlives: false,
+                              padding: const EdgeInsets.fromLTRB(
+                                12,
+                                12,
+                                12,
+                                12,
+                              ),
+                              itemCount: _messages.length,
+                              itemBuilder: (context, visualIndex) {
+                                final index =
+                                    _messages.length - 1 - visualIndex;
+                                final msg = _messages[index];
+                                return _ChatMessageRow(
+                                  key: ValueKey(
+                                    '${msg.id}_${msg.reloadEpoch}',
+                                  ),
+                                  message: msg,
+                                  catalog: catalog,
+                                  emojiSheet: _emojiSheet!,
+                                  posters: _enableEmojiPosters
+                                      ? _posters
+                                      : null,
+                                  clock: _clock,
+                                  store: _store,
+                                  renderer: _renderer,
+                                  still: _reduced || _pressure.constrained,
+                                  animateHero: !_reduced,
+                                  palette: palette,
+                                  onStickerLongPress: _showStickerPreview,
+                                  onMessageLongPress: _showMessageOptions,
+                                );
+                              },
                             ),
                           ),
                           Positioned(
@@ -2424,63 +2422,60 @@ class _StickerPickerDrawer extends StatelessWidget {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) => RepaintBoundary(
-                child: CupertinoScrollbar(
+                child: GridView.builder(
+                  key: const ValueKey('sticker-picker-grid'),
                   controller: scrollController,
-                  child: GridView.builder(
-                    key: const ValueKey('sticker-picker-grid'),
-                    controller: scrollController,
-                    physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics(),
-                    ),
-                    padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
-                    scrollCacheExtent: const ScrollCacheExtent.pixels(0),
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: false,
-                    itemCount: items.length,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 5,
-                          crossAxisSpacing: 6,
-                          mainAxisSpacing: 6,
-                        ),
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      return Semantics(
-                        button: true,
-                        label: isEmojiTab
-                            ? 'Insert emoji ${item.label}'
-                            : 'Send sticker ${item.label}',
-                        child: GestureDetector(
-                          key: ValueKey(
-                            isEmojiTab
-                                ? 'picker-emoji-$index'
-                                : 'send-sticker-$index',
-                          ),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => isEmojiTab
-                              ? onEmojiTap(item)
-                              : onStickerTap(item),
-                          onLongPress: () => onItemLongPress(item),
-                          child: Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: InlineNetworkSticker(
-                              item: item,
-                              sheet: sheet,
-                              clock: clock,
-                              store: store,
-                              renderer: renderer,
-                              still: still,
-                              size: constraints.maxWidth / 4.8,
-                              placeholderColor: palette.tilePlaceholder,
-                              repaintBoundary: false,
-                              deferRasterNearFlingExit:
-                                  deferStickerRasterDuringFling,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
+                  physics: const FastBouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
                   ),
+                  padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
+                  scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+                  addAutomaticKeepAlives: false,
+                  addRepaintBoundaries: false,
+                  itemCount: items.length,
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 5,
+                        crossAxisSpacing: 6,
+                        mainAxisSpacing: 6,
+                      ),
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    return Semantics(
+                      button: true,
+                      label: isEmojiTab
+                          ? 'Insert emoji ${item.label}'
+                          : 'Send sticker ${item.label}',
+                      child: GestureDetector(
+                        key: ValueKey(
+                          isEmojiTab
+                              ? 'picker-emoji-$index'
+                              : 'send-sticker-$index',
+                        ),
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => isEmojiTab
+                            ? onEmojiTap(item)
+                            : onStickerTap(item),
+                        onLongPress: () => onItemLongPress(item),
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: InlineNetworkSticker(
+                            item: item,
+                            sheet: sheet,
+                            clock: clock,
+                            store: store,
+                            renderer: renderer,
+                            still: still,
+                            size: constraints.maxWidth / 4.8,
+                            placeholderColor: palette.tilePlaceholder,
+                            repaintBoundary: false,
+                            deferRasterNearFlingExit:
+                                deferStickerRasterDuringFling,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),

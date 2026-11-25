@@ -24,6 +24,9 @@ class FastLottieCupertinoApp extends StatefulWidget {
 class _FastLottieCupertinoAppState extends State<FastLottieCupertinoApp> {
   bool _isDark = true;
 
+  static final _noScrollbarBehavior = const CupertinoScrollBehavior()
+      .copyWith(scrollbars: false);
+
   static final _webQuery = kIsWeb
       ? Uri.base.queryParameters
       : const <String, String>{};
@@ -37,6 +40,7 @@ class _FastLottieCupertinoAppState extends State<FastLottieCupertinoApp> {
   Widget build(BuildContext context) => CupertinoApp(
     debugShowCheckedModeBanner: false,
     title: 'FastLottie Cupertino Network Chat',
+    scrollBehavior: _noScrollbarBehavior,
     theme: CupertinoThemeData(
       brightness: _isDark ? Brightness.dark : Brightness.light,
       primaryColor: const Color(0xff635bff),
