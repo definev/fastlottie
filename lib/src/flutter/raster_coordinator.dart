@@ -12,6 +12,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       workerCount: workerCount,
       maximumCompressedMemoryBytes: cache.maximumCompressedMemoryBytes,
       maximumDiskBytes: cache.maximumDiskBytes,
+      deduplicateImageUploads: cache.deduplicateImageUploads,
       diskCacheDirectory: diskCacheDirectory,
     );
   }
@@ -24,33 +25,29 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   final _activeDiskKeys = <String>{};
   final _activeWorkerShards = <int, int>{};
   final _awaitingImages = <_RasterEntry>{};
-  // A non-owning image reference: reuse only while it is still a front/back
-  // buffer. Independent clone handles let the normal disposal path stay intact.
-  final _duplicateFrames = <_RasterEntry, (int, ui.Image)>{};
+  // Non-owning 64-bit fingerprint `(fpHi, fpLo, image)` for each entry's last
+  // accepted buffer. Reused only while `image` is still a front/back buffer;
+  // independent clone handles keep normal disposal intact.
+  final _duplicateFrames = <_RasterEntry, (int, int, ui.Image)>{};
   final _decodeStarts = <_RasterEntry, int>{};
   final _telemetryClock = Stopwatch()..start();
-  int duplicateFrameBytes = 0;
   int skippedImageUploads = 0;
 
   void _forgetDuplicate(_RasterEntry entry) {
-    final previous = _duplicateFrames.remove(entry);
-    if (previous != null) {
-      final img = previous.$2;
-      duplicateFrameBytes -= img.width * img.height * 4;
-    }
+    _duplicateFrames.remove(entry);
   }
 
-  void _rememberDuplicate(_RasterEntry entry, int crc, ui.Image image) {
-    _forgetDuplicate(entry);
-    if (crc == 0 || cache.maximumDuplicateFrameBytes <= 0) return;
-    final imgBytes = image.width * image.height * 4;
-    if (imgBytes > cache.maximumDuplicateFrameBytes) return;
-    while (_duplicateFrames.isNotEmpty &&
-        duplicateFrameBytes + imgBytes > cache.maximumDuplicateFrameBytes) {
-      _forgetDuplicate(_duplicateFrames.keys.first);
+  void _rememberDuplicate(
+    _RasterEntry entry,
+    int fpHi,
+    int fpLo,
+    ui.Image image,
+  ) {
+    if (!cache.deduplicateImageUploads || (fpHi == 0 && fpLo == 0)) {
+      _duplicateFrames.remove(entry);
+      return;
     }
-    _duplicateFrames[entry] = (crc, image);
-    duplicateFrameBytes += imgBytes;
+    _duplicateFrames[entry] = (fpHi, fpLo, image);
   }
 
   int _activeJobs = 0;
@@ -557,7 +554,8 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     required int kernelCalls,
     required int geometryCopyBytes,
     required int transferBytes,
-    int? frameCrc,
+    required int fpHi,
+    required int fpLo,
   }) {
     cache
       .._workerRenderMicros += renderMicros
@@ -642,16 +640,17 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     }
 
     try {
-      final int crc = frameCrc ?? 0;
-      final previous = _duplicateFrames[entry];
-      if (crc != 0 &&
-          previous != null &&
-          (identical(previous.$2, entry.renderingImage) ||
-              identical(previous.$2, entry.backgroundImage)) &&
-          previous.$2.width == stripWidth &&
-          previous.$2.height == stripHeight &&
-          previous.$1 == crc) {
-        final image = previous.$2.clone();
+      final hasFingerprint =
+          cache.deduplicateImageUploads && (fpHi != 0 || fpLo != 0);
+      final previous = hasFingerprint ? _duplicateFrames[entry] : null;
+      if (previous != null &&
+          (identical(previous.$3, entry.renderingImage) ||
+              identical(previous.$3, entry.backgroundImage)) &&
+          previous.$3.width == stripWidth &&
+          previous.$3.height == stripHeight &&
+          previous.$1 == fpHi &&
+          previous.$2 == fpLo) {
+        final image = previous.$3.clone();
         skippedImageUploads++;
         _onImageDecoded(
           entry,
@@ -659,7 +658,8 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
           stripCount,
           dispatchedGen,
           image,
-          frameCrc: crc,
+          fpHi: fpHi,
+          fpLo: fpLo,
         );
         return;
       }
@@ -681,9 +681,8 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
           stripCount,
           dispatchedGen,
           image,
-          frameCrc: bgraBytes.lengthInBytes <= cache.maximumDuplicateFrameBytes
-              ? crc
-              : null,
+          fpHi: hasFingerprint ? fpHi : 0,
+          fpLo: hasFingerprint ? fpLo : 0,
         ),
       );
     } catch (error) {
@@ -725,7 +724,8 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     int stripCount,
     int dispatchedGen,
     ui.Image image, {
-    int? frameCrc,
+    int fpHi = 0,
+    int fpLo = 0,
   }) {
     final decodeStartedMicros = _decodeStarts.remove(entry);
     if (decodeStartedMicros != null) {
@@ -868,18 +868,18 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       image.dispose();
     }
 
-    if (frameCrc != null &&
+    if ((fpHi != 0 || fpLo != 0) &&
         !_disposed &&
         !entry.retired &&
         entry.users.isNotEmpty &&
         (identical(image, entry.renderingImage) ||
             identical(image, entry.backgroundImage))) {
-      _rememberDuplicate(entry, frameCrc, image);
+      _rememberDuplicate(entry, fpHi, fpLo, image);
     } else {
       final current = _duplicateFrames[entry];
       if (current != null &&
-          !identical(current.$2, entry.renderingImage) &&
-          !identical(current.$2, entry.backgroundImage)) {
+          !identical(current.$3, entry.renderingImage) &&
+          !identical(current.$3, entry.backgroundImage)) {
         _forgetDuplicate(entry);
       }
     }
@@ -1023,7 +1023,6 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     if (_disposed) return;
     _disposed = true;
     _duplicateFrames.clear();
-    duplicateFrameBytes = 0;
     clearPending();
     _activeWorkerShards.clear();
     _awaitingImages.clear();

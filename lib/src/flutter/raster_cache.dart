@@ -56,7 +56,7 @@ class FastLottieRasterCache {
     this.framesPerStrip,
     this.adaptiveStripBudget = false,
     this.progressiveFirstFrame = true,
-    this.maximumDuplicateFrameBytes = 1024 * 1024,
+    this.deduplicateImageUploads = true,
     this.allowUiVectorFallback = true,
     String? diskCacheDirectory,
     int? workerCount,
@@ -66,10 +66,6 @@ class FastLottieRasterCache {
       _checkPositiveFinite(rate, 'maximumFrameRate');
     }
     RangeError.checkNotNegative(maximumBytes, 'maximumBytes');
-    RangeError.checkNotNegative(
-      maximumDuplicateFrameBytes,
-      'maximumDuplicateFrameBytes',
-    );
     RangeError.checkNotNegative(
       maximumCompressedMemoryBytes,
       'maximumCompressedMemoryBytes',
@@ -138,20 +134,20 @@ class FastLottieRasterCache {
   /// single strip keep their one-upload full-loop path.
   final bool progressiveFirstFrame;
 
-  /// Optional host RAM for exact duplicate frame/strip detection before upload.
-  /// Defaults to 1 MiB per cache; zero disables comparison. This is separate
-  /// from GPU and compressed cache budgets.
-  /// Only the last result per entry is retained; oversized results bypass it.
-  final int maximumDuplicateFrameBytes;
+  /// Reuses an entry's current front or back GPU texture via `ui.Image.clone()`
+  /// when a worker delivers an identical 64-bit content fingerprint.
+  ///
+  /// Retains no pixel buffers on the UI isolate; matching is probabilistic
+  /// (~2^-64 collision rate per strip transition), not byte-for-byte.
+  /// Set false to disable fingerprinting and always upload decoded buffers.
+  final bool deduplicateImageUploads;
 
   /// When false, cold frames waiting for worker delivery do not fall back to
   /// synchronous vector rasterization on the Flutter UI thread.
   final bool allowUiVectorFallback;
 
-  /// Host bytes retained for duplicate upload detection.
-  int get duplicateFrameBytes => _coordinator.duplicateFrameBytes;
-
-  /// Number of image uploads avoided by reusing an identical buffer.
+  /// Number of image uploads avoided by reusing a texture with a matching
+  /// 64-bit content fingerprint.
   int get skippedImageUploads => _coordinator.skippedImageUploads;
 
   /// Keeps space available for one-frame posters while animated clips are pinned.

@@ -159,18 +159,36 @@ class _Mask {
 
   late final bool isStatic =
       geometry.isStatic && opacity.isStatic && (expand?.isStatic ?? true);
+  late final bool isPathStatic =
+      geometry.isStatic && (expand?.isStatic ?? true);
+
+  Path? _cachedPath;
+  double _lastPathFrame = double.nan;
+  PolyPath? _expandOutline;
+  PolyPath? _expandBand;
+  _StrokeScratch? _expandScratch;
 
   bool get clipsToPathAlone =>
       !inverted && (mode == 'a' || mode == 'i' || mode == 'f');
 
   Path path(double frame) {
-    final amount = expand?.scalar(frame) ?? 0;
+    final exp = expand;
+    if (exp == null) return geometry.path(frame);
+    if (isPathStatic && !_lastPathFrame.isNaN) return _cachedPath!;
+    if (_lastPathFrame == frame) return _cachedPath!;
+    _lastPathFrame = frame;
+    final amount = exp.scalar(frame);
     final original = geometry.path(frame);
-    if (amount == 0) return original;
-    final outline = PolyPath();
-    final band = PolyPath();
+    if (amount == 0) return _cachedPath = original;
+    final outline = isPathStatic ? PolyPath() : (_expandOutline ??= PolyPath());
+    final band = isPathStatic ? PolyPath() : (_expandBand ??= PolyPath());
+    final scratch = isPathStatic
+        ? _StrokeScratch()
+        : (_expandScratch ??= _StrokeScratch());
+    outline.clear();
+    band.clear();
     _flattenLeaf(geometry, frame, .01, outline);
-    _expandMaskBand(outline, amount, .1, band, _StrokeScratch());
+    _expandMaskBand(outline, amount, .1, band, scratch);
     final border = Path();
     for (var i = 0; i < band.contourCount; i++) {
       final start = band.contourStart[i], end = band.contourEnd[i];
@@ -180,7 +198,7 @@ class _Mask {
       }
       border.close();
     }
-    return Path.combine(
+    return _cachedPath = Path.combine(
       amount > 0 ? PathOperation.union : PathOperation.difference,
       original,
       border,
@@ -296,6 +314,24 @@ class _Layer {
   late final bool hasActiveMasks = masks?.any((m) => m.mode != 'n') ?? false;
   late final bool hasStaticMaskCoverage =
       masks?.every((m) => m.mode == 'n' || m.isStatic) ?? false;
+  late final bool _hasStaticCombinedMask = () {
+    final list = masks;
+    if (list == null || list.isEmpty) return true;
+    var hasCombined = false;
+    var needsLocalBounds = false;
+    for (var i = 0; i < list.length; i++) {
+      final m = list[i];
+      if (m.mode == 'n') continue;
+      if (!m.isPathStatic) return false;
+      if (m.inverted) {
+        needsLocalBounds = true;
+      } else if (m.mode == 's' && !hasCombined) {
+        needsLocalBounds = true;
+      }
+      hasCombined = true;
+    }
+    return !needsLocalBounds || (child == null && (group?.isStatic ?? true));
+  }();
   late final bool hasStaticSpatialChain =
       transform.isSpatialStatic && (parent?.hasStaticSpatialChain ?? true);
 
@@ -304,6 +340,9 @@ class _Layer {
 
   Rect? _cachedWorldBounds;
   double _lastWorldBoundsFrame = double.nan;
+  Path? _cachedCombinedMask;
+  double _lastCombinedMaskFrame = double.nan;
+  late final Paint _maskAlphaPaint = Paint();
 
   void applyParents(Canvas canvas, double frame) {
     parent?.applyParents(canvas, frame);
@@ -457,9 +496,23 @@ class _Layer {
       _applyCanvasMasks(canvas, frame);
     }
     if (maskAlpha != 255) {
+      var localBounds = _localContentBounds(frame);
+      if (localBounds != null) {
+        final m = masks![0];
+        final mb = m.geometry
+            .pathBounds(frame)
+            ?.inflate(math.max(0.0, m.expand?.scalar(frame) ?? 0.0));
+        if (mb != null) {
+          localBounds = localBounds.intersect(mb);
+        }
+        if (localBounds.isEmpty) {
+          canvas.restore();
+          return;
+        }
+      }
       canvas.saveLayer(
-        null,
-        Paint()..color = Color.fromARGB(maskAlpha, 0, 0, 0),
+        localBounds?.inflate(1),
+        _maskAlphaPaint..color = Color.fromARGB(maskAlpha, 0, 0, 0),
       );
     }
     group?.draw(canvas, frame, alpha);
@@ -488,7 +541,14 @@ class _Layer {
       }
       if (m.mode == 'n') return;
     }
+    if ((_hasStaticCombinedMask && !_lastCombinedMaskFrame.isNaN) ||
+        _lastCombinedMaskFrame == frame) {
+      final cached = _cachedCombinedMask;
+      if (cached != null) canvas.clipPath(cached);
+      return;
+    }
     Path? combined;
+    Rect? localBounds;
     for (var i = 0; i < list.length; i++) {
       final m = list[i];
       if (m.mode == 'n') continue;
@@ -501,8 +561,10 @@ class _Layer {
         // Masks are authored in layer-local coordinates and this method runs
         // after the layer/parent transforms have been installed on Canvas.
         // Using worldBounds here applies those transforms a second time.
-        final b = _localContentBounds(frame) ?? Rect.largest;
-        final base = combined ?? (Path()..addRect(b));
+        final base =
+            combined ??
+            (Path()
+              ..addRect(localBounds ??= _localContentBounds(frame) ?? Rect.largest));
         combined = Path.combine(PathOperation.difference, base, p);
       } else if (m.mode == 'i' && !m.inverted) {
         combined = combined == null
@@ -513,7 +575,7 @@ class _Layer {
             ? p
             : Path.combine(PathOperation.xor, combined, p);
       } else if (m.inverted) {
-        final b = _localContentBounds(frame) ?? Rect.largest;
+        final b = localBounds ??= _localContentBounds(frame) ?? Rect.largest;
         final invPath = Path.combine(
           PathOperation.difference,
           Path()..addRect(b),
@@ -524,6 +586,8 @@ class _Layer {
             : Path.combine(PathOperation.union, combined, invPath);
       }
     }
+    _lastCombinedMaskFrame = frame;
+    _cachedCombinedMask = combined;
     if (combined != null) {
       canvas.clipPath(combined);
     }

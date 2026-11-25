@@ -181,7 +181,7 @@ void _renderCompilerInto(
               continue;
             }
             final layerBufPlane = ws._acquireScratch(depth * 3 + 2, bw * bh);
-            if (ws.preferNative) {
+            if (useNative) {
               simdClearPixels(layerBufPlane, bw * bh);
             } else {
               layerBufPlane.typedList.fillRange(0, bw * bh, 0);
@@ -209,7 +209,7 @@ void _renderCompilerInto(
               ws,
               depth + 1,
               stableTransform,
-              ws.preferNative,
+              useNative,
               0,
               true,
               true,
@@ -323,7 +323,11 @@ void _renderCompilerInto(
     final boxPixels = bw * bh;
 
     final layerBufPlane = ws._acquireScratch(depth * 3, boxPixels);
-    layerBufPlane.typedList.fillRange(0, boxPixels, 0);
+    if (useNative) {
+      simdClearPixels(layerBufPlane, boxPixels);
+    } else {
+      layerBufPlane.typedList.fillRange(0, boxPixels, 0);
+    }
     _renderLayerInto(
       layer,
       frame,
@@ -346,14 +350,18 @@ void _renderCompilerInto(
       ws,
       depth + 1,
       stableTransform,
-      layer.innerShadow != null && ws.preferNative,
+      useNative,
       0,
       true,
       true,
     );
 
     final matteBufPlane = ws._acquireScratch(depth * 3 + 1, boxPixels);
-    matteBufPlane.typedList.fillRange(0, boxPixels, 0);
+    if (useNative) {
+      simdClearPixels(matteBufPlane, boxPixels);
+    } else {
+      matteBufPlane.typedList.fillRange(0, boxPixels, 0);
+    }
     if (overlap) {
       _renderLayerInto(
         matte,
@@ -377,7 +385,7 @@ void _renderCompilerInto(
         ws,
         depth + 1,
         stableTransform,
-        matte.innerShadow != null && ws.preferNative,
+        useNative,
         0,
         true,
         true,
@@ -705,7 +713,11 @@ void _renderLayerInto(
     final w = x1 - x0, h = y1 - y0;
     if (w <= 0 || h <= 0) return;
     final plane = ws._acquireScratch(depth * 3 + 2, w * h);
-    plane.typedList.fillRange(0, w * h, 0);
+    if (useNative) {
+      simdClearPixels(plane, w * h);
+    } else {
+      plane.typedList.fillRange(0, w * h, 0);
+    }
     _renderLayerInto(
       layer,
       frame,
@@ -728,7 +740,7 @@ void _renderLayerInto(
       ws,
       depth + 1,
       stableTransform,
-      ws.preferNative,
+      useNative,
       0,
       false,
       false,
@@ -929,26 +941,31 @@ void _renderLayerInto(
       }
     } else {
       // Rotated/skewed precomp clip quad via bounded scratch buffer masked by clip quad RLE.
+      final childBounds = child.boundsRect;
       final rx0 = math.max(
         effClipX0,
-        _transformedMinX(Rect.fromLTWH(0, 0, cw, ch), ca, cc, ctx).floor() - 1,
+        _transformedMinX(childBounds, ca, cc, ctx).floor() - 1,
       );
       final ry0 = math.max(
         effClipY0,
-        _transformedMinY(Rect.fromLTWH(0, 0, cw, ch), cb, cd, cty).floor() - 1,
+        _transformedMinY(childBounds, cb, cd, cty).floor() - 1,
       );
       final rx1 = math.min(
         effClipX1,
-        _transformedMaxX(Rect.fromLTWH(0, 0, cw, ch), ca, cc, ctx).ceil() + 1,
+        _transformedMaxX(childBounds, ca, cc, ctx).ceil() + 1,
       );
       final ry1 = math.min(
         effClipY1,
-        _transformedMaxY(Rect.fromLTWH(0, 0, cw, ch), cb, cd, cty).ceil() + 1,
+        _transformedMaxY(childBounds, cb, cd, cty).ceil() + 1,
       );
       if (rx0 < rx1 && ry0 < ry1) {
         final bw = rx1 - rx0, bh = ry1 - ry0;
         final preBufPlane = ws._acquireScratch(depth * 3 + 2, bw * bh);
-        preBufPlane.typedList.fillRange(0, bw * bh, 0);
+        if (useNative) {
+          simdClearPixels(preBufPlane, bw * bh);
+        } else {
+          preBufPlane.typedList.fillRange(0, bw * bh, 0);
+        }
         _renderCompilerInto(
           child,
           childFrame,
@@ -971,7 +988,7 @@ void _renderLayerInto(
           ws,
           depth + 1,
           stable,
-          false,
+          useNative,
         );
         // Rasterize transformed precomp clip rect into ws._clipSpans.
         ws._polyPath

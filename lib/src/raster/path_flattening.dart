@@ -566,26 +566,44 @@ PolyPath? _evalTrimPart(
   final from = (math.min(a, b) + trim.offset.scalar(frame) / 360.0) % 1.0;
   final to = from + span;
 
-  // Measure inputs.
-  final lens = ws._acquireTrimLengths(trimDepth, count);
-  var total = 0.0;
-  var origin = 0.0;
-  for (var i = 0; i < count; i++) {
-    final len = _measureSourceLength(
-      trim.inputs[i],
+  final double length;
+  final double effOrigin;
+  if (!trim.individual) {
+    // Simultaneous mode trims each input independently by its own length.
+    length = _measureSourceLength(
+      input,
       frame,
       flatnessSq,
       ws,
-      i == index ? inputPoly : null,
+      inputPoly,
       trimDepth + 1,
       groupDepth,
     );
-    lens[i] = len;
-    if (i < index) origin += len;
-    total += len;
+    effOrigin = 0.0;
+  } else {
+    // Sequential mode caches cumulative input lengths for the current trim/frame.
+    var prefix = ws._getCachedTrimPrefix(trimDepth, trim, frame, flatnessSq);
+    if (prefix == null) {
+      prefix = ws._acquireTrimLengths(trimDepth, count + 1);
+      var total = 0.0;
+      prefix[0] = 0.0;
+      for (var i = 0; i < count; i++) {
+        total += _measureSourceLength(
+          trim.inputs[i],
+          frame,
+          flatnessSq,
+          ws,
+          i == index ? inputPoly : null,
+          trimDepth + 1,
+          groupDepth,
+        );
+        prefix[i + 1] = total;
+      }
+      ws._putCachedTrimPrefix(trimDepth, trim, frame, flatnessSq);
+    }
+    length = prefix[count];
+    effOrigin = prefix[index];
   }
-  final length = trim.individual ? total : lens[index];
-  final effOrigin = trim.individual ? origin : 0.0;
 
   final out = ws._acquireTrimOut(trimDepth);
   _extractTrimPoly(

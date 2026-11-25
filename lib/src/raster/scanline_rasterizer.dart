@@ -594,8 +594,8 @@ class FtScanlineRasterizer {
       _renderLineWeb(toX, toY);
       return;
     }
-    var x1 = _curX;
-    var y1 = _curY;
+    final x1 = _curX;
+    final y1 = _curY;
     _curX = toX;
     _curY = toY;
 
@@ -615,14 +615,14 @@ class FtScanlineRasterizer {
 
     if (dy > 0) {
       // Downward edge.
-      if (ey1 < _minEy) {
-        final crossY = _minBoundY;
-        x1 += ((crossY - y1) * dx) ~/ dy;
-        y1 = crossY;
-        ey1 = _minEy;
-      }
       var curX = x1;
       var curY = y1;
+      if (ey1 < _minEy) {
+        final crossY = _minBoundY;
+        curX = x1 + ((crossY - y1) * dx) ~/ dy;
+        curY = crossY;
+        ey1 = _minEy;
+      }
       while (ey1 < ey2 && ey1 < _maxEy) {
         final nextY = (ey1 + 1) << 8;
         final nextX = x1 + ((nextY - y1) * dx) ~/ dy;

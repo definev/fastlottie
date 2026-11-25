@@ -56,7 +56,8 @@ abstract interface class RasterWorkerListener<T> {
     required int kernelCalls,
     required int geometryCopyBytes,
     required int transferBytes,
-    int? frameCrc,
+    required int fpHi,
+    required int fpLo,
   });
 
   void onStripError(T context, Object error);
@@ -111,6 +112,7 @@ final class RasterWorkerPool<T> {
     required this.listener,
     required this.maximumCompressedMemoryBytes,
     required this.maximumDiskBytes,
+    this.deduplicateImageUploads = true,
     int? workerCount,
     String? diskCacheDirectory,
   }) : _workerCount = _isWeb
@@ -128,6 +130,7 @@ final class RasterWorkerPool<T> {
   final int _workerCount;
   final int maximumCompressedMemoryBytes;
   final int maximumDiskBytes;
+  final bool deduplicateImageUploads;
   String? _diskDir;
 
   final _handles = <WorkerHandle>[];
@@ -184,6 +187,7 @@ final class RasterWorkerPool<T> {
         opConfigure,
         diskDirectory: effectiveDiskDir,
         maximumRamBytes: perWorkerRam,
+        deduplicateUploads: deduplicateImageUploads,
       ));
     }
   }
@@ -227,6 +231,7 @@ final class RasterWorkerPool<T> {
       opConfigure,
       diskDirectory: null,
       maximumRamBytes: maximumCompressedMemoryBytes ~/ _handles.length,
+      deduplicateUploads: deduplicateImageUploads,
     ));
     final interrupted = _pendingRequests.values
         .where((request) => request.shard == shard)
@@ -322,6 +327,7 @@ final class RasterWorkerPool<T> {
           opConfigure,
           diskDirectory: effective,
           maximumRamBytes: perWorkerRam,
+          deduplicateUploads: deduplicateImageUploads,
         ));
       }
     }
@@ -384,7 +390,8 @@ final class RasterWorkerPool<T> {
         kernelCalls: final int kernelCalls,
         geometryCopyBytes: final int geometryCopyBytes,
         transferBytes: final int transferBytes,
-        frameCrc: final int frameCrc,
+        fpHi: final int fpHi,
+        fpLo: final int fpLo,
       ):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
@@ -415,7 +422,8 @@ final class RasterWorkerPool<T> {
           kernelCalls: kernelCalls,
           geometryCopyBytes: geometryCopyBytes,
           transferBytes: transferBytes,
-          frameCrc: frameCrc,
+          fpHi: fpHi,
+          fpLo: fpLo,
         );
       case (
         repStripReady,
@@ -434,7 +442,8 @@ final class RasterWorkerPool<T> {
         kernelCalls: final int kernelCalls,
         geometryCopyBytes: final int geometryCopyBytes,
         transferBytes: final int transferBytes,
-        frameCrc: final int frameCrc,
+        fpHi: final int fpHi,
+        fpLo: final int fpLo,
       ):
         final pending = _pendingRequests.remove(reqId);
         if (pending == null) return;
@@ -465,7 +474,8 @@ final class RasterWorkerPool<T> {
           kernelCalls: kernelCalls,
           geometryCopyBytes: geometryCopyBytes,
           transferBytes: transferBytes,
-          frameCrc: frameCrc,
+          fpHi: fpHi,
+          fpLo: fpLo,
         );
       case (
         repFrameError,

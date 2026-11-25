@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:fastlottie/fastlottie.dart';
+import 'package:fastlottie/src/flutter/composition.dart' show CompositionPlayback;
+import 'package:fastlottie/src/worker/worker_pool.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -47,13 +50,13 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'different pixels and undersized comparison budgets never alias textures',
+    'different pixels never alias textures and disabling deduplication skips no uploads',
     (tester) async {
       final composition = FastLottieComposition.fromJson(fixture('icon'));
-      for (final budget in [1, 128 * 1024]) {
+      for (final deduplicate in [false, true]) {
         final cache = FastLottieRasterCache(
           framesPerStrip: 1,
-          maximumDuplicateFrameBytes: budget,
+          deduplicateImageUploads: deduplicate,
           workerCount: 1,
         );
         final player = FastLottiePlayer(composition, rasterCache: cache);
@@ -63,7 +66,6 @@ void main() {
             await _drain(tester, cache);
           }
           expect(cache.skippedImageUploads, 0);
-          expect(cache.duplicateFrameBytes, lessThanOrEqualTo(budget));
         } finally {
           player.dispose();
           cache.dispose();
@@ -103,7 +105,7 @@ void main() {
   );
 
   testWidgets(
-    'duplicate strips reuse textures exactly within a bounded host budget',
+    'duplicate strips reuse textures via 64-bit fingerprints and honor opt-out',
     (tester) async {
       // Animated transform with equal values: distinct source indices, same pixels.
       final json = fixture('static');
@@ -122,6 +124,29 @@ void main() {
       };
       final composition = FastLottieComposition.fromJson(json);
       expect(composition.isStatic, isFalse);
+
+      final disabledCache = FastLottieRasterCache(
+        framesPerStrip: 4,
+        deduplicateImageUploads: false,
+        workerCount: 1,
+      );
+      final disabledPlayer = FastLottiePlayer(
+        composition,
+        rasterCache: disabledCache,
+      );
+      try {
+        _record(disabledPlayer, 0);
+        await _drain(tester, disabledCache);
+        for (final frame in [1, 4, 8, 12]) {
+          _record(disabledPlayer, frame / 60);
+          await _drain(tester, disabledCache);
+        }
+        expect(disabledCache.skippedImageUploads, 0);
+      } finally {
+        disabledPlayer.dispose();
+        disabledCache.dispose();
+      }
+
       final cache = FastLottieRasterCache(framesPerStrip: 4, workerCount: 1);
       final player = FastLottiePlayer(composition, rasterCache: cache);
       addTearDown(() {
@@ -140,7 +165,6 @@ void main() {
         final hits = cache.hits;
         _record(player, frame / 60);
         expect(cache.hits, hits + 1);
-        expect(cache.duplicateFrameBytes, lessThanOrEqualTo(1024 * 1024));
         expect(cache.gpuBytes, lessThanOrEqualTo(cache.reservedBytes));
       }
       // A reused clone must still paint valid pixels after its original front
@@ -156,7 +180,6 @@ void main() {
       );
       expect(beforePixels!.any((v) => v != 0), isTrue);
       cache.clear();
-      expect(cache.duplicateFrameBytes, 0);
       _record(player, 8 / 60);
       await _drain(tester, cache);
       final freshPixels = await tester.runAsync(
@@ -170,7 +193,6 @@ void main() {
       _record(player, 0);
       await _drain(tester, cache);
       player.dispose();
-      expect(cache.duplicateFrameBytes, 0);
     },
   );
 
@@ -793,4 +815,142 @@ void main() {
       expect(cache.bytes, greaterThan(0));
     },
   );
+
+  test(
+    'worker strips clear only gutter rows without stale leaks and emit 64-bit fingerprints',
+    () async {
+      final comp = FastLottieComposition.fromJson(fixture('icon'));
+      const w = 32, h = 24, stripCount = 4;
+      final stripH = h * stripCount + (stripCount - 1);
+      final frameBytes = w * h * 4;
+      final rowBytes = w * 4;
+
+      Future<({Uint8List bytes, int fpHi, int fpLo})> runStrip(
+        RasterWorkerPool<Completer<({Uint8List bytes, int fpHi, int fpLo})>>
+        pool,
+        String entryKey,
+        int count,
+        int width,
+        int height,
+      ) {
+        final done = Completer<({Uint8List bytes, int fpHi, int fpLo})>();
+        pool.dispatchStrip(
+          context: done,
+          shard: pool.shardForKey(entryKey),
+          dispatchedGen: 0,
+          scene: comp.sceneTemplate,
+          sourceBytes: null,
+          contentKey: comp.contentKey,
+          entryKey: entryKey,
+          stripStart: 0,
+          stripCount: count,
+          startFrame: comp.startFrame,
+          frameStep: 1.0,
+          width: width,
+          height: height,
+          totalFrames: comp.frameCount,
+          poster: false,
+        );
+        return done.future;
+      }
+
+      final listener = _StripTestListener();
+      final pool = RasterWorkerPool<
+        Completer<({Uint8List bytes, int fpHi, int fpLo})>
+      >(
+        listener: listener,
+        workerCount: 1,
+        maximumCompressedMemoryBytes: 4 * 1024 * 1024,
+        maximumDiskBytes: 0,
+        deduplicateImageUploads: true,
+      );
+      addTearDown(pool.dispose);
+
+      // Dirty the worker's persistent pixel buffer with a larger opaque frame first.
+      final dirty = await runStrip(pool, 'dirty_entry', 1, w, stripH);
+      expect(dirty.bytes.any((b) => b != 0), isTrue);
+
+      // Render a 4-frame strip cold, then warm from RAM cache.
+      final cold = await runStrip(pool, 'strip_entry', stripCount, w, h);
+      final warm = await runStrip(pool, 'strip_entry', stripCount, w, h);
+      expect(cold.bytes.length, rowBytes * stripH);
+      expect(cold.bytes, orderedEquals(warm.bytes));
+      expect(cold.fpHi != 0 || cold.fpLo != 0, isTrue);
+      expect((warm.fpHi, warm.fpLo), (cold.fpHi, cold.fpLo));
+
+      // Verify every 1px gutter row between slots is strictly transparent.
+      for (var j = 1; j < stripCount; j++) {
+        final padStart = (j * (h + 1) - 1) * rowBytes;
+        expect(
+          cold.bytes.sublist(padStart, padStart + rowBytes),
+          everyElement(0),
+        );
+      }
+
+      // Verify slot 0 matches a single-frame render byte-for-byte.
+      final single = await runStrip(pool, 'strip_entry', 1, w, h);
+      expect(cold.bytes.sublist(0, frameBytes), orderedEquals(single.bytes));
+
+      // Disabling upload deduplication suppresses worker fingerprints completely.
+      final disabledPool = RasterWorkerPool<
+        Completer<({Uint8List bytes, int fpHi, int fpLo})>
+      >(
+        listener: listener,
+        workerCount: 1,
+        maximumCompressedMemoryBytes: 4 * 1024 * 1024,
+        maximumDiskBytes: 0,
+        deduplicateImageUploads: false,
+      );
+      addTearDown(disabledPool.dispose);
+      final noFp = await runStrip(disabledPool, 'no_fp', stripCount, w, h);
+      expect((noFp.fpHi, noFp.fpLo), (0, 0));
+      expect(noFp.bytes, orderedEquals(cold.bytes));
+    },
+  );
+}
+
+final class _StripTestListener
+    implements
+        RasterWorkerListener<
+          Completer<({Uint8List bytes, int fpHi, int fpLo})>
+        > {
+  @override
+  void onStripReady(
+    Completer<({Uint8List bytes, int fpHi, int fpLo})> context,
+    int dispatchedGen, {
+    required String entryKey,
+    required int stripStart,
+    required int stripCount,
+    required int stripWidth,
+    required int stripHeight,
+    required Uint8List bgraBytes,
+    required bool vectorRendered,
+    required int vectorCount,
+    required bool compressedHit,
+    required int compressedCount,
+    required int entryDiskBytes,
+    required int renderMicros,
+    required int kernelCalls,
+    required int geometryCopyBytes,
+    required int transferBytes,
+    required int fpHi,
+    required int fpLo,
+  }) {
+    if (!context.isCompleted) {
+      context.complete((bytes: bgraBytes, fpHi: fpHi, fpLo: fpLo));
+    }
+  }
+
+  @override
+  void onStripError(
+    Completer<({Uint8List bytes, int fpHi, int fpLo})> context,
+    Object error,
+  ) {
+    if (!context.isCompleted) context.completeError(error);
+  }
+
+  @override
+  void onBrowserWorkerFallback(
+    Completer<({Uint8List bytes, int fpHi, int fpLo})> context,
+  ) {}
 }

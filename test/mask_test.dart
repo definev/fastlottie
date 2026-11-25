@@ -2,9 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:fastlottie/fastlottie.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'fastlottie_test.dart' show compare;
+import 'fastlottie_test.dart' show compare, render;
 import 'path_ops_test.dart' show animated, constant, fill;
 
 Map<String, dynamic> maskPathRect(
@@ -420,6 +421,131 @@ void main() {
       sc: '#00FF00',
     );
     await compare(doc, [0.0, 30.0]);
+  });
+
+  test('mask with 50% opacity on transformed layer uses local saveLayer bounds', () async {
+    final doc = {
+      'v': '5.5.2',
+      'fr': 60,
+      'ip': 0,
+      'op': 60,
+      'w': 256,
+      'h': 256,
+      'layers': [
+        {
+          'ty': 4,
+          'ip': 0,
+          'op': 60,
+          'st': 0,
+          'ks': {
+            'o': constant(100),
+            'r': constant(25),
+            'p': constant([135, 125]),
+            'a': constant([40, 40]),
+            's': constant([120, 120]),
+          },
+          'hasMask': true,
+          'masksProperties': [
+            maskObject(
+              pt: constant(maskPathRect(10, 10, 60, 60)),
+              mode: 'a',
+              o: constant(55),
+            ),
+          ],
+          'shapes': [
+            {
+              'ty': 'rc',
+              'p': constant([40, 40]),
+              's': constant([80, 80]),
+              'r': constant(8),
+            },
+            fill([0.2, 0.6, 0.9]),
+          ],
+        },
+      ],
+    };
+    await compare(doc, [0.0, 15.0, 30.0]);
+  });
+
+  test('cached static combined masks match reference across animated layer frames', () async {
+    final doc = shapeSceneWithMask(
+      masks: [
+        maskObject(
+          pt: constant(maskPathRect(40, 40, 160, 160)),
+          mode: 'a',
+        ),
+        maskObject(
+          pt: constant(maskPathRect(95, 95, 60, 60)),
+          mode: 's',
+        ),
+      ],
+      shape: {
+        'ty': 'rc',
+        'p': animated([110, 128], [146, 128]),
+        's': constant([160, 160]),
+        'r': constant(12),
+      },
+      paint: fill([0.9, 0.4, 0.1]),
+    );
+    await compare(doc, [0.0, 15.0, 45.0, 15.0]);
+  });
+
+  test('cached static expanded mask on Canvas matches software rasterizer across frames', () async {
+    final doc = shapeSceneWithMask(
+      masks: [
+        maskObject(
+          pt: constant(maskPathRect(50, 50, 140, 140)),
+          mode: 'a',
+          x: constant(8),
+          o: constant(60),
+        ),
+      ],
+      shape: {
+        'ty': 'rc',
+        'p': animated([110, 128], [146, 128]),
+        's': constant([180, 180]),
+        'r': constant(10),
+      },
+      paint: fill([0.9, 0.4, 0.1]),
+    );
+    final comp = FastLottieComposition.fromJson(doc);
+    final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
+    final session = FastLottieSoftwareSession(
+      comp,
+      pixelWidth: 256,
+      pixelHeight: 256,
+    );
+    addTearDown(player.dispose);
+    addTearDown(session.dispose);
+    for (final frame in [0.0, 15.0, 45.0, 15.0]) {
+      final canvasRgba = await render(
+        (c) => player.draw(
+          c,
+          const Rect.fromLTWH(0, 0, 256, 256),
+          frame / 60.0,
+          useFrameRate: false,
+        ),
+      );
+      final swPixels = session.renderFrame(frame);
+      var diffSum = 0;
+      for (var p = 0; p < 256 * 256; p++) {
+        // Both ImageByteFormat.rawRgba and software output are premultiplied.
+        final cr = canvasRgba[p * 4 + 0];
+        final cg = canvasRgba[p * 4 + 1];
+        final cb = canvasRgba[p * 4 + 2];
+        final ca = canvasRgba[p * 4 + 3];
+        final sp = swPixels[p];
+        diffSum += (ca - (sp >>> 24)).abs() +
+            (cr - ((sp >>> 16) & 0xff)).abs() +
+            (cg - ((sp >>> 8) & 0xff)).abs() +
+            (cb - (sp & 0xff)).abs();
+      }
+      expect(
+        diffSum / (256 * 256 * 4),
+        lessThan(0.65),
+        reason: 'expanded mask mismatch at frame=$frame',
+      );
+    }
   });
 
   test('real TGS masked stickers match reference', () async {

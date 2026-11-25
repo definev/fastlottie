@@ -4,25 +4,6 @@ import 'dart:typed_data';
 // Use a value outside the CRC31 range so zero still verifies a checksum.
 const _skipCacheCrc = 0x80000000;
 
-@Native<Uint32 Function(Pointer<Uint8>, Size, Pointer<Uint32>)>(
-  assetId: 'package:fastlottie/fastlottie_simd.dart',
-  symbol: 'fastlottie_cache_crc31',
-  isLeaf: true,
-)
-external int _crc31(Pointer<Uint8> src, int length, Pointer<Uint32> table);
-
-bool _crcUnavailable = false;
-
-int? cacheCrc31Native(Uint8List src, Uint32List table) {
-  if (_crcUnavailable || src.length > 256 * 1024) return null;
-  try {
-    return _crc31(src.address, src.length, table.address);
-  } on ArgumentError {
-    _crcUnavailable = true;
-    return null;
-  }
-}
-
 @Native<
   Int32 Function(
     Pointer<Uint8>,

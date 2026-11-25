@@ -24,7 +24,8 @@ final class TilePlaybackPage {
     this._index,
     this._tiles,
     this.bytes,
-    this._frameCrcs,
+    this._frameFpHi,
+    this._frameFpLo,
   );
 
   static const tileSize = 16;
@@ -37,7 +38,8 @@ final class TilePlaybackPage {
   final List<Uint8List> _tiles;
   final Object _identity = Object();
   final int bytes;
-  final Int32List _frameCrcs;
+  final Uint32List _frameFpHi;
+  final Uint32List _frameFpLo;
   int lastUsed = 0;
 
   bool contains(int frame) {
@@ -45,15 +47,15 @@ final class TilePlaybackPage {
     return index >= 0 && index < maxFrames && _slots[index] != _absent;
   }
 
-  int crcOf(int frame) {
+  (int, int) fingerprintOf(int frame) {
     final index = frame - firstFrame;
     if (index >= 0 && index < maxFrames) {
       final slot = _slots[index];
       if (slot != _absent) {
-        return _frameCrcs[slot];
+        return (_frameFpHi[slot], _frameFpLo[slot]);
       }
     }
-    return 0;
+    return (0, 0);
   }
 
   int _offset(int frame) => _slots[frame - firstFrame] * _tileCount;
@@ -70,7 +72,7 @@ final class TilePlaybackPage {
     required int maxBytes,
     required Uint8List scratch,
     required bool Function(int frame, Uint8List scratch) readFrame,
-    int Function(int frame)? getCrc,
+    (int, int) Function(int frame)? getFingerprint,
   }) {
     final pixels = width * height;
     final frameCount = frames.length;
@@ -86,7 +88,8 @@ final class TilePlaybackPage {
     final tileCount = columns * ((height + tileSize - 1) ~/ tileSize);
     final index = Uint16List(frameCount * tileCount);
     final slots = Uint8List(maxFrames)..fillRange(0, maxFrames, _absent);
-    final frameCrcs = Int32List(maxFrames);
+    final frameFpHi = Uint32List(maxFrames);
+    final frameFpLo = Uint32List(maxFrames);
     final Uint8List? aligned;
     final Uint32List words;
     if (scratch.offsetInBytes & 3 == 0) {
@@ -114,7 +117,9 @@ final class TilePlaybackPage {
         aligned.setRange(0, pixels * 4, scratch);
       }
       slots[relative] = f;
-      frameCrcs[f] = getCrc?.call(frame) ?? 0;
+      final (fpHi, fpLo) = getFingerprint?.call(frame) ?? (0, 0);
+      frameFpHi[f] = fpHi;
+      frameFpLo[f] = fpLo;
       for (var t = 0; t < tileCount; t++) {
         final x = (t % columns) * tileSize;
         final y = (t ~/ columns) * tileSize;
@@ -170,7 +175,8 @@ final class TilePlaybackPage {
       index,
       [for (final tile in tiles) tile.buffer.asUint8List()],
       bytes,
-      frameCrcs,
+      frameFpHi,
+      frameFpLo,
     );
   }
 

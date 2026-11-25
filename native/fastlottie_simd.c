@@ -6,6 +6,8 @@
 #include <arm_neon.h>
 #elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
 #include <emmintrin.h>
+#elif defined(__wasm_simd128__)
+#include <wasm_simd128.h>
 #endif
 
 #if defined(_WIN32)
@@ -156,6 +158,229 @@ FL_EXPORT void fastlottie_fill_solid_spans(
     }
 }
 
+#if defined(__clang__) || defined(__GNUC__)
+#define FL_ALWAYS_INLINE __attribute__((always_inline)) inline
+#else
+#define FL_ALWAYS_INLINE inline
+#endif
+
+static inline void store_src_over(uint32_t* dst, uint32_t s) {
+    if (s == 0) return;
+    const uint32_t sa = s >> 24;
+    if (sa == 255) {
+        *dst = s;
+        return;
+    }
+    const uint32_t d = *dst;
+    *dst = (d == 0) ? s : src_over_ia(s, d, 255 - sa);
+}
+
+#if defined(__aarch64__) && (defined(__ARM_NEON) || defined(__ARM_NEON__))
+#define FL_HAS_SIMD4 1
+
+static inline uint8x16_t fl_neon_alpha_indices(void) {
+    static const uint8_t idx[16] = {
+        3, 3, 3, 3, 7, 7, 7, 7, 11, 11, 11, 11, 15, 15, 15, 15
+    };
+    return vld1q_u8(idx);
+}
+
+static inline uint8x16_t fl_neon_scale255_u8x16(
+    uint8x16_t px, uint8x16_t factor, uint16x8_t c128
+) {
+    uint16x8_t lo = vmlal_u8(c128, vget_low_u8(px), vget_low_u8(factor));
+    uint16x8_t hi = vmlal_u8(c128, vget_high_u8(px), vget_high_u8(factor));
+    lo = vaddq_u16(lo, vshrq_n_u16(lo, 8));
+    hi = vaddq_u16(hi, vshrq_n_u16(hi, 8));
+    return vcombine_u8(vshrn_n_u16(lo, 8), vshrn_n_u16(hi, 8));
+}
+
+static inline uint8x16_t fl_neon_scale256_u8x16(
+    uint8x16_t px, uint8x8_t cov8, uint16x8_t c128
+) {
+    uint16x8_t lo = vmlal_u8(c128, vget_low_u8(px), cov8);
+    uint16x8_t hi = vmlal_u8(c128, vget_high_u8(px), cov8);
+    return vcombine_u8(vshrn_n_u16(lo, 8), vshrn_n_u16(hi, 8));
+}
+
+static inline void fl_neon_src_over_u8x16(
+    uint32_t* dst, uint8x16_t s16, uint8x16_t alpha_idx, uint16x8_t c128
+) {
+    uint8x16_t ia16 = vmvnq_u8(vqtbl1q_u8(s16, alpha_idx));
+    uint8x16_t d16 = vld1q_u8((const uint8_t*)dst);
+    uint8x16_t scaled_d = fl_neon_scale255_u8x16(d16, ia16, c128);
+    vst1q_u8((uint8_t*)dst, vaddq_u8(s16, scaled_d));
+}
+
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#define FL_HAS_SIMD4 1
+
+static inline __m128i fl_sse2_scale255_16(__m128i v, __m128i f, __m128i c128) {
+    __m128i p = _mm_add_epi16(_mm_mullo_epi16(v, f), c128);
+    return _mm_srli_epi16(_mm_add_epi16(p, _mm_srli_epi16(p, 8)), 8);
+}
+
+static inline __m128i fl_sse2_broadcast_alpha_16(__m128i px16) {
+    return _mm_shufflehi_epi16(
+        _mm_shufflelo_epi16(px16, _MM_SHUFFLE(3, 3, 3, 3)),
+        _MM_SHUFFLE(3, 3, 3, 3)
+    );
+}
+
+static inline void fl_sse2_src_over_u32x4(uint32_t* dst, __m128i s16) {
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i c128 = _mm_set1_epi16(128);
+    const __m128i c255 = _mm_set1_epi16(255);
+    __m128i s_lo = _mm_unpacklo_epi8(s16, zero);
+    __m128i s_hi = _mm_unpackhi_epi8(s16, zero);
+    __m128i ia_lo = _mm_sub_epi16(c255, fl_sse2_broadcast_alpha_16(s_lo));
+    __m128i ia_hi = _mm_sub_epi16(c255, fl_sse2_broadcast_alpha_16(s_hi));
+    __m128i d16 = _mm_loadu_si128((const __m128i*)dst);
+    __m128i d_lo = fl_sse2_scale255_16(_mm_unpacklo_epi8(d16, zero), ia_lo, c128);
+    __m128i d_hi = fl_sse2_scale255_16(_mm_unpackhi_epi8(d16, zero), ia_hi, c128);
+    __m128i out = _mm_add_epi8(s16, _mm_packus_epi16(d_lo, d_hi));
+    _mm_storeu_si128((__m128i*)dst, out);
+}
+
+#elif defined(__wasm_simd128__)
+#define FL_HAS_SIMD4 1
+
+static inline v128_t fl_wasm_alpha_indices(void) {
+    return wasm_i8x16_const(
+        3, 3, 3, 3, 7, 7, 7, 7, 11, 11, 11, 11, 15, 15, 15, 15
+    );
+}
+
+static inline v128_t fl_wasm_scale255_u8x16(v128_t px, v128_t f, v128_t c128) {
+    v128_t lo = wasm_i16x8_add(
+        wasm_i16x8_mul(wasm_u16x8_extend_low_u8x16(px), wasm_u16x8_extend_low_u8x16(f)),
+        c128
+    );
+    v128_t hi = wasm_i16x8_add(
+        wasm_i16x8_mul(wasm_u16x8_extend_high_u8x16(px), wasm_u16x8_extend_high_u8x16(f)),
+        c128
+    );
+    lo = wasm_u16x8_shr(wasm_i16x8_add(lo, wasm_u16x8_shr(lo, 8)), 8);
+    hi = wasm_u16x8_shr(wasm_i16x8_add(hi, wasm_u16x8_shr(hi, 8)), 8);
+    return wasm_u8x16_narrow_i16x8(lo, hi);
+}
+
+static inline v128_t fl_wasm_scale256_u8x16(v128_t px, v128_t cov16, v128_t c128) {
+    v128_t lo = wasm_u16x8_shr(
+        wasm_i16x8_add(wasm_i16x8_mul(wasm_u16x8_extend_low_u8x16(px), cov16), c128),
+        8
+    );
+    v128_t hi = wasm_u16x8_shr(
+        wasm_i16x8_add(wasm_i16x8_mul(wasm_u16x8_extend_high_u8x16(px), cov16), c128),
+        8
+    );
+    return wasm_u8x16_narrow_i16x8(lo, hi);
+}
+
+static inline void fl_wasm_src_over_u8x16(
+    uint32_t* dst, v128_t s16, v128_t alpha_idx, v128_t c128
+) {
+    v128_t ia16 = wasm_v128_not(wasm_i8x16_swizzle(s16, alpha_idx));
+    v128_t d16 = wasm_v128_load(dst);
+    v128_t scaled_d = fl_wasm_scale255_u8x16(d16, ia16, c128);
+    wasm_v128_store(dst, wasm_i8x16_add(s16, scaled_d));
+}
+#endif
+
+static FL_ALWAYS_INLINE void composite_alpha_matte_impl(
+    uint32_t* dst,
+    int32_t dstOriginX,
+    int32_t dstOriginY,
+    int32_t dstStride,
+    const uint32_t* layerBuf,
+    const uint32_t* matteBuf,
+    int32_t bw,
+    int32_t bh,
+    int32_t bx0,
+    int32_t by0,
+    int is_dst_out
+) {
+#if defined(__aarch64__) && (defined(__ARM_NEON) || defined(__ARM_NEON__))
+    const uint8x16_t alpha_idx = fl_neon_alpha_indices();
+    const uint16x8_t c128 = vdupq_n_u16(128);
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i c128 = _mm_set1_epi16(128);
+    const __m128i c255 = _mm_set1_epi16(255);
+#elif defined(__wasm_simd128__)
+    const v128_t alpha_idx = fl_wasm_alpha_indices();
+    const v128_t c128 = wasm_i16x8_splat(128);
+#endif
+
+    for (int32_t row = 0; row < bh; row++) {
+        const uint32_t* tRow = layerBuf + (int64_t)row * bw;
+        const uint32_t* mRow = matteBuf + (int64_t)row * bw;
+        uint32_t* dRow = dst + ((int64_t)(by0 + row - dstOriginY) * dstStride) + (bx0 - dstOriginX);
+        int32_t col = 0;
+
+#if defined(__aarch64__) && (defined(__ARM_NEON) || defined(__ARM_NEON__))
+        for (; col <= bw - 4; col += 4) {
+            uint32x4_t t4 = vld1q_u32(tRow + col);
+            if (vmaxvq_u32(t4) == 0) continue;
+            uint8x16_t m16 = vreinterpretq_u8_u32(vld1q_u32(mRow + col));
+            uint8x16_t factor16 = vqtbl1q_u8(m16, alpha_idx);
+            if (is_dst_out) factor16 = vmvnq_u8(factor16);
+            if (vmaxvq_u32(vreinterpretq_u32_u8(factor16)) == 0) continue;
+            uint8x16_t masked16 = fl_neon_scale255_u8x16(
+                vreinterpretq_u8_u32(t4), factor16, c128
+            );
+            fl_neon_src_over_u8x16(dRow + col, masked16, alpha_idx, c128);
+        }
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+        for (; col <= bw - 4; col += 4) {
+            __m128i t16 = _mm_loadu_si128((const __m128i*)(tRow + col));
+            if (_mm_movemask_epi8(_mm_cmpeq_epi32(t16, zero)) == 0xFFFF) continue;
+            __m128i m16 = _mm_loadu_si128((const __m128i*)(mRow + col));
+            __m128i f_lo = fl_sse2_broadcast_alpha_16(_mm_unpacklo_epi8(m16, zero));
+            __m128i f_hi = fl_sse2_broadcast_alpha_16(_mm_unpackhi_epi8(m16, zero));
+            if (is_dst_out) {
+                f_lo = _mm_sub_epi16(c255, f_lo);
+                f_hi = _mm_sub_epi16(c255, f_hi);
+            }
+            if (_mm_movemask_epi8(_mm_cmpeq_epi16(_mm_or_si128(f_lo, f_hi), zero)) == 0xFFFF) {
+                continue;
+            }
+            __m128i m_lo = fl_sse2_scale255_16(_mm_unpacklo_epi8(t16, zero), f_lo, c128);
+            __m128i m_hi = fl_sse2_scale255_16(_mm_unpackhi_epi8(t16, zero), f_hi, c128);
+            __m128i masked16 = _mm_packus_epi16(m_lo, m_hi);
+            __m128i ia_lo = _mm_sub_epi16(c255, fl_sse2_broadcast_alpha_16(m_lo));
+            __m128i ia_hi = _mm_sub_epi16(c255, fl_sse2_broadcast_alpha_16(m_hi));
+            __m128i d16 = _mm_loadu_si128((const __m128i*)(dRow + col));
+            __m128i d_lo = fl_sse2_scale255_16(_mm_unpacklo_epi8(d16, zero), ia_lo, c128);
+            __m128i d_hi = fl_sse2_scale255_16(_mm_unpackhi_epi8(d16, zero), ia_hi, c128);
+            __m128i out = _mm_add_epi8(masked16, _mm_packus_epi16(d_lo, d_hi));
+            _mm_storeu_si128((__m128i*)(dRow + col), out);
+        }
+#elif defined(__wasm_simd128__)
+        for (; col <= bw - 4; col += 4) {
+            v128_t t16 = wasm_v128_load(tRow + col);
+            if (!wasm_v128_any_true(t16)) continue;
+            v128_t m16 = wasm_v128_load(mRow + col);
+            v128_t factor16 = wasm_i8x16_swizzle(m16, alpha_idx);
+            if (is_dst_out) factor16 = wasm_v128_not(factor16);
+            if (!wasm_v128_any_true(factor16)) continue;
+            v128_t masked16 = fl_wasm_scale255_u8x16(t16, factor16, c128);
+            fl_wasm_src_over_u8x16(dRow + col, masked16, alpha_idx, c128);
+        }
+#endif
+
+        for (; col < bw; col++) {
+            uint32_t tPx = tRow[col];
+            if (tPx == 0) continue;
+            uint32_t mAlpha = mRow[col] >> 24;
+            uint32_t factor = is_dst_out ? (255u - mAlpha) : mAlpha;
+            if (factor == 0) continue;
+            uint32_t masked = (factor == 255u) ? tPx : scale_premul_255(tPx, factor);
+            store_src_over(dRow + col, masked);
+        }
+    }
+}
+
 FL_EXPORT void fastlottie_composite_matte(
     uint32_t* dst,
     int32_t dstOriginX,
@@ -173,42 +398,53 @@ FL_EXPORT void fastlottie_composite_matte(
 ) {
     if (!dst || !layerBuf || !matteBuf || bw <= 0 || bh <= 0) return;
 
+    if (!isLuma) {
+        if (isDstOut) {
+            composite_alpha_matte_impl(
+                dst, dstOriginX, dstOriginY, dstStride,
+                layerBuf, matteBuf, bw, bh, bx0, by0, 1
+            );
+        } else {
+            composite_alpha_matte_impl(
+                dst, dstOriginX, dstOriginY, dstStride,
+                layerBuf, matteBuf, bw, bh, bx0, by0, 0
+            );
+        }
+        return;
+    }
+
     for (int32_t row = 0; row < bh; row++) {
-        int64_t srcRow = (int64_t)row * bw;
-        int64_t dstRow = ((int64_t)(by0 + row - dstOriginY) * dstStride) + (bx0 - dstOriginX);
+        const uint32_t* tRow = layerBuf + (int64_t)row * bw;
+        const uint32_t* mRow = matteBuf + (int64_t)row * bw;
+        uint32_t* dRow = dst + ((int64_t)(by0 + row - dstOriginY) * dstStride) + (bx0 - dstOriginX);
 
         for (int32_t col = 0; col < bw; col++) {
-            uint32_t tPx = layerBuf[srcRow + col];
+            uint32_t tPx = tRow[col];
             if (tPx == 0) continue;
 
-            uint32_t mPx = matteBuf[srcRow + col];
+            uint32_t mPx = mRow[col];
             uint32_t mAlpha = mPx >> 24;
             int32_t factor;
-
-            if (!isLuma) {
-                factor = isDstOut ? (255 - mAlpha) : mAlpha;
+            if (mAlpha == 0) {
+                factor = isDstOut ? 255 : 0;
             } else {
-                if (mAlpha == 0) {
-                    factor = isDstOut ? 255 : 0;
-                } else {
-                    uint32_t r = (mPx >> 16) & 0xFF;
-                    uint32_t g = (mPx >> 8) & 0xFF;
-                    uint32_t b = mPx & 0xFF;
-                    if (mAlpha != 255 && invAlphaLut) {
-                        uint32_t inv = invAlphaLut[mAlpha];
-                        r = (r * inv) >> 16;
-                        g = (g * inv) >> 16;
-                        b = (b * inv) >> 16;
-                    }
-                    uint32_t lum = (19595 * r + 38470 * g + 7471 * b) >> 16;
-                    if (lum > 255) lum = 255;
-                    factor = isDstOut ? (255 - lum) : lum;
+                uint32_t r = (mPx >> 16) & 0xFF;
+                uint32_t g = (mPx >> 8) & 0xFF;
+                uint32_t b = mPx & 0xFF;
+                if (mAlpha != 255 && invAlphaLut) {
+                    uint32_t inv = invAlphaLut[mAlpha];
+                    r = (r * inv) >> 16;
+                    g = (g * inv) >> 16;
+                    b = (b * inv) >> 16;
                 }
+                uint32_t lum = (19595 * r + 38470 * g + 7471 * b) >> 16;
+                if (lum > 255) lum = 255;
+                factor = isDstOut ? (255 - lum) : lum;
             }
 
             if (factor <= 0) continue;
-            uint32_t masked = (factor >= 255) ? tPx : scale_premul_255(tPx, factor);
-            dst[dstRow + col] = blend_src_over(masked, dst[dstRow + col]);
+            uint32_t masked = (factor >= 255) ? tPx : scale_premul_255(tPx, (uint32_t)factor);
+            store_src_over(dRow + col, masked);
         }
     }
 }
@@ -414,24 +650,452 @@ FL_EXPORT void fastlottie_blend_solid(
 
 /* Dart's radial loop uses float32 sqrt for groups of four, and double
  * precision for the tail. Preserve that rounding and the span phase here. */
+static inline int gradient_index(double t) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    // Treat non-finite transform results safely before converting to an index.
+    return !(t > 0.0) ? 0 : (t >= 1.0 ? 1023 : (int)(t * 1023.0 + 0.5));
+}
+
+static inline int gradient_index_f32(float t) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    return t >= 1.0f ? 1023 : (int)((double)t * 1023.0 + 0.5);
+}
+
+static inline void gradient_sqrt4(
+    double s0, double s1, double s2, double s3, float out[4]
+) {
+#if defined(__aarch64__) && (defined(__ARM_NEON) || defined(__ARM_NEON__))
+    float in[4] = {(float)s0, (float)s1, (float)s2, (float)s3};
+    vst1q_f32(out, vsqrtq_f32(vld1q_f32(in)));
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+    __m128 q4 = _mm_set_ps((float)s3, (float)s2, (float)s1, (float)s0);
+    _mm_storeu_ps(out, _mm_sqrt_ps(q4));
+#elif defined(__wasm_simd128__)
+    v128_t q4 = wasm_f32x4_make((float)s0, (float)s1, (float)s2, (float)s3);
+    wasm_v128_store(out, wasm_f32x4_sqrt(q4));
+#else
+    out[0] = sqrtf((float)s0);
+    out[1] = sqrtf((float)s1);
+    out[2] = sqrtf((float)s2);
+    out[3] = sqrtf((float)s3);
+#endif
+}
+
+static inline void gradient_fill_solid_run(uint32_t* row, int len, uint32_t effSrc) {
+    if (effSrc == 0) return;
+    const uint32_t sa = effSrc >> 24;
+    if (sa == 255) {
+        int p = 0;
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+        uint32x4_t val4 = vdupq_n_u32(effSrc);
+        for (; p <= len - 4; p += 4) vst1q_u32(row + p, val4);
+#elif defined(__SSE2__) || defined(_M_X64)
+        __m128i val4 = _mm_set1_epi32((int)effSrc);
+        for (; p <= len - 4; p += 4) _mm_storeu_si128((__m128i*)(row + p), val4);
+#elif defined(__wasm_simd128__)
+        v128_t val4 = wasm_i32x4_splat((int32_t)effSrc);
+        for (; p <= len - 4; p += 4) wasm_v128_store(row + p, val4);
+#endif
+        for (; p < len; ++p) row[p] = effSrc;
+    } else {
+        const uint32_t ia = 255 - sa;
+        int p = 0;
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+        if (len >= 4) {
+            uint8x16_t s16 = vreinterpretq_u8_u32(vdupq_n_u32(effSrc));
+            uint8x8_t ia8 = vdup_n_u8((uint8_t)ia);
+            uint16x8_t c128 = vdupq_n_u16(128);
+            for (; p <= len - 4; p += 4) {
+                uint8x16_t d16 = vld1q_u8((const uint8_t*)(row + p));
+                uint16x8_t prod_lo = vmlal_u8(c128, vget_low_u8(d16), ia8);
+                uint16x8_t prod_hi = vmlal_u8(c128, vget_high_u8(d16), ia8);
+                uint16x8_t term_lo = vaddq_u16(prod_lo, vshrq_n_u16(prod_lo, 8));
+                uint16x8_t term_hi = vaddq_u16(prod_hi, vshrq_n_u16(prod_hi, 8));
+                uint8x16_t out16 = vaddq_u8(
+                    s16, vcombine_u8(vshrn_n_u16(term_lo, 8), vshrn_n_u16(term_hi, 8))
+                );
+                vst1q_u8((uint8_t*)(row + p), out16);
+            }
+        }
+#elif defined(__SSE2__) || defined(_M_X64)
+        if (len >= 4) {
+            __m128i s16 = _mm_set1_epi32((int)effSrc);
+            __m128i ia16 = _mm_set1_epi16((short)ia);
+            __m128i c128 = _mm_set1_epi16(128);
+            __m128i zero = _mm_setzero_si128();
+            for (; p <= len - 4; p += 4) {
+                __m128i d16 = _mm_loadu_si128((const __m128i*)(row + p));
+                __m128i d_lo = fl_sse2_scale255_16(_mm_unpacklo_epi8(d16, zero), ia16, c128);
+                __m128i d_hi = fl_sse2_scale255_16(_mm_unpackhi_epi8(d16, zero), ia16, c128);
+                _mm_storeu_si128((__m128i*)(row + p), _mm_add_epi8(s16, _mm_packus_epi16(d_lo, d_hi)));
+            }
+        }
+#elif defined(__wasm_simd128__)
+        if (len >= 4) {
+            v128_t s16 = wasm_i32x4_splat((int32_t)effSrc);
+            v128_t ia16 = wasm_i8x16_splat((int8_t)ia);
+            v128_t c128 = wasm_i16x8_splat(128);
+            for (; p <= len - 4; p += 4) {
+                v128_t d16 = wasm_v128_load(row + p);
+                v128_t scaled = fl_wasm_scale255_u8x16(d16, ia16, c128);
+                wasm_v128_store(row + p, wasm_i8x16_add(s16, scaled));
+            }
+        }
+#endif
+        for (; p < len; ++p) {
+            const uint32_t d = row[p];
+            row[p] = (d == 0) ? effSrc : src_over_ia(effSrc, d, ia);
+        }
+    }
+}
+
+static FL_ALWAYS_INLINE void gradient_store4_src_over_unscaled(
+    uint32_t* dst, uint32_t c0, uint32_t c1, uint32_t c2, uint32_t c3
+) {
+    if ((c0 & c1 & c2 & c3) >= 0xFF000000U) {
+        dst[0] = c0;
+        dst[1] = c1;
+        dst[2] = c2;
+        dst[3] = c3;
+        return;
+    }
+    if ((c0 | c1 | c2 | c3) == 0) return;
+#if defined(__aarch64__) && (defined(__ARM_NEON) || defined(__ARM_NEON__))
+    const uint32_t arr[4] = {c0, c1, c2, c3};
+    fl_neon_src_over_u8x16(
+        dst, vreinterpretq_u8_u32(vld1q_u32(arr)),
+        fl_neon_alpha_indices(), vdupq_n_u16(128)
+    );
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+    fl_sse2_src_over_u32x4(dst, _mm_set_epi32((int)c3, (int)c2, (int)c1, (int)c0));
+#elif defined(__wasm_simd128__)
+    fl_wasm_src_over_u8x16(
+        dst, wasm_i32x4_make((int32_t)c0, (int32_t)c1, (int32_t)c2, (int32_t)c3),
+        fl_wasm_alpha_indices(), wasm_i16x8_splat(128)
+    );
+#else
+    store_src_over(dst + 0, c0);
+    store_src_over(dst + 1, c1);
+    store_src_over(dst + 2, c2);
+    store_src_over(dst + 3, c3);
+#endif
+}
+
+static FL_ALWAYS_INLINE void gradient_store4_src_over_scaled(
+    uint32_t* dst,
+    uint32_t c0, uint32_t c1, uint32_t c2, uint32_t c3,
+    uint32_t opacity, uint32_t cov,
+    int has_opacity, int has_cov
+) {
+    if ((c0 | c1 | c2 | c3) == 0) return;
+#if defined(__aarch64__) && (defined(__ARM_NEON) || defined(__ARM_NEON__))
+    const uint32_t arr[4] = {c0, c1, c2, c3};
+    const uint16x8_t c128 = vdupq_n_u16(128);
+    uint8x16_t s16 = vreinterpretq_u8_u32(vld1q_u32(arr));
+    if (has_opacity) {
+        s16 = fl_neon_scale255_u8x16(s16, vdupq_n_u8((uint8_t)opacity), c128);
+    }
+    if (has_cov) {
+        s16 = fl_neon_scale256_u8x16(s16, vdup_n_u8((uint8_t)cov), c128);
+    }
+    fl_neon_src_over_u8x16(dst, s16, fl_neon_alpha_indices(), c128);
+#elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+    const __m128i zero = _mm_setzero_si128();
+    const __m128i c128 = _mm_set1_epi16(128);
+    __m128i s16 = _mm_set_epi32((int)c3, (int)c2, (int)c1, (int)c0);
+    __m128i s_lo = _mm_unpacklo_epi8(s16, zero);
+    __m128i s_hi = _mm_unpackhi_epi8(s16, zero);
+    if (has_opacity) {
+        const __m128i op16 = _mm_set1_epi16((short)opacity);
+        s_lo = fl_sse2_scale255_16(s_lo, op16, c128);
+        s_hi = fl_sse2_scale255_16(s_hi, op16, c128);
+    }
+    if (has_cov) {
+        const __m128i cov16 = _mm_set1_epi16((short)cov);
+        s_lo = _mm_srli_epi16(_mm_add_epi16(_mm_mullo_epi16(s_lo, cov16), c128), 8);
+        s_hi = _mm_srli_epi16(_mm_add_epi16(_mm_mullo_epi16(s_hi, cov16), c128), 8);
+    }
+    fl_sse2_src_over_u32x4(dst, _mm_packus_epi16(s_lo, s_hi));
+#elif defined(__wasm_simd128__)
+    const v128_t c128 = wasm_i16x8_splat(128);
+    v128_t s16 = wasm_i32x4_make((int32_t)c0, (int32_t)c1, (int32_t)c2, (int32_t)c3);
+    if (has_opacity) {
+        s16 = fl_wasm_scale255_u8x16(s16, wasm_i8x16_splat((int8_t)opacity), c128);
+    }
+    if (has_cov) {
+        s16 = fl_wasm_scale256_u8x16(s16, wasm_i16x8_splat((int16_t)cov), c128);
+    }
+    fl_wasm_src_over_u8x16(dst, s16, fl_wasm_alpha_indices(), c128);
+#else
+    if (has_opacity) {
+        c0 = scale_premul_255(c0, opacity);
+        c1 = scale_premul_255(c1, opacity);
+        c2 = scale_premul_255(c2, opacity);
+        c3 = scale_premul_255(c3, opacity);
+    }
+    if (has_cov) {
+        c0 = scale_premul(c0, cov);
+        c1 = scale_premul(c1, cov);
+        c2 = scale_premul(c2, cov);
+        c3 = scale_premul(c3, cov);
+    }
+    store_src_over(dst + 0, c0);
+    store_src_over(dst + 1, c1);
+    store_src_over(dst + 2, c2);
+    store_src_over(dst + 3, c3);
+#endif
+}
+
+static void gradient_linear_src_over(
+    uint32_t* dst, int32_t ox, int32_t oy, int32_t stride,
+    const int32_t* spans, int32_t count, const uint32_t* lut,
+    uint32_t opacity,
+    double ia, double ib, double ic, double id, double itx, double ity,
+    double sx, double sy, double ex, double ey
+) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    const double gx = ex - sx, gy = ey - sy;
+    const double len_sq = gx * gx + gy * gy;
+    if (!(len_sq > 1e-12)) {
+        const uint32_t c = (opacity == 255) ? lut[0] : scale_premul_255(lut[0], opacity);
+        fastlottie_fill_solid_spans(dst, ox, oy, stride, spans, count, c);
+        return;
+    }
+    const double inv_len_sq = 1.0 / len_sq;
+    const double dtx = (ia * gx + ib * gy) * inv_len_sq;
+    const int full_opacity = (opacity == 255);
+    const uint32_t c_lo_base = full_opacity ? lut[0] : scale_premul_255(lut[0], opacity);
+    const uint32_t c_hi_base = full_opacity ? lut[1023] : scale_premul_255(lut[1023], opacity);
+
+    for (int i = 0; i < count * 2; i += 2) {
+        const uint32_t xy = (uint32_t)spans[i], run = (uint32_t)spans[i + 1];
+        const int x = xy & 65535, y = xy >> 16;
+        const int len = run >> 8;
+        const uint32_t cov = (run & 255) + 1;
+        uint32_t* row = dst + (int64_t)(y - oy) * stride + x - ox;
+        const double px = x + 0.5, py = y + 0.5;
+        const double lx = ia * px + ic * py + itx;
+        const double ly = ib * px + id * py + ity;
+        double t = ((lx - sx) * gx + (ly - sy) * gy) * inv_len_sq;
+
+        // Entire span stays clamped at an endpoint: fill as a solid run.
+        if (t <= 0.0 && dtx <= 0.0) {
+            const uint32_t eff = (cov == 256) ? c_lo_base : scale_premul(c_lo_base, cov);
+            gradient_fill_solid_run(row, len, eff);
+            continue;
+        }
+        if (t >= 1.0 && dtx >= 0.0) {
+            const uint32_t eff = (cov == 256) ? c_hi_base : scale_premul(c_hi_base, cov);
+            gradient_fill_solid_run(row, len, eff);
+            continue;
+        }
+
+        int j = 0;
+        if (full_opacity && cov == 256) {
+            for (; j <= len - 4; j += 4) {
+                const double t0 = t;
+                const double t1 = t0 + dtx;
+                const double t2 = t1 + dtx;
+                const double t3 = t2 + dtx;
+                t = t3 + dtx;
+                int i0, i1, i2, i3;
+                if (t0 > 0.0 && t0 < 1.0 && t3 > 0.0 && t3 < 1.0) {
+                    i0 = (int)(t0 * 1023.0 + 0.5);
+                    i1 = (int)(t1 * 1023.0 + 0.5);
+                    i2 = (int)(t2 * 1023.0 + 0.5);
+                    i3 = (int)(t3 * 1023.0 + 0.5);
+                } else {
+                    i0 = gradient_index(t0);
+                    i1 = gradient_index(t1);
+                    i2 = gradient_index(t2);
+                    i3 = gradient_index(t3);
+                }
+                gradient_store4_src_over_unscaled(
+                    row + j, lut[i0], lut[i1], lut[i2], lut[i3]
+                );
+            }
+            for (; j < len; ++j) {
+                store_src_over(row + j, lut[gradient_index(t)]);
+                t += dtx;
+            }
+        } else if (full_opacity) {
+            for (; j <= len - 4; j += 4) {
+                const double t0 = t;
+                const double t1 = t0 + dtx;
+                const double t2 = t1 + dtx;
+                const double t3 = t2 + dtx;
+                t = t3 + dtx;
+                gradient_store4_src_over_scaled(
+                    row + j,
+                    lut[gradient_index(t0)], lut[gradient_index(t1)],
+                    lut[gradient_index(t2)], lut[gradient_index(t3)],
+                    255, cov, 0, 1
+                );
+            }
+            for (; j < len; ++j) {
+                store_src_over(row + j, scale_premul(lut[gradient_index(t)], cov));
+                t += dtx;
+            }
+        } else if (cov == 256) {
+            for (; j <= len - 4; j += 4) {
+                const double t0 = t;
+                const double t1 = t0 + dtx;
+                const double t2 = t1 + dtx;
+                const double t3 = t2 + dtx;
+                t = t3 + dtx;
+                gradient_store4_src_over_scaled(
+                    row + j,
+                    lut[gradient_index(t0)], lut[gradient_index(t1)],
+                    lut[gradient_index(t2)], lut[gradient_index(t3)],
+                    opacity, 256, 1, 0
+                );
+            }
+            for (; j < len; ++j) {
+                store_src_over(row + j, scale_premul_255(lut[gradient_index(t)], opacity));
+                t += dtx;
+            }
+        } else {
+            for (; j <= len - 4; j += 4) {
+                const double t0 = t;
+                const double t1 = t0 + dtx;
+                const double t2 = t1 + dtx;
+                const double t3 = t2 + dtx;
+                t = t3 + dtx;
+                gradient_store4_src_over_scaled(
+                    row + j,
+                    lut[gradient_index(t0)], lut[gradient_index(t1)],
+                    lut[gradient_index(t2)], lut[gradient_index(t3)],
+                    opacity, cov, 1, 1
+                );
+            }
+            for (; j < len; ++j) {
+                uint32_t c = scale_premul_255(lut[gradient_index(t)], opacity);
+                store_src_over(row + j, scale_premul(c, cov));
+                t += dtx;
+            }
+        }
+    }
+}
+
+static void gradient_radial_src_over(
+    uint32_t* dst, int32_t ox, int32_t oy, int32_t stride,
+    const int32_t* spans, int32_t count, const uint32_t* lut,
+    uint32_t opacity,
+    double ia, double ib, double ic, double id, double itx, double ity,
+    double sx, double sy, double ex, double ey
+) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    const double gx = ex - sx, gy = ey - sy;
+    const double radius = sqrt(gx * gx + gy * gy);
+    const double inv = 1.0 / (radius > .001 ? radius : .001);
+    const double nia = ia * inv;
+    const double nib = ib * inv;
+    const double nic = ic * inv;
+    const double nid = id * inv;
+    const double nitx = (itx - sx) * inv;
+    const double nity = (ity - sy) * inv;
+    const double step_sq = nia * nia + nib * nib;
+    const double step2 = 2.0 * step_sq;
+    const int full_opacity = (opacity == 255);
+    const uint32_t c_end_raw = lut[1023];
+
+    for (int i = 0; i < count * 2; i += 2) {
+        const uint32_t xy = (uint32_t)spans[i], run = (uint32_t)spans[i + 1];
+        const int x = xy & 65535, y = xy >> 16;
+        const int len = run >> 8;
+        const uint32_t cov = (run & 255) + 1;
+        uint32_t* row = dst + (int64_t)(y - oy) * stride + x - ox;
+        const double px = x + 0.5, py = y + 0.5;
+        const double dx = nia * px + nic * py + nitx;
+        const double dy = nib * px + nid * py + nity;
+        double dsq = dx * dx + dy * dy;
+        double step1 = 2.0 * (dx * nia + dy * nib) + step_sq;
+        const int vector_end = len & ~3;
+        int j = 0;
+
+        if (full_opacity && cov == 256) {
+            for (; j < vector_end; j += 4) {
+                const double s0 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s1 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s2 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s3 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
+                    gradient_store4_src_over_unscaled(
+                        row + j, c_end_raw, c_end_raw, c_end_raw, c_end_raw
+                    );
+                } else {
+                    float t4[4];
+                    gradient_sqrt4(s0, s1, s2, s3, t4);
+                    gradient_store4_src_over_unscaled(
+                        row + j,
+                        lut[gradient_index_f32(t4[0])],
+                        lut[gradient_index_f32(t4[1])],
+                        lut[gradient_index_f32(t4[2])],
+                        lut[gradient_index_f32(t4[3])]
+                    );
+                }
+            }
+            for (; j < len; ++j) {
+                const double q = dsq > 0.0 ? dsq : 0.0;
+                const int idx = q >= 1.0 ? 1023 : gradient_index(sqrt(q));
+                store_src_over(row + j, lut[idx]);
+                dsq += step1;
+                step1 += step2;
+            }
+        } else {
+            const int has_op = !full_opacity;
+            const int has_cov = (cov != 256);
+            for (; j < vector_end; j += 4) {
+                const double s0 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s1 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s2 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s3 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                uint32_t c0, c1, c2, c3;
+                if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
+                    c0 = c1 = c2 = c3 = c_end_raw;
+                } else {
+                    float t4[4];
+                    gradient_sqrt4(s0, s1, s2, s3, t4);
+                    c0 = lut[gradient_index_f32(t4[0])];
+                    c1 = lut[gradient_index_f32(t4[1])];
+                    c2 = lut[gradient_index_f32(t4[2])];
+                    c3 = lut[gradient_index_f32(t4[3])];
+                }
+                gradient_store4_src_over_scaled(
+                    row + j, c0, c1, c2, c3, opacity, cov, has_op, has_cov
+                );
+            }
+            for (; j < len; ++j) {
+                const double q = dsq > 0.0 ? dsq : 0.0;
+                const int idx = q >= 1.0 ? 1023 : gradient_index(sqrt(q));
+                uint32_t c = lut[idx];
+                if (has_op) c = scale_premul_255(c, opacity);
+                if (has_cov) c = scale_premul(c, cov);
+                store_src_over(row + j, c);
+                dsq += step1;
+                step1 += step2;
+            }
+        }
+    }
+}
+
 static inline uint32_t gradient_sample(
     const uint32_t *lut, double t, uint32_t opacity, uint32_t coverage
 ) {
-    // Treat non-finite transform results safely before converting to an index.
-    const int index = !(t > 0) ? 0 : t >= 1 ? 1023 : (int)(t * 1023.0 + 0.5);
-    uint32_t src = lut[index];
+    uint32_t src = lut[gradient_index(t)];
     if (opacity != 255) src = scale_premul_255(src, opacity);
     if (coverage != 256) src = scale_premul(src, coverage);
     return src;
 }
 
-/* Specialize Multiply so the compiler folds its blend-mode switches
- * outside the pixel loop. Other modes keep the shared sampling loop. */
-#if defined(__clang__) || defined(__GNUC__)
-#define FL_GRAD_INLINE __attribute__((always_inline)) inline
-#else
-#define FL_GRAD_INLINE inline
-#endif
 static inline uint32_t gradient_multiply(uint32_t s, uint32_t d) {
     if (s == 0) return d;
     if (d == 0) return s;
@@ -443,14 +1107,13 @@ static inline uint32_t gradient_multiply(uint32_t s, uint32_t d) {
         blend_channel(s & 255, d & 255, sa, da, 1);
 }
 
-static FL_GRAD_INLINE void gradient_store(
+static FL_ALWAYS_INLINE void gradient_store_blend(
     uint32_t *dst, uint32_t src, int mode, int specialize_multiply
 ) {
-    *dst = specialize_multiply ? gradient_multiply(src, *dst) :
-        mode == 0 ? blend_src_over(src, *dst) : blend_pixel(src, *dst, mode);
+    *dst = specialize_multiply ? gradient_multiply(src, *dst) : blend_pixel(src, *dst, mode);
 }
 
-static FL_GRAD_INLINE void gradient_spans_impl(
+static FL_ALWAYS_INLINE void gradient_spans_blend_impl(
     uint32_t *dst, int32_t ox, int32_t oy, int32_t stride,
     const int32_t *spans, int32_t count, const uint32_t *lut,
     uint32_t opacity, int32_t mode, int32_t radial, int specialize_multiply,
@@ -460,8 +1123,6 @@ static FL_GRAD_INLINE void gradient_spans_impl(
 #if defined(__clang__)
 #pragma clang fp contract(off)
 #endif
-    if (count <= 0 || opacity == 0) return;
-
     const double gx = ex - sx, gy = ey - sy;
     const double len_sq = gx * gx + gy * gy;
     const double inv_len_sq = !radial && len_sq > 1e-12 ? 1.0 / len_sq : 0;
@@ -479,6 +1140,7 @@ static FL_GRAD_INLINE void gradient_spans_impl(
         step_sq = nia * nia + nib * nib;
     }
     const double step2 = 2.0 * step_sq;
+    const int full_opacity = (opacity == 255);
 
     for (int i = 0; i < count * 2; i += 2) {
         const uint32_t xy = (uint32_t)spans[i], run = (uint32_t)spans[i + 1];
@@ -494,9 +1156,16 @@ static FL_GRAD_INLINE void gradient_spans_impl(
                 const double ly = ib * px + id * py + ity;
                 t = ((lx - sx) * gx + (ly - sy) * gy) * inv_len_sq;
             }
-            for (int j = 0; j < len; ++j) {
-                gradient_store(row + j, gradient_sample(lut, t, opacity, cov), mode, specialize_multiply);
-                t += dtx;
+            if (full_opacity && cov == 256) {
+                for (int j = 0; j < len; ++j) {
+                    gradient_store_blend(row + j, lut[gradient_index(t)], mode, specialize_multiply);
+                    t += dtx;
+                }
+            } else {
+                for (int j = 0; j < len; ++j) {
+                    gradient_store_blend(row + j, gradient_sample(lut, t, opacity, cov), mode, specialize_multiply);
+                    t += dtx;
+                }
             }
         } else {
             const double dx = nia * px + nic * py + nitx;
@@ -504,17 +1173,48 @@ static FL_GRAD_INLINE void gradient_spans_impl(
             double dsq = dx * dx + dy * dy;
             double step1 = 2.0 * (dx * nia + dy * nib) + step_sq;
             const int vector_end = len & ~3;
-            for (int j = 0; j < len; ++j) {
-                const double q = dsq > 0 ? dsq : 0;
-                const double t = q >= 1 ? 1 : j < vector_end ? sqrtf((float)q) : sqrt(q);
-                gradient_store(row + j, gradient_sample(lut, t, opacity, cov), mode, specialize_multiply);
+            const int unscaled = full_opacity && cov == 256;
+            int j = 0;
+            for (; j < vector_end; j += 4) {
+                const double s0 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s1 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s2 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s3 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                int idx[4];
+                if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
+                    idx[0] = idx[1] = idx[2] = idx[3] = 1023;
+                } else {
+                    float t4[4];
+                    gradient_sqrt4(s0, s1, s2, s3, t4);
+                    idx[0] = gradient_index_f32(t4[0]);
+                    idx[1] = gradient_index_f32(t4[1]);
+                    idx[2] = gradient_index_f32(t4[2]);
+                    idx[3] = gradient_index_f32(t4[3]);
+                }
+                if (unscaled) {
+                    for (int k = 0; k < 4; ++k) {
+                        gradient_store_blend(row + j + k, lut[idx[k]], mode, specialize_multiply);
+                    }
+                } else {
+                    for (int k = 0; k < 4; ++k) {
+                        uint32_t c = lut[idx[k]];
+                        if (!full_opacity) c = scale_premul_255(c, opacity);
+                        if (cov != 256) c = scale_premul(c, cov);
+                        gradient_store_blend(row + j + k, c, mode, specialize_multiply);
+                    }
+                }
+            }
+            for (; j < len; ++j) {
+                const double q = dsq > 0.0 ? dsq : 0.0;
+                const double t = q >= 1.0 ? 1.0 : sqrt(q);
+                const uint32_t c = unscaled ? lut[gradient_index(t)] : gradient_sample(lut, t, opacity, cov);
+                gradient_store_blend(row + j, c, mode, specialize_multiply);
                 dsq += step1;
                 step1 += step2;
             }
         }
     }
 }
-
 
 FL_EXPORT void fastlottie_gradient_spans(
     uint32_t *dst, int32_t ox, int32_t oy, int32_t stride,
@@ -524,13 +1224,28 @@ FL_EXPORT void fastlottie_gradient_spans(
     double sx, double sy, double ex, double ey
 ) {
     if (count <= 0 || opacity == 0) return;
-#define GRADIENT_SPANS(m, specialized) gradient_spans_impl(dst, ox, oy, stride, spans, count, \
-    lut, opacity, m, radial, specialized, ia, ib, ic, id, itx, ity, sx, sy, ex, ey)
-    if (mode == 1) {
-        GRADIENT_SPANS(1, 1);
+    if (mode == 0) {
+        if (!radial) {
+            gradient_linear_src_over(
+                dst, ox, oy, stride, spans, count, lut, opacity,
+                ia, ib, ic, id, itx, ity, sx, sy, ex, ey
+            );
+        } else {
+            gradient_radial_src_over(
+                dst, ox, oy, stride, spans, count, lut, opacity,
+                ia, ib, ic, id, itx, ity, sx, sy, ex, ey
+            );
+        }
+    } else if (mode == 1) {
+        gradient_spans_blend_impl(
+            dst, ox, oy, stride, spans, count, lut, opacity, 1, radial, 1,
+            ia, ib, ic, id, itx, ity, sx, sy, ex, ey
+        );
     } else {
-        GRADIENT_SPANS(mode, 0);
+        gradient_spans_blend_impl(
+            dst, ox, oy, stride, spans, count, lut, opacity, mode, radial, 0,
+            ia, ib, ic, id, itx, ity, sx, sy, ex, ey
+        );
     }
-#undef GRADIENT_SPANS
 }
-#undef FL_GRAD_INLINE
+#undef FL_ALWAYS_INLINE

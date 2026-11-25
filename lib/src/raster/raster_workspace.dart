@@ -239,11 +239,49 @@ class RasterWorkspace {
   final _groupMatrixPool = <Float64List>[];
   final _layerChain = <_Layer?>[];
   final _trimLengthsPool = <Float64List>[];
+  final _trimCacheOwners = <_Trim?>[];
+  final _trimCacheFrames = <double>[];
+  final _trimCacheFlatness = <double>[];
   final Float64Scratch _cumLengths = Float64Scratch();
   final bool _nativeStroke;
   _StrokeScratch? _strokeScratchState;
   _StrokeScratch get _strokeScratch =>
       _strokeScratchState ??= _StrokeScratch(_nativeStroke);
+
+  Float64List? _getCachedTrimPrefix(
+    int depth,
+    _Trim trim,
+    double frame,
+    double flatnessSq,
+  ) {
+    if (depth < _trimCacheOwners.length &&
+        identical(_trimCacheOwners[depth], trim) &&
+        _trimCacheFrames[depth] == frame &&
+        _trimCacheFlatness[depth] == flatnessSq) {
+      return _trimLengthsPool[depth];
+    }
+    return null;
+  }
+
+  void _putCachedTrimPrefix(
+    int depth,
+    _Trim trim,
+    double frame,
+    double flatnessSq,
+  ) {
+    while (_trimCacheOwners.length <= depth) {
+      _trimCacheOwners.add(null);
+      _trimCacheFrames.add(double.nan);
+      _trimCacheFlatness.add(double.nan);
+    }
+    _trimCacheOwners[depth] = trim;
+    _trimCacheFrames[depth] = frame;
+    _trimCacheFlatness[depth] = flatnessSq;
+  }
+
+  void _clearTrimPrefixCache() {
+    _trimCacheOwners.fillRange(0, _trimCacheOwners.length, null);
+  }
 
   Float64List _acquireTrimLengths(int depth, int count) {
     while (_trimLengthsPool.length <= depth) {
@@ -370,6 +408,7 @@ class RasterWorkspace {
   void releaseScene(RasterScene scene) {
     final compiler = scene._compilerState;
     if (compiler == null) return;
+    _clearTrimPrefixCache();
     _coverage.removeWhere((_, entry) {
       if (!identical(entry.scene, compiler)) return false;
       _coverageBytes -= entry.bytes;
@@ -388,6 +427,7 @@ class RasterWorkspace {
   }
 
   void resetCaches() {
+    _clearTrimPrefixCache();
     for (final entry in _coverage.values) {
       entry.spans.dispose();
     }
@@ -447,6 +487,9 @@ class RasterWorkspace {
       _mergeCutPolyPool.clear();
       _measurePolyPool.clear();
       _trimLengthsPool.clear();
+      _trimCacheOwners.clear();
+      _trimCacheFrames.clear();
+      _trimCacheFlatness.clear();
       _groupMatrixPool.clear();
       _layerChain.clear();
       _matrixStack.clear();
@@ -490,6 +533,7 @@ class RasterWorkspace {
         math.min(2, _trimLengthsPool.length),
         _trimLengthsPool.length,
       );
+      _clearTrimPrefixCache();
       for (var i = 0; i < _trimLengthsPool.length; i++) {
         if (_trimLengthsPool[i].length > 4096) {
           _trimLengthsPool[i] = Float64List(64);

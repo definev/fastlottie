@@ -75,26 +75,34 @@ and require exact fallback pixels for stroke/trim. No speedup is claimed yet.
 Flutter web and its bundled browser worker both use fused fill. The native build
 flag does not change the web renderer.
 
-## Exact duplicate uploads
+## Duplicate upload skipping (64-bit fingerprint)
 
 ```dart
 final cache = FastLottieRasterCache(
-  maximumDuplicateFrameBytes: 0, // Optional: disable comparison.
+  deduplicateImageUploads: false, // Optional: always upload decoded buffers.
 );
 ```
 
-The default 1 MiB host RAM budget retains at most the last accepted pixel buffer per
-entry, bounded globally. Compare full frame/strip dimensions and every byte;
-there is no hash collision risk. Only a texture still installed as a front/back
-buffer may be cloned. Clone handles have independent disposal; cache accounting
-conservatively counts both handles. Release, demotion and eviction discard the
-retained comparison data. Inspect `duplicateFrameBytes` and `skippedImageUploads`.
-The budget covers retained comparison data, not temporary in-flight upload bytes.
+Enabled by default. For each cached frame payload, the worker computes a JS-safe
+64-bit content fingerprint `(fpHi, fpLo)` combining its CRC31 with an
+independent 32-bit multiplicative hash of the stored payload (cached in RAM and
+tile pages). For multi-frame strips, the worker folds its $K$ per-slot
+fingerprints in $O(K)$ without rescanning the uncompressed BGRA buffer.
 
-Rasterization, LZ4 and IPC still happen. This saves image creation/upload only,
-and byte comparison/copy on the host can lose on rapidly changing content. It
-cannot share an individual slot between different Mini-Strips. Set the budget to zero if measurement shows comparison costs outweigh the
-uploads saved.
+On the UI isolate, the coordinator retains only the last `(fpHi, fpLo)` pair and
+a non-owning reference to each entry's active front/back `ui.Image` (no pixel
+buffers are retained on the host). When a newly delivered buffer matches the
+same entry's active front/back dimensions and 64-bit fingerprint, the host
+clones the existing `ui.Image` handle (`image.clone()`) and skips
+`ui.decodeImageFromPixels`. Matching is probabilistic (~2^-64 collision rate per
+strip transition), not byte-for-byte. Clone handles dispose independently, and
+release, demotion, and eviction drop the reference. Inspect
+`skippedImageUploads`.
+
+Rasterization, LZ4, and IPC still happen; this saves image creation/upload only,
+and cannot share an individual slot between different Mini-Strips. Setting
+`deduplicateImageUploads: false` also disables fingerprint computation on the
+worker.
 
 ## Measurement and checks
 

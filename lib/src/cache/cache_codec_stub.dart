@@ -1,7 +1,5 @@
 import 'dart:typed_data';
 
-int? cacheCrc31Native(Uint8List src, Uint32List table) => null;
-
 bool? decodeCacheFrameNative(
   Uint8List src,
   int offset,

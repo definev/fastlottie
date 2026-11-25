@@ -30,16 +30,139 @@ void main() {
         table,
       );
 
-  test('native strip checksum matches Dart for a pixel buffer view', () {
-    final bytes = Uint8List(96 * (4 * 96 + 3) * 4 + 5);
-    final pixels = Uint8List.sublistView(bytes, 3, bytes.length - 2);
-    final random = Random(30);
-    for (var i = 0; i < pixels.length; i++) {
-      pixels[i] = random.nextInt(256);
+  test('64-bit frame fingerprints stay consistent across store, RAM, tile, and disk', () {
+    const width = 48, height = 48, totalFrames = 4;
+    const frameBytes = width * height * 4;
+    final rng = Random(30);
+    final base = Uint8List.fromList(
+      List.generate(frameBytes, (_) => rng.nextInt(256)),
+    );
+    final frames = List.generate(totalFrames, (i) {
+      final copy = Uint8List.fromList(base);
+      copy[i * 4] = i + 1;
+      return copy;
+    });
+
+    final dir = Directory.systemTemp.createTempSync('fastlottie-fp-');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final store = BitstreamStore(
+      diskCacheDirectory: dir.path,
+      maximumRamBytes: 512 * 1024,
+    );
+    addTearDown(store.dispose);
+    final scratch = Lz4Scratch();
+    final storedFps = <(int, int)>[];
+    for (var i = 0; i < totalFrames; i++) {
+      final res = store.storeFrame(
+        entryKey: 'fp_clip',
+        width: width,
+        height: height,
+        totalFrames: totalFrames,
+        poster: false,
+        frameIndex: i,
+        srcBgra: frames[i],
+        scratch: scratch,
+      );
+      expect(res.fpHi != 0 || res.fpLo != 0, isTrue);
+      storedFps.add((res.fpHi, res.fpLo));
     }
-    final expected = BitstreamStore.crc31(pixels, 0, pixels.length);
-    expect(cacheCrc31Native(pixels, table), expected);
-    expect(BitstreamStore.stripCrc31(pixels), expected);
+    expect(storedFps.toSet().length, totalFrames);
+
+    // Order sensitivity when folding per-slot fingerprints into a strip.
+    (int, int) foldStrip(List<(int, int)> slots) {
+      var hi = 0x9E3779B9, lo = 0x85EBCA6B;
+      for (final (sHi, sLo) in slots) {
+        (hi, lo) = BitstreamStore.mixStripFingerprint(hi, lo, sHi, sLo);
+      }
+      return BitstreamStore.finalizeStripFingerprint(hi, lo, slots.length);
+    }
+
+    expect(
+      foldStrip([storedFps[0], storedFps[1]]),
+      isNot(foldStrip([storedFps[1], storedFps[0]])),
+    );
+
+    // RAM hits must match stored fingerprints.
+    final dst = Uint8List(frameBytes);
+    for (var i = 0; i < totalFrames; i++) {
+      expect(
+        store.tryReadFrame(
+          entryKey: 'fp_clip',
+          width: width,
+          height: height,
+          totalFrames: totalFrames,
+          poster: false,
+          frameIndex: i,
+          dstBgra: dst,
+        ),
+        isTrue,
+      );
+      expect((store.lastFrameFpHi, store.lastFrameFpLo), storedFps[i]);
+    }
+
+    // TilePlaybackPage promotion must preserve exact 64-bit fingerprints.
+    expect(
+      store.preparePlaybackPage(
+        entryKey: 'fp_clip',
+        width: width,
+        height: height,
+        totalFrames: totalFrames,
+        frameIndex: 0,
+      ),
+      isTrue,
+    );
+    for (var i = 0; i < totalFrames; i++) {
+      expect(
+        store.tryReadFrame(
+          entryKey: 'fp_clip',
+          width: width,
+          height: height,
+          totalFrames: totalFrames,
+          poster: false,
+          frameIndex: i,
+          dstBgra: dst,
+        ),
+        isTrue,
+      );
+      expect((store.lastFrameFpHi, store.lastFrameFpLo), storedFps[i]);
+    }
+
+    // Disk hits after clearing RAM must recompute identical 64-bit fingerprints.
+    store.clearRam();
+    for (var i = 0; i < totalFrames; i++) {
+      expect(
+        store.tryReadFrame(
+          entryKey: 'fp_clip',
+          width: width,
+          height: height,
+          totalFrames: totalFrames,
+          poster: false,
+          frameIndex: i,
+          dstBgra: dst,
+        ),
+        isTrue,
+      );
+      expect((store.lastFrameFpHi, store.lastFrameFpLo), storedFps[i]);
+    }
+
+    // Disabling fingerprints suppresses computation cleanly.
+    store.computeFingerprints = false;
+    store.clearRam();
+    expect(
+      store.tryReadFrame(
+        entryKey: 'fp_clip',
+        width: width,
+        height: height,
+        totalFrames: totalFrames,
+        poster: false,
+        frameIndex: 0,
+        dstBgra: dst,
+      ),
+      isTrue,
+    );
+    expect((store.lastFrameFpHi, store.lastFrameFpLo), (0, 0));
   });
 
   test('native FLC1 encode preserves Dart payload and CRC', () {

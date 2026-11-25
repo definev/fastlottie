@@ -7,6 +7,8 @@ import 'cache_codec_stub.dart' if (dart.library.ffi) 'cache_codec_io.dart';
 import 'lz4.dart';
 import 'tile_playback.dart';
 
+const _isWeb = bool.fromEnvironment('dart.library.js_interop');
+
 /// Deterministic filename-safe cache key for `(contentKey, pixelSize, sourceFrameCount)`.
 ///
 /// Keyed by the composition's source frame count (`1` when static, else
@@ -36,12 +38,16 @@ final class _RamFrame {
     required this.payload,
     required this.isRaw,
     required this.crc31,
+    this.fpHi = 0,
+    this.fpLo = 0,
     this.lastUsed = 0,
   });
 
   final Uint8List payload;
   final bool isRaw;
   final int crc31;
+  int fpHi;
+  int fpLo;
   int lastUsed;
 }
 
@@ -98,6 +104,7 @@ class BitstreamStore {
     this.maximumOpenFiles = 16,
     this.useNativeDecoder = true,
     this.useNativeEncoder = true,
+    this.computeFingerprints = true,
     this.readStats,
   }) : _diskDir = (diskCacheDirectory == null || diskCacheDirectory.isEmpty)
            ? null
@@ -139,10 +146,96 @@ class BitstreamStore {
     return (crc ^ 0xFFFFFFFF) & 0x7FFFFFFF;
   }
 
-  /// Fingerprint a complete raster strip before sending it to the UI isolate.
-  static int stripCrc31(Uint8List pixels) =>
-      cacheCrc31Native(pixels, _crcTable) ??
-      crc31(pixels, 0, pixels.lengthInBytes);
+  static int _mul32(int a, int b) {
+    if (!_isWeb) return (a * b) & 0xFFFFFFFF;
+    final lo = (a & 0xFFFF) * b;
+    final hi = ((a >>> 16) * b) & 0xFFFF;
+    return (lo + (hi << 16)) & 0xFFFFFFFF;
+  }
+
+  static int _rotl32(int x, int r) =>
+      ((x << r) | (x >>> (32 - r))) & 0xFFFFFFFF;
+
+  static int _secondaryHash32(
+    Uint8List data,
+    int offset,
+    int length,
+    bool isRaw,
+  ) {
+    var h = (0x9E3779B1 ^ length ^ (isRaw ? 0x517CC1B7 : 0)) & 0xFFFFFFFF;
+    var i = offset;
+    final end4 = offset + (length & ~3);
+    while (i < end4) {
+      final word =
+          data[i] |
+          (data[i + 1] << 8) |
+          (data[i + 2] << 16) |
+          (data[i + 3] << 24);
+      h = _mul32(
+        _rotl32((h + _mul32(word, 0xC2B2AE3D)) & 0xFFFFFFFF, 17),
+        0x27D4EB2F,
+      );
+      i += 4;
+    }
+    final end = offset + length;
+    while (i < end) {
+      h = _mul32(
+        _rotl32((h + _mul32(data[i], 0x165667B1)) & 0xFFFFFFFF, 11),
+        0x9E3779B1,
+      );
+      i++;
+    }
+    h ^= h >>> 15;
+    h = _mul32(h, 0x85EBCA77);
+    h ^= h >>> 13;
+    h = _mul32(h, 0xC2B2AE3D);
+    h ^= h >>> 16;
+    return h;
+  }
+
+  /// Combines a frame's CRC31 and an independent 32-bit multiplicative hash of
+  /// its stored payload into a JS-safe 64-bit `(fpHi, fpLo)` fingerprint.
+  /// Never returns `(0, 0)`, which is reserved for absent/disabled fingerprints.
+  static (int, int) frameFingerprint(
+    int crc31,
+    Uint8List data,
+    int offset,
+    int length,
+    bool isRaw,
+  ) {
+    final fpHi = (crc31 & 0x7FFFFFFF) | (isRaw ? 0x80000000 : 0);
+    var fpLo = _secondaryHash32(data, offset, length, isRaw);
+    if (fpHi == 0 && fpLo == 0) fpLo = 1;
+    return (fpHi, fpLo);
+  }
+
+  /// Folds one slot's 64-bit fingerprint into a running strip fingerprint.
+  static (int, int) mixStripFingerprint(
+    int hi,
+    int lo,
+    int slotHi,
+    int slotLo,
+  ) {
+    var nextHi = _rotl32(_mul32((hi ^ slotHi) & 0xFFFFFFFF, 0x85EBCA77), 13);
+    var nextLo = _rotl32(_mul32((lo ^ slotLo) & 0xFFFFFFFF, 0xC2B2AE3D), 17);
+    nextHi = _mul32((nextHi + nextLo) & 0xFFFFFFFF, 0x27D4EB2F);
+    nextLo = _mul32((nextLo ^ (nextHi >>> 16)) & 0xFFFFFFFF, 0x165667B1);
+    return (nextHi, nextLo);
+  }
+
+  /// Finalizes a multi-slot strip fingerprint, avoiding the `(0, 0)` sentinel.
+  static (int, int) finalizeStripFingerprint(int hi, int lo, int count) {
+    var nextHi = (hi ^ count) & 0xFFFFFFFF;
+    var nextLo = (lo + _mul32(count, 0x9E3779B1)) & 0xFFFFFFFF;
+    nextHi ^= nextHi >>> 15;
+    nextHi = _mul32(nextHi, 0x85EBCA77);
+    nextHi ^= nextHi >>> 13;
+    nextLo ^= nextLo >>> 16;
+    nextLo = _mul32(nextLo, 0xC2B2AE3D);
+    nextLo ^= nextLo >>> 15;
+    if (nextHi == 0 && nextLo == 0) nextLo = 1;
+    return (nextHi, nextLo);
+  }
 
   String? _diskDir;
   int _maximumRamBytes;
@@ -162,6 +255,9 @@ class BitstreamStore {
   /// Unsupported targets and frames above 256 KiB use the Dart encoder.
   final bool useNativeEncoder;
 
+  /// Whether to compute 64-bit upload deduplication fingerprints on cache hits/writes.
+  bool computeFingerprints;
+
   final BitstreamReadStats? readStats;
 
   final _ramLru = <_RamKey, _RamFrame>{};
@@ -172,7 +268,8 @@ class BitstreamStore {
   final _attemptedPages = <_RamKey>{};
   int _tileBytes = 0;
   Uint8List? _tileScratch;
-  int? lastFrameCrc;
+  int lastFrameFpHi = 0;
+  int lastFrameFpLo = 0;
   static const int _defaultIoScratchBytes = 64 * 1024;
   static const int _softIoScratchLimit = 512 * 1024;
 
@@ -290,7 +387,8 @@ class BitstreamStore {
     required Uint8List dstBgra,
     TilePlaybackCursor? cursor,
   }) {
-    lastFrameCrc = null;
+    lastFrameFpHi = 0;
+    lastFrameFpLo = 0;
     final expectedBytes = width * height * 4;
     if (frameIndex < 0 ||
         frameIndex >= totalFrames ||
@@ -307,7 +405,11 @@ class BitstreamStore {
           page.contains(frameIndex)) {
         page.lastUsed = ++_ramClock;
         page.read(frameIndex, dstBgra, cursor);
-        lastFrameCrc = page.crcOf(frameIndex);
+        if (computeFingerprints) {
+          final (fpHi, fpLo) = page.fingerprintOf(frameIndex);
+          lastFrameFpHi = fpHi;
+          lastFrameFpLo = fpLo;
+        }
         return true;
       }
     }
@@ -328,7 +430,21 @@ class BitstreamStore {
         expectedBytes,
       )) {
         readStats?.ramHits++;
-        lastFrameCrc = ram.crc31;
+        if (computeFingerprints) {
+          if (ram.fpHi == 0 && ram.fpLo == 0) {
+            final (fpHi, fpLo) = frameFingerprint(
+              ram.crc31,
+              ram.payload,
+              0,
+              ram.payload.length,
+              ram.isRaw,
+            );
+            ram.fpHi = fpHi;
+            ram.fpLo = fpLo;
+          }
+          lastFrameFpHi = ram.fpHi;
+          lastFrameFpLo = ram.fpLo;
+        }
         return true;
       }
       _removeRamKey(ramKey);
@@ -392,6 +508,11 @@ class BitstreamStore {
     }
 
     // Warm compressed RAM LRU on disk hit for repeated loops.
+    var fpHi = 0;
+    var fpLo = 0;
+    if (computeFingerprints) {
+      (fpHi, fpLo) = frameFingerprint(expectedCrc, buf, 0, storedLen, isRaw);
+    }
     _putRam(
       ramKey: ramKey,
       bytes: buf,
@@ -399,9 +520,12 @@ class BitstreamStore {
       length: storedLen,
       isRaw: isRaw,
       crc31: expectedCrc,
+      fpHi: fpHi,
+      fpLo: fpLo,
     );
     _recordIoUse(storedLen);
-    lastFrameCrc = expectedCrc;
+    lastFrameFpHi = fpHi;
+    lastFrameFpLo = fpLo;
     readStats?.diskHits++;
     return true;
   }
@@ -465,7 +589,22 @@ class BitstreamStore {
           expectedBytes,
         );
       },
-      getCrc: (f) => _ramLru[(entryKey, f)]?.crc31 ?? 0,
+      getFingerprint: (f) {
+        final ram = _ramLru[(entryKey, f)];
+        if (ram == null) return (0, 0);
+        if (computeFingerprints && ram.fpHi == 0 && ram.fpLo == 0) {
+          final (fpHi, fpLo) = frameFingerprint(
+            ram.crc31,
+            ram.payload,
+            0,
+            ram.payload.length,
+            ram.isRaw,
+          );
+          ram.fpHi = fpHi;
+          ram.fpLo = fpLo;
+        }
+        return (ram.fpHi, ram.fpLo);
+      },
     );
     if (page == null) {
       // Only blacklist a complete page that failed tile admission; partial pages
@@ -490,7 +629,8 @@ class BitstreamStore {
 
   /// Compresses `srcBgra[0 .. width * height * 4)` via LZ4 and saves into RAM LRU
   /// and (when enabled) append-only `<entryKey>.flcache`.
-  ({int compressedBytes, int entryDiskBytes, int crc31}) storeFrame({
+  ({int compressedBytes, int entryDiskBytes, int crc31, int fpHi, int fpLo})
+  storeFrame({
     required String entryKey,
     required int width,
     required int height,
@@ -504,7 +644,13 @@ class BitstreamStore {
     if (frameIndex < 0 ||
         frameIndex >= totalFrames ||
         srcBgra.length < expectedBytes) {
-      return (compressedBytes: 0, entryDiskBytes: 0, crc31: 0);
+      return (
+        compressedBytes: 0,
+        entryDiskBytes: 0,
+        crc31: 0,
+        fpHi: 0,
+        fpLo: 0,
+      );
     }
 
     final pageKey = (entryKey, frameIndex ~/ TilePlaybackPage.maxFrames);
@@ -551,7 +697,13 @@ class BitstreamStore {
       payloadLen = written;
     }
     final check = native?.crc ?? crc31(srcPayload, 0, payloadLen);
-    lastFrameCrc = check;
+    var fpHi = 0;
+    var fpLo = 0;
+    if (computeFingerprints) {
+      (fpHi, fpLo) = frameFingerprint(check, srcPayload, 0, payloadLen, isRaw);
+    }
+    lastFrameFpHi = fpHi;
+    lastFrameFpLo = fpLo;
 
     _putRam(
       ramKey: (entryKey, frameIndex),
@@ -560,6 +712,8 @@ class BitstreamStore {
       length: payloadLen,
       isRaw: isRaw,
       crc31: check,
+      fpHi: fpHi,
+      fpLo: fpLo,
     );
     scratch.recordOutputUse(maxOut);
 
@@ -589,6 +743,8 @@ class BitstreamStore {
       compressedBytes: payloadLen,
       entryDiskBytes: diskSize,
       crc31: check,
+      fpHi: fpHi,
+      fpLo: fpLo,
     );
   }
 
@@ -700,6 +856,8 @@ class BitstreamStore {
     required int length,
     required bool isRaw,
     required int crc31,
+    required int fpHi,
+    required int fpLo,
   }) {
     if (maximumRamBytes <= 0 || length > maximumRamBytes) return;
     _removeRamKey(ramKey);
@@ -709,6 +867,8 @@ class BitstreamStore {
       payload: copy,
       isRaw: isRaw,
       crc31: crc31,
+      fpHi: fpHi,
+      fpLo: fpLo,
       lastUsed: ++_ramClock,
     );
     _ramLru[ramKey] = frame;

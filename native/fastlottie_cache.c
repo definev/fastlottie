@@ -54,11 +54,6 @@ static uint32_t crc31(const uint8_t *src, size_t count,
 #endif
 }
 
-FL_EXPORT uint32_t fastlottie_cache_crc31(const uint8_t *src, size_t count,
-                                         const uint32_t *table) {
-    return crc31(src, count, table);
-}
-
 static uint32_t read32le(const uint8_t *src) {
     return (uint32_t)src[0] | ((uint32_t)src[1] << 8) |
            ((uint32_t)src[2] << 16) | ((uint32_t)src[3] << 24);

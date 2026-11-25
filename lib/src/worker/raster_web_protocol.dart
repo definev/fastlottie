@@ -5,8 +5,8 @@ import 'dart:typed_data';
 import 'worker_messages.dart';
 
 const webWorkerAsset = 'packages/fastlottie/lib/src/wasm/fastlottie_worker.js';
-// Reject cached worker assets that rasterize with the old fill algorithm.
-const webWorkerVersion = 3;
+// Reject cached worker assets with an older wire format or raster algorithm.
+const webWorkerVersion = 4;
 const workerInit = -1;
 const workerReady = -2;
 const workerFailed = -3;
@@ -44,8 +44,9 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
         opConfigure,
         diskDirectory: final String? dir,
         maximumRamBytes: final int limit,
+        deduplicateUploads: final bool deduplicateUploads,
       ) =>
-        [opConfigure, dir, limit],
+        [opConfigure, dir, limit, deduplicateUploads],
       (
         opRegisterScene,
         contentKey: final String key,
@@ -124,7 +125,8 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
     kernelCalls: final int kernelCalls,
     geometryCopyBytes: final int geometryCopyBytes,
     transferBytes: final int transferBytes,
-    frameCrc: final int frameCrc,
+    fpHi: final int fpHi,
+    fpLo: final int fpLo,
   ) =>
     [
       repFrameReady,
@@ -138,7 +140,8 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
       kernelCalls,
       geometryCopyBytes,
       transferBytes,
-      frameCrc,
+      fpHi,
+      fpLo,
     ],
   (
     repStripReady,
@@ -157,7 +160,8 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
     kernelCalls: final int kernelCalls,
     geometryCopyBytes: final int geometryCopyBytes,
     transferBytes: final int transferBytes,
-    frameCrc: final int frameCrc,
+    fpHi: final int fpHi,
+    fpLo: final int fpLo,
   ) =>
     [
       repStripReady,
@@ -176,7 +180,8 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
       kernelCalls,
       geometryCopyBytes,
       transferBytes,
-      frameCrc,
+      fpHi,
+      fpLo,
     ],
   (repFrameError, requestId: final int id, message: final String error) => [
     repFrameError,
@@ -211,6 +216,7 @@ final class WorkerMessage {
       opConfigure,
       diskDirectory: _fields[1] == null ? null : s(1),
       maximumRamBytes: i(2),
+      deduplicateUploads: _fields.length > 3 ? b(3) : true,
     ),
     opRegisterScene => (
       opRegisterScene,
@@ -261,7 +267,8 @@ final class WorkerMessage {
       kernelCalls: i(8),
       geometryCopyBytes: i(9),
       transferBytes: i(10),
-      frameCrc: _fields.length > 11 ? i(11) : 0,
+      fpHi: _fields.length > 11 ? i(11) : 0,
+      fpLo: _fields.length > 12 ? i(12) : 0,
     ),
     repStripReady => (
       repStripReady,
@@ -280,7 +287,8 @@ final class WorkerMessage {
       kernelCalls: i(13),
       geometryCopyBytes: i(14),
       transferBytes: i(15),
-      frameCrc: _fields.length > 16 ? i(16) : 0,
+      fpHi: _fields.length > 16 ? i(16) : 0,
+      fpLo: _fields.length > 17 ? i(17) : 0,
     ),
     repFrameError => (repFrameError, requestId: i(1), message: s(2)),
     repSceneMissing => (repSceneMissing, requestId: i(1), contentKey: s(2)),

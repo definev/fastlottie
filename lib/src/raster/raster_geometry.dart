@@ -207,45 +207,68 @@ class PolyPath {
     double tx,
     double ty,
   ) {
+    final srcContours = src.contourCount;
+    if (srcContours == 0 || src.vertexCount == 0) return;
+    ensureVertexCapacity(vertexCount + src.vertexCount);
+    ensureContourCapacity(contourCount + srcContours);
+    final dstX = vx, dstY = vy;
+    final srcX = src.vx, srcY = src.vy;
+    final srcStarts = src.contourStart, srcEnds = src.contourEnd;
+    final srcClosed = src.contourClosed;
+    final isScaleTranslate = b == 0.0 && c == 0.0;
     final isIdentity =
-        a == 1.0 && b == 0.0 && c == 0.0 && d == 1.0 && tx == 0.0 && ty == 0.0;
-    for (var k = 0; k < src.contourCount; k++) {
-      final start = src.contourStart[k];
-      final end = src.contourEnd[k];
-      if (end <= start) continue;
-      beginContour(src.contourClosed[k] == 1);
+        isScaleTranslate && a == 1.0 && d == 1.0 && tx == 0.0 && ty == 0.0;
+    for (var k = 0; k < srcContours; k++) {
+      final start = srcStarts[k];
+      final end = srcEnds[k];
+      final len = end - start;
+      if (len <= 0) continue;
+      beginContour(srcClosed[k] == 1);
+      var dstIdx = vertexCount;
       if (isIdentity) {
+        dstX.setRange(dstIdx, dstIdx + len, srcX, start);
+        dstY.setRange(dstIdx, dstIdx + len, srcY, start);
+        dstIdx += len;
+      } else if (isScaleTranslate) {
         for (var i = start; i < end; i++) {
-          if (vertexCount == vx.length) _growVertices();
-          vx[vertexCount] = src.vx[i];
-          vy[vertexCount] = src.vy[i];
-          vertexCount++;
+          dstX[dstIdx] = a * srcX[i] + tx;
+          dstY[dstIdx] = d * srcY[i] + ty;
+          dstIdx++;
         }
       } else {
         for (var i = start; i < end; i++) {
-          final sx = src.vx[i], sy = src.vy[i];
-          if (vertexCount == vx.length) _growVertices();
-          vx[vertexCount] = a * sx + c * sy + tx;
-          vy[vertexCount] = b * sx + d * sy + ty;
-          vertexCount++;
+          final sx = srcX[i], sy = srcY[i];
+          dstX[dstIdx] = a * sx + c * sy + tx;
+          dstY[dstIdx] = b * sx + d * sy + ty;
+          dstIdx++;
         }
       }
+      vertexCount = dstIdx;
       endContour();
     }
   }
 
   void appendReversed(PolyPath src) {
-    for (var k = 0; k < src.contourCount; k++) {
-      final start = src.contourStart[k];
-      final end = src.contourEnd[k];
+    final srcContours = src.contourCount;
+    if (srcContours == 0 || src.vertexCount == 0) return;
+    ensureVertexCapacity(vertexCount + src.vertexCount);
+    ensureContourCapacity(contourCount + srcContours);
+    final dstX = vx, dstY = vy;
+    final srcX = src.vx, srcY = src.vy;
+    final srcStarts = src.contourStart, srcEnds = src.contourEnd;
+    final srcClosed = src.contourClosed;
+    for (var k = 0; k < srcContours; k++) {
+      final start = srcStarts[k];
+      final end = srcEnds[k];
       if (end <= start) continue;
-      beginContour(src.contourClosed[k] == 1);
+      beginContour(srcClosed[k] == 1);
+      var dstIdx = vertexCount;
       for (var i = end - 1; i >= start; i--) {
-        if (vertexCount == vx.length) _growVertices();
-        vx[vertexCount] = src.vx[i];
-        vy[vertexCount] = src.vy[i];
-        vertexCount++;
+        dstX[dstIdx] = srcX[i];
+        dstY[dstIdx] = srcY[i];
+        dstIdx++;
       }
+      vertexCount = dstIdx;
       endContour();
     }
   }

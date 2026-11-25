@@ -37,8 +37,8 @@ async function smoke(asset) {
 
   try {
     const wasm = fs.readFileSync('lib/src/wasm/fastlottie_simd.wasm').toString('base64');
-    const ready = await exchange([-1, 3, `data:application/wasm;base64,${wasm}`]);
-    assert.deepEqual(ready, [-2, 3, true]);
+    const ready = await exchange([-1, 4, `data:application/wasm;base64,${wasm}`]);
+    assert.deepEqual(ready, [-2, 4, true]);
 
     const width = 32;
     const height = 24;
@@ -46,18 +46,39 @@ async function smoke(asset) {
     const rowBytes = width * 4;
     const icon = new Uint8Array(fs.readFileSync('example/assets/icon.json'));
     const frameRequest = [2, 101, 'entry', 'scene', 2, 2, width, height, 60, false];
-    const frame = await exchange([0, null, 1048576], [1, 'scene', icon, true], frameRequest);
+    const frame = await exchange([0, null, 1048576, true], [1, 'scene', icon, true], frameRequest);
     assert.deepEqual(frame.slice(0, 3), [0, 101, 'entry']);
     assert.equal(frame[3].length, frameBytes);
     assert.ok(frame[3].some(byte => byte !== 0), 'The rendered frame is empty');
+    assert.ok(frame[11] !== 0 || frame[12] !== 0, 'Expected non-zero 64-bit frame fingerprint');
+
+    // Render a larger opaque frame first so the worker's reusable pixel buffer
+    // holds non-zero bytes where the subsequent strip's padding rows will sit.
+    const dirty = await exchange([2, 100, 'dirty', 'scene', 2, 2, width, height * 3 + 2, 60, false]);
+    assert.ok(dirty[3].some(byte => byte !== 0));
 
     const strip = await exchange([5, 102, 'entry', 'scene', 1, 3, 0, 1, width, height, 60, false]);
     const stripHeight = height * 3 + 2;
     assert.deepEqual(strip.slice(0, 5), [4, 102, 'entry', 1, 3]);
     assert.deepEqual(strip.slice(10, 12), [width, stripHeight]);
     assert.equal(strip[5].length, rowBytes * stripHeight);
+    assert.ok(strip[16] !== 0 || strip[17] !== 0, 'Expected non-zero 64-bit strip fingerprint');
     const secondSlot = frameBytes + rowBytes;
     assert.deepEqual(strip[5].subarray(secondSlot, secondSlot + frameBytes), frame[3]);
+    // Verify 1px transparent gutter rows between adjacent slots are zeroed.
+    for (let j = 1; j < 3; j++) {
+      const padStart = (j * (height + 1) - 1) * rowBytes;
+      const padRow = strip[5].subarray(padStart, padStart + rowBytes);
+      assert.ok(padRow.every(byte => byte === 0), `Padding row ${j} must be transparent`);
+    }
+
+    // Disabling upload deduplication suppresses worker fingerprints.
+    const noFp = await exchange(
+      [0, null, 1048576, false],
+      [5, 103, 'entry', 'scene', 1, 3, 0, 1, width, height, 60, false],
+    );
+    assert.equal(noFp[16], 0);
+    assert.equal(noFp[17], 0);
 
     assert.deepEqual(await exchange([4]), [2, '', 0]);
     assert.deepEqual(await exchange(frameRequest), [3, 101, 'scene']);
