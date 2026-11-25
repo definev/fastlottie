@@ -13,6 +13,7 @@ export 'src/flutter/player.dart'
     show
         FastLottieCache,
         FastLottieFallbackPainter,
+        FastLottiePictureCache,
         FastLottiePlayer,
         FastLottieRasterCache,
         FastLottieRasterMode;

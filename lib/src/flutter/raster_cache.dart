@@ -103,6 +103,7 @@ class FastLottieRasterCache {
 
   /// Temporarily caps new jobs while the caller is busy, leaving in-flight
   /// work intact. Pass null to restore [maximumInFlight].
+  int? get inFlightLimit => _inFlightLimit;
   set inFlightLimit(int? value) {
     if (value != null) {
       RangeError.checkValueInInterval(value, 1, maximumInFlight);

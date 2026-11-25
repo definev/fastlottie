@@ -595,12 +595,14 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
 
   NetworkTgsStore _createStore() => NetworkTgsStore(
     httpConcurrency: 6,
-    decodeConcurrency: 2,
-    batchSize: 2,
+    decodeConcurrency: _android ? 1 : 2,
+    batchSize: _android ? 3 : 2,
     framePaced: true,
-    // Visible cells stay pinned. This only bounds models that have
-    // already scrolled off; compiling them again reads the disk cache.
-    maximumEntries: widget.memoryWorkload?.modelCacheEntries ?? 8,
+    // Visible cells stay pinned. Keep enough unpinned capacity for active
+    // chat history and emojis so scrolling back doesn't re-decode on every fling,
+    // while capping raw JSON source bytes so huge picker stickers don't bloat RAM.
+    maximumEntries: widget.memoryWorkload?.modelCacheEntries ?? 180,
+    maximumSourceBytes: 18 * 1024 * 1024,
     modelCacheObserver: widget.memoryWorkload?.modelCacheObserver,
     maximumCompiledBytes: widget.memoryWorkload?.compiledCacheBytes ?? 0,
     fetcher: _packAssets.fetch,
@@ -612,6 +614,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   late int? _framesPerStrip =
       widget.memoryWorkload?.framesPerStrip ?? _preferredStripSize;
   late FastLottieRasterCache _rasterCache = _createRasterCache(_framesPerStrip);
+  final FastLottiePictureCache _heroPictureCache = FastLottiePictureCache(
+    maximumCompositions: 16,
+  );
 
   bool get _android =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -622,7 +627,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       FastLottieRasterCache(
         maximumBytes: 8 * 1024 * 1024,
         maximumInFlight: _rasterWorkerCount == 1 ? 2 : 4,
-        maximumCompressedMemoryBytes: 2 * 1024 * 1024,
+        maximumCompressedMemoryBytes: 8 * 1024 * 1024,
         maximumDiskBytes: 128 * 1024 * 1024,
         maximumFrameRate: stickerThumbnailFrameRate,
         framesPerStrip: framesPerStrip,
@@ -644,6 +649,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     },
     onDetach: (position) {
       position.isScrollingNotifier.removeListener(_syncMessageScrollWork);
+      _restoreInFlightTimer?.cancel();
+      _restoreInFlightTimer = null;
       _rasterCache.inFlightLimit = null;
       _fastFling.value = false;
     },
@@ -660,6 +667,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   final ValueNotifier<bool> _showScrollBottom = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _hasDraft = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _fastFling = ValueNotifier<bool>(false);
+  Timer? _restoreInFlightTimer;
 
   LocalTgsServer? _embeddedServer;
   TgsRemoteCatalog? _catalog;
@@ -1077,7 +1085,24 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     final scrolling = _messageScroll.positions.any(
       (position) => position.isScrollingNotifier.value,
     );
-    _rasterCache.inFlightLimit = scrolling ? 1 : null;
+    if (scrolling) {
+      _restoreInFlightTimer?.cancel();
+      _restoreInFlightTimer = null;
+      _rasterCache.inFlightLimit = 1;
+    } else if (_rasterCache.inFlightLimit != null) {
+      // Keep in-flight capped briefly (~40 ms) while newly settled Hero vector
+      // stickers rasterize their first frame, then restore full sheet throughput.
+      _restoreInFlightTimer ??= Timer(const Duration(milliseconds: 40), () {
+        _restoreInFlightTimer = null;
+        if (!mounted) return;
+        final stillScrolling = _messageScroll.positions.any(
+          (position) => position.isScrollingNotifier.value,
+        );
+        if (!stillScrolling) {
+          _rasterCache.inFlightLimit = null;
+        }
+      });
+    }
   }
 
   void _onComposerTextChanged() {
@@ -1257,6 +1282,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   void didHaveMemoryPressure() {
     _store.evictCompiledSnapshots();
     _posters.clearIdle();
+    _heroPictureCache.evictUnpinned();
     _rasterCache.evictUnpinned();
   }
 
@@ -1443,6 +1469,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       sheet.clearLoadedModels();
     }
     await _store.clearMemoryAndUrlDiskCache();
+    _heroPictureCache.clear();
     _rasterCache.clear();
     await clearExampleDiskCache();
     if (!mounted) return;
@@ -1655,6 +1682,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
               child: HeroNetworkSticker(
                 item: item,
                 posters: _enableEmojiPosters ? _posters : null,
+                pictureCache: _heroPictureCache,
                 store: _store,
                 renderer: _renderer,
                 animate: !_reduced,
@@ -1775,6 +1803,8 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _composerFocus.dispose();
     _showScrollBottom.dispose();
     _hasDraft.dispose();
+    _restoreInFlightTimer?.cancel();
+    _restoreInFlightTimer = null;
     _fastFling.dispose();
     _pressure.dispose();
     for (final sheet in _sheets) {
@@ -1786,6 +1816,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _disposingSheets.clear();
     _posters.dispose();
     _packAssets.dispose();
+    _heroPictureCache.dispose();
     _rasterCache.dispose();
     for (final stale in _disposingCaches) {
       stale.dispose();
@@ -1914,10 +1945,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                               key: const ValueKey('cupertino-message-list'),
                               controller: _messageScroll,
                               reverse: true,
-                              physics: const BouncingScrollPhysics(
-                                decelerationRate: .fast,
-                                parent: AlwaysScrollableScrollPhysics(),
-                              ),
+                              physics: const ClampingScrollPhysics(),
                               scrollCacheExtent: const ScrollCacheExtent.pixels(
                                 0,
                               ),
@@ -1947,6 +1975,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                   still: _reduced || _pressure.constrained,
                                   animateHero: !_reduced,
                                   fastFling: _fastFling,
+                                  heroPictureCache: _heroPictureCache,
                                   palette: palette,
                                   onStickerLongPress: _showStickerPreview,
                                   onMessageLongPress: _showMessageOptions,
@@ -2524,6 +2553,7 @@ class _ChatMessageRow extends StatelessWidget {
     required this.still,
     required this.animateHero,
     this.fastFling,
+    this.heroPictureCache,
     required this.palette,
     required this.onStickerLongPress,
     this.onMessageLongPress,
@@ -2539,6 +2569,7 @@ class _ChatMessageRow extends StatelessWidget {
   final bool still;
   final bool animateHero;
   final ValueListenable<bool>? fastFling;
+  final FastLottiePictureCache? heroPictureCache;
   final _Palette palette;
   final ValueChanged<TgsRemoteItem> onStickerLongPress;
   final ValueChanged<ChatMessage>? onMessageLongPress;
@@ -2586,6 +2617,7 @@ class _ChatMessageRow extends StatelessWidget {
                       key: ValueKey('sent-sticker-${message.id}'),
                       item: item,
                       posters: posters,
+                      pictureCache: heroPictureCache,
                       store: store,
                       renderer: renderer,
                       animate: animateHero,
@@ -3403,6 +3435,7 @@ class HeroNetworkSticker extends StatefulWidget {
     required this.accentColor,
     required this.secondaryTextColor,
     this.posters,
+    this.pictureCache,
     this.animate = true,
     this.fastFling,
     this.size = 220,
@@ -3416,6 +3449,7 @@ class HeroNetworkSticker extends StatefulWidget {
   final Color accentColor;
   final Color secondaryTextColor;
   final PackPosterCache? posters;
+  final FastLottiePictureCache? pictureCache;
   final bool animate;
 
   /// Defers uncached acquisition and pauses Tier C vector recording while a
@@ -3633,6 +3667,7 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
                 repeat: true,
                 useFrameRate: true,
                 usePipeline: false,
+                pictureCache: widget.pictureCache,
                 cache:
                     context
                         .dependOnInheritedWidgetOfExactType<

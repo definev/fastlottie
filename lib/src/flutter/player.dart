@@ -12,6 +12,7 @@ import '../raster/raster_core.dart' show RasterScene;
 import '../worker/worker_pool.dart';
 import 'composition.dart';
 
+part 'picture_cache.dart';
 part 'raster_cache.dart';
 part 'raster_coordinator.dart';
 
@@ -80,6 +81,7 @@ class FastLottiePlayer extends ChangeNotifier {
   FastLottiePlayer(
     this.composition, {
     this.cache = const FastLottieCache(),
+    this.pictureCache,
     this.rasterCache,
     this.rasterMode = FastLottieRasterMode.animation,
     this.resolutionScale,
@@ -99,6 +101,9 @@ class FastLottiePlayer extends ChangeNotifier {
   /// Limits for this player's vector picture cache.
   final FastLottieCache cache;
 
+  /// Optional caller-owned vector picture cache shared across players.
+  final FastLottiePictureCache? pictureCache;
+
   /// Optional caller-owned cache shared with other players.
   final FastLottieRasterCache? rasterCache;
 
@@ -112,6 +117,7 @@ class FastLottiePlayer extends ChangeNotifier {
   final double? maximumFrameRate;
 
   _RasterEntry? _rasterEntry;
+  _PictureEntry? _pictureEntry;
   (Size, int)? _rasterRejectedKey;
   int _rasterRejectedGeneration = -1;
   void _rasterReady() {
@@ -286,7 +292,7 @@ class FastLottiePlayer extends ChangeNotifier {
   }
 
   /// Number of retained vector pictures.
-  int get cachedFrames => _pictures.length;
+  int get cachedFrames => _pictureEntry?.pictures.length ?? _pictures.length;
 
   /// Cumulative hits in this player's picture or prepared raster cache.
   int get cacheHits => _hits;
@@ -295,9 +301,8 @@ class FastLottiePlayer extends ChangeNotifier {
   int get cacheMisses => _misses;
 
   /// Estimated vector command count across retained pictures.
-  int get estimatedCachedCommands => _pictures.isEmpty
-      ? 0
-      : _pictures.length * composition.sceneTemplate.commands;
+  int get estimatedCachedCommands =>
+      cachedFrames == 0 ? 0 : cachedFrames * composition.sceneTemplate.commands;
 
   // Shared by drawing and repaint filtering so a 60 Hz controller driving a
   // 30 FPS raster cache cannot repaint the same image twice per sample.
@@ -448,6 +453,39 @@ class FastLottiePlayer extends ChangeNotifier {
     canvas.scale(target.width / source.width, target.height / source.height);
     canvas.translate(-source.left, -source.top);
     final key = c.isStatic ? c.startFrame : frame;
+    final sharedPictures = pictureCache;
+    if (useFrameRate &&
+        shared == null &&
+        sharedPictures != null &&
+        !sharedPictures.isDisposed &&
+        cache.maximumFrames > 0) {
+      var entry = _pictureEntry;
+      if (entry == null || entry.retired) {
+        entry = _pictureEntry = sharedPictures._acquire(
+          this,
+          c.contentKey,
+          c.sceneTemplate.commands,
+        );
+      }
+      var picture = sharedPictures._lookup(entry, key);
+      if (picture != null) {
+        _hits++;
+        canvas.drawPicture(picture);
+      } else {
+        _misses++;
+        if (c.sceneTemplate.commands <= cache.maximumCommands) {
+          final recorder = ui.PictureRecorder();
+          _scene.draw(Canvas(recorder), frame);
+          picture = recorder.endRecording();
+          sharedPictures._store(entry, key, picture, cache);
+          canvas.drawPicture(picture);
+        } else {
+          _scene.draw(canvas, frame);
+        }
+      }
+      canvas.restore();
+      return;
+    }
     var picture = _pictures.remove(key);
     if (picture != null) {
       _hits++;
@@ -505,6 +543,7 @@ class FastLottiePlayer extends ChangeNotifier {
   /// Releases this player's pictures, prepared images and shared cache lease.
   void clearCache() {
     rasterCache?._release(this);
+    pictureCache?._release(this);
     _rasterRejectedKey = null;
     _rasterRejectedGeneration = -1;
     _rasterGeneration++;
@@ -526,6 +565,11 @@ class FastLottiePlayer extends ChangeNotifier {
   @override
   void dispose() {
     if (_disposed) return;
+    final scene = _sceneState;
+    if (scene != null) {
+      _sceneState = null;
+      composition.recycleScene(scene);
+    }
     clearCache();
     _sceneState = null;
     _disposed = true;

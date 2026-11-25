@@ -14,6 +14,13 @@ import 'pack_disk_stub.dart' if (dart.library.io) 'pack_disk_io.dart' as disk;
 const _directory = 'assets/emoji_posters';
 const _catalogPath = '/v1/catalog';
 const _limit = Duration(seconds: 8);
+const _maximumCachedPageBytes = 16 * 1024 * 1024;
+
+class _CachedPage {
+  late final Future<ByteData> future;
+  int bytes = 0;
+  bool resolved = false;
+}
 
 /// Loads the same manifest contract from bundled assets and from a pack server.
 /// Callers pass asset references and share cache and cancellation policy.
@@ -23,7 +30,9 @@ class PackAssets {
   final AssetBundle _bundle;
   http.Client? _client;
   http.Client get _http => _client ??= http.Client();
-  final _pages = <String, Future<ByteData>>{};
+  final _pages = <String, _CachedPage>{};
+  int _cachedPageBytes = 0;
+  int _pageCacheEpoch = 0;
   late final _objects = _loadBundledObjects();
   final _remoteAnimation = <Completer<void>>{};
   final _abortRequests = <void Function()>{};
@@ -192,12 +201,15 @@ class PackAssets {
           bytes = Uint8List.sublistView(await _bundle.load(asset));
         } else {
           final page = entry['page'] as String;
-          final load = _pages.remove(page) ?? _bundle.load('$_directory/$page');
-          _pages[page] = load;
-          // All interleaves five sticker packs. Keep one page per pack so
-          // the next row can reuse the pages just read for the previous row.
-          if (_pages.length > 5) _pages.remove(_pages.keys.first);
-          final data = await load;
+          final existing = _pages.remove(page);
+          final _CachedPage cached;
+          if (existing != null) {
+            _pages[page] = existing;
+            cached = existing;
+          } else {
+            cached = _createPageCache(page);
+          }
+          final data = await cached.future;
           final offset = entry['offset'] as int;
           bytes = Uint8List.sublistView(
             data,
@@ -348,7 +360,54 @@ class PackAssets {
     }
   }
 
-  void clearIdle() => _pages.clear();
+  _CachedPage _createPageCache(String page) {
+    final entry = _CachedPage();
+    _pages[page] = entry;
+    final epoch = _pageCacheEpoch;
+    entry.future = _bundle
+        .load('$_directory/$page')
+        .then(
+          (data) {
+            if (!_disposed &&
+                epoch == _pageCacheEpoch &&
+                identical(_pages[page], entry)) {
+              entry.bytes = data.lengthInBytes;
+              entry.resolved = true;
+              _cachedPageBytes += entry.bytes;
+              _trimPages();
+            }
+            return data;
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (epoch == _pageCacheEpoch && identical(_pages[page], entry)) {
+              _pages.remove(page);
+            }
+            Error.throwWithStackTrace(error, stackTrace);
+          },
+        );
+    return entry;
+  }
+
+  void _trimPages() {
+    if (_cachedPageBytes <= _maximumCachedPageBytes) return;
+    final victims = <String>[];
+    for (final MapEntry(:key, :value) in _pages.entries) {
+      if (_cachedPageBytes <= _maximumCachedPageBytes ||
+          _pages.length - victims.length <= 1) {
+        break;
+      }
+      if (!value.resolved) continue;
+      _cachedPageBytes -= value.bytes;
+      victims.add(key);
+    }
+    victims.forEach(_pages.remove);
+  }
+
+  void clearIdle() {
+    _pageCacheEpoch++;
+    _pages.clear();
+    _cachedPageBytes = 0;
+  }
 
   Future<void> clearDisk() => disk.clear(cacheDirectory);
 

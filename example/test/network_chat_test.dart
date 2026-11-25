@@ -2129,4 +2129,37 @@ void main() {
     expect(catalog.toShortcodeText('Hi :smile:'), 'Hi :smile:');
     expect(catalog.toShortcodeText('A❤B'), 'A:red_heart:B');
   });
+
+  testWidgets(
+    'PackAssets retains more than five .bin pages within byte budget',
+    (tester) async {
+      final bundle = _CountingBundle();
+      final assets = PackAssets(bundle: bundle);
+      addTearDown(assets.dispose);
+      await tester.runAsync(() async {
+        final catalog = await assets.catalog(PackAssets.bundleOrigin);
+        final targets = <PackPoster>[
+          for (final pack in catalog.stickerPacks)
+            if (pack.items.isNotEmpty) ?pack.items.first.poster,
+          for (var i = 0; i < catalog.emojis.length; i += 25)
+            ?catalog.emojis[i].poster,
+        ];
+        for (final poster in targets) {
+          await assets.fetch(poster.uri);
+        }
+        expect(bundle.pageLoads.length, greaterThan(5));
+        for (final poster in targets) {
+          await assets.fetch(poster.uri);
+        }
+        expect(bundle.pageLoads.values, everyElement(1));
+
+        assets.clearIdle();
+        await assets.fetch(targets.first.uri);
+        expect(
+          bundle.pageLoads.values.reduce((a, b) => a + b),
+          greaterThan(bundle.pageLoads.length),
+        );
+      });
+    },
+  );
 }

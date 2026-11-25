@@ -65,6 +65,7 @@ abstract class _FastLottieWidget extends StatefulWidget {
     this.animate = true,
     this.useFrameRate = true,
     this.cache = const FastLottieCache(),
+    this.pictureCache,
     this.rasterCache,
     this.rasterMode = FastLottieRasterMode.animation,
     this.resolutionScale,
@@ -99,6 +100,10 @@ abstract class _FastLottieWidget extends StatefulWidget {
   /// Limits for retained vector pictures.
   final FastLottieCache cache;
 
+  /// Optional caller-owned vector picture cache shared across players when
+  /// rendering directly without a raster pipeline.
+  final FastLottiePictureCache? pictureCache;
+
   /// Optional caller-owned raster cache to use for this widget.
   final FastLottieRasterCache? rasterCache;
 
@@ -131,6 +136,7 @@ class FastLottie extends _FastLottieWidget {
     super.animate,
     super.useFrameRate,
     super.cache,
+    super.pictureCache,
     super.rasterCache,
     super.rasterMode,
     super.resolutionScale,
@@ -168,6 +174,7 @@ class FastLottie extends _FastLottieWidget {
     bool animate = true,
     bool useFrameRate = true,
     FastLottieCache cache = const FastLottieCache(),
+    FastLottiePictureCache? pictureCache,
     FastLottieRasterCache? rasterCache,
     FastLottieRasterMode rasterMode = FastLottieRasterMode.animation,
     double? resolutionScale,
@@ -192,6 +199,7 @@ class FastLottie extends _FastLottieWidget {
     animate: animate,
     useFrameRate: useFrameRate,
     cache: cache,
+    pictureCache: pictureCache,
     rasterCache: rasterCache,
     rasterMode: rasterMode,
     resolutionScale: resolutionScale,
@@ -265,6 +273,7 @@ class _FastLottieState extends State<FastLottie>
       _playerInstance = FastLottiePlayer(
         widget.composition,
         cache: widget.cache,
+        pictureCache: widget.pictureCache,
         rasterCache: effectiveRaster,
         rasterMode: _rasterMode,
         resolutionScale: widget.resolutionScale,
@@ -282,6 +291,7 @@ class _FastLottieState extends State<FastLottie>
       _playerInstance = FastLottiePlayer(
         widget.composition,
         cache: widget.cache,
+        pictureCache: widget.pictureCache,
         rasterCache: previous.rasterCache,
         rasterMode: _rasterMode,
         resolutionScale: widget.resolutionScale,
@@ -337,6 +347,7 @@ class _FastLottieState extends State<FastLottie>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.composition != widget.composition ||
         oldWidget.cache != widget.cache ||
+        oldWidget.pictureCache != widget.pictureCache ||
         oldWidget.rasterCache != widget.rasterCache ||
         oldWidget.rasterMode != widget.rasterMode ||
         oldWidget.resolutionScale != widget.resolutionScale ||
@@ -365,6 +376,7 @@ class _FastLottieState extends State<FastLottie>
       _playerInstance = FastLottiePlayer(
         widget.composition,
         cache: widget.cache,
+        pictureCache: widget.pictureCache,
         rasterCache: nextRaster,
         rasterMode: _rasterMode,
         resolutionScale: widget.resolutionScale,

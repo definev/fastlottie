@@ -226,6 +226,10 @@ class FastLottieComposition {
     _preparedScene = null;
     return prepared ?? _template.fork();
   }
+
+  void _recycleScene(RasterScene scene) {
+    _preparedScene ??= scene;
+  }
 }
 
 // The player and worker pool use distinct scene ownership paths.
@@ -234,6 +238,7 @@ extension CompositionPlayback on FastLottieComposition {
   Uint8List? get workerSource => _workerSource;
 
   RasterScene takeScene() => _takeScene();
+  void recycleScene(RasterScene scene) => _recycleScene(scene);
 }
 
 /// Experimental trusted cache/build data; not a public interchange format.
