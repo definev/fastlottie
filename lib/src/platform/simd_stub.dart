@@ -36,8 +36,22 @@ class NativePixelBuffer {
   void dispose() {}
 }
 
+const int _zeroChunkPixels = 16384;
+final Uint32List _zeroU32 = Uint32List(_zeroChunkPixels);
+
 void simdClearPixels(NativePixelBuffer dst, int count) {
-  dst.typedList.fillRange(0, count, 0);
+  if (count <= 0) return;
+  final target = dst.typedList;
+  if (count <= _zeroChunkPixels) {
+    target.setRange(0, count, _zeroU32);
+    return;
+  }
+  var offset = 0;
+  while (offset < count) {
+    final end = offset + _zeroChunkPixels;
+    target.setRange(offset, end < count ? end : count, _zeroU32);
+    offset = end;
+  }
 }
 
 bool simdFillSolidSpans(

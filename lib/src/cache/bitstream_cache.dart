@@ -8,6 +8,8 @@ import 'lz4.dart';
 import 'tile_playback.dart';
 
 const _isWeb = bool.fromEnvironment('dart.library.js_interop');
+const _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
+const _isJs = _isWeb && !_isWasm;
 
 /// Deterministic filename-safe cache key for `(contentKey, pixelSize, sourceFrameCount)`.
 ///
@@ -123,6 +125,11 @@ class BitstreamStore {
   static const int flagPoster = 1 << 1;
 
   static final Uint32List _crcTable = _buildCrc32Table();
+  static final Uint32List _crcSlice8 = _buildCrc32Slice8(_crcTable);
+  // Private monomorphic U8List scratch for dart2wasm so CRC31 / secondary hash
+  // never dispatch through polymorphic Uint8List (which boxes every byte read
+  // into a heap _BoxedInt when Uint8List views exist elsewhere in the app).
+  static Uint8List _wasmReadScratch = Uint8List(0);
 
   static Uint32List _buildCrc32Table() {
     final table = Uint32List(256);
@@ -136,18 +143,89 @@ class BitstreamStore {
     return table;
   }
 
+  static Uint32List _buildCrc32Slice8(Uint32List t0) {
+    final flat = Uint32List(2048);
+    flat.setRange(0, 256, t0);
+    for (var i = 0; i < 256; i++) {
+      var c = t0[i];
+      for (var s = 1; s < 8; s++) {
+        c = t0[c & 0xFF] ^ (c >>> 8);
+        flat[(s << 8) | i] = c;
+      }
+    }
+    return flat;
+  }
+
   static int crc31(Uint8List data, int offset, int length) {
     var crc = 0xFFFFFFFF;
+    final t = _crcSlice8;
+    var i = offset;
     final end = offset + length;
-    final table = _crcTable;
-    for (var i = offset; i < end; i++) {
-      crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+    if (length >= 16) {
+      if (_isWasm) {
+        var buf = _wasmReadScratch;
+        if (buf.length < length) {
+          buf = _wasmReadScratch = Uint8List(length);
+        }
+        buf.setRange(0, length, data, offset);
+        var p = 0;
+        final end8 = length & ~7;
+        while (p < end8) {
+          final lo =
+              (buf[p] |
+                  (buf[p + 1] << 8) |
+                  (buf[p + 2] << 16) |
+                  (buf[p + 3] << 24)) ^
+              crc;
+          final hi =
+              buf[p + 4] |
+              (buf[p + 5] << 8) |
+              (buf[p + 6] << 16) |
+              (buf[p + 7] << 24);
+          crc =
+              t[1792 + (lo & 0xFF)] ^
+              t[1536 + ((lo >>> 8) & 0xFF)] ^
+              t[1280 + ((lo >>> 16) & 0xFF)] ^
+              t[1024 + ((lo >>> 24) & 0xFF)] ^
+              t[768 + (hi & 0xFF)] ^
+              t[512 + ((hi >>> 8) & 0xFF)] ^
+              t[256 + ((hi >>> 16) & 0xFF)] ^
+              t[(hi >>> 24) & 0xFF];
+          p += 8;
+        }
+        while (p < length) {
+          crc = t[(crc ^ buf[p++]) & 0xFF] ^ (crc >>> 8);
+        }
+        return (crc ^ 0xFFFFFFFF) & 0x7FFFFFFF;
+      } else {
+        final bd = ByteData.sublistView(data, offset, end);
+        var p = 0;
+        final end8 = length & ~7;
+        while (p < end8) {
+          final lo = bd.getUint32(p, Endian.little) ^ crc;
+          final hi = bd.getUint32(p + 4, Endian.little);
+          crc =
+              t[1792 + (lo & 0xFF)] ^
+              t[1536 + ((lo >>> 8) & 0xFF)] ^
+              t[1280 + ((lo >>> 16) & 0xFF)] ^
+              t[1024 + ((lo >>> 24) & 0xFF)] ^
+              t[768 + (hi & 0xFF)] ^
+              t[512 + ((hi >>> 8) & 0xFF)] ^
+              t[256 + ((hi >>> 16) & 0xFF)] ^
+              t[(hi >>> 24) & 0xFF];
+          p += 8;
+        }
+        i = offset + p;
+      }
+    }
+    while (i < end) {
+      crc = t[(crc ^ data[i++]) & 0xFF] ^ (crc >>> 8);
     }
     return (crc ^ 0xFFFFFFFF) & 0x7FFFFFFF;
   }
 
   static int _mul32(int a, int b) {
-    if (!_isWeb) return (a * b) & 0xFFFFFFFF;
+    if (!_isJs) return (a * b) & 0xFFFFFFFF;
     final lo = (a & 0xFFFF) * b;
     final hi = ((a >>> 16) * b) & 0xFFFF;
     return (lo + (hi << 16)) & 0xFFFFFFFF;
@@ -164,20 +242,69 @@ class BitstreamStore {
   ) {
     var h = (0x9E3779B1 ^ length ^ (isRaw ? 0x517CC1B7 : 0)) & 0xFFFFFFFF;
     var i = offset;
-    final end4 = offset + (length & ~3);
-    while (i < end4) {
-      final word =
-          data[i] |
-          (data[i + 1] << 8) |
-          (data[i + 2] << 16) |
-          (data[i + 3] << 24);
-      h = _mul32(
-        _rotl32((h + _mul32(word, 0xC2B2AE3D)) & 0xFFFFFFFF, 17),
-        0x27D4EB2F,
-      );
-      i += 4;
-    }
     final end = offset + length;
+    if (_isWasm && length >= 16) {
+      var buf = _wasmReadScratch;
+      if (buf.length < length) {
+        buf = _wasmReadScratch = Uint8List(length);
+      }
+      buf.setRange(0, length, data, offset);
+      final end4 = length & ~3;
+      var p = 0;
+      while (p < end4) {
+        final word =
+            buf[p] |
+            (buf[p + 1] << 8) |
+            (buf[p + 2] << 16) |
+            (buf[p + 3] << 24);
+        h = _mul32(
+          _rotl32((h + _mul32(word, 0xC2B2AE3D)) & 0xFFFFFFFF, 17),
+          0x27D4EB2F,
+        );
+        p += 4;
+      }
+      while (p < length) {
+        h = _mul32(
+          _rotl32((h + _mul32(buf[p], 0x165667B1)) & 0xFFFFFFFF, 11),
+          0x9E3779B1,
+        );
+        p++;
+      }
+      h ^= h >>> 15;
+      h = _mul32(h, 0x85EBCA77);
+      h ^= h >>> 13;
+      h = _mul32(h, 0xC2B2AE3D);
+      h ^= h >>> 16;
+      return h;
+    }
+    if (!_isWasm && length >= 16) {
+      final bd = ByteData.sublistView(data, offset, end);
+      final end4 = length & ~3;
+      var p = 0;
+      while (p < end4) {
+        final word = bd.getUint32(p, Endian.little);
+        h = _mul32(
+          _rotl32((h + _mul32(word, 0xC2B2AE3D)) & 0xFFFFFFFF, 17),
+          0x27D4EB2F,
+        );
+        p += 4;
+      }
+      i = offset + p;
+    } else {
+      final end4 = offset + (length & ~3);
+      while (i < end4) {
+        final word =
+            data[i] |
+            (data[i + 1] << 8) |
+            (data[i + 2] << 16) |
+            (data[i + 3] << 24);
+        h = _mul32(
+          _rotl32((h + _mul32(word, 0xC2B2AE3D)) & 0xFFFFFFFF, 17),
+          0x27D4EB2F,
+        );
+        i += 4;
+      }
+    }
     while (i < end) {
       h = _mul32(
         _rotl32((h + _mul32(data[i], 0x165667B1)) & 0xFFFFFFFF, 11),

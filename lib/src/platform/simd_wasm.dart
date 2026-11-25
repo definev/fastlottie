@@ -135,13 +135,40 @@ extension type _WasmExports(JSObject _) implements JSObject {
   );
 }
 
+// On dart2wasm, C-Wasm kernels live in a separate JS-backed linear memory;
+// keeping JSArrayBuffer typed-list views reachable forces dart2wasm TFA to
+// treat every Uint32List/Int32List pixel & span buffer as polymorphic
+// (10x-14x slower). Compile them out on dart2wasm unless explicitly opted in
+// via `-DFASTLOTTIE_DART2WASM_C_KERNELS=true`.
+const bool _allowWasmKernels =
+    !bool.fromEnvironment('dart.tool.dart2wasm') ||
+    bool.fromEnvironment('FASTLOTTIE_DART2WASM_C_KERNELS');
+
+const int _zeroChunkPixels = 16384;
+final Uint32List _zeroU32 = Uint32List(_zeroChunkPixels);
+
+void _clearU32Fast(Uint32List dst, int count) {
+  if (count <= 0) return;
+  if (count <= _zeroChunkPixels) {
+    dst.setRange(0, count, _zeroU32);
+    return;
+  }
+  var offset = 0;
+  while (offset < count) {
+    final end = offset + _zeroChunkPixels;
+    dst.setRange(offset, end < count ? end : count, _zeroU32);
+    offset = end;
+  }
+}
+
 _WasmExports? _kernels;
-bool get isSimdSupported => _kernels != null;
+bool get isSimdSupported => _allowWasmKernels && _kernels != null;
 bool get isNativeGradientSupported => isSimdSupported;
 ({int calls, int copiedBytes}) readNativeKernelTelemetry() =>
     (calls: 0, copiedBytes: 0);
 
 Future<void> initializeWasmKernels(Uint8List bytes) async {
+  if (!_allowWasmKernels) return;
   final result = await _instantiate(bytes.toJS).toDart;
   final exports = result.instance.exports;
   for (final name in const [
@@ -183,7 +210,7 @@ int _allocate(int bytes) {
 
 class NativeSpansBuffer {
   NativeSpansBuffer(int count) : _count = count {
-    if (isSimdSupported) {
+    if (_allowWasmKernels && isSimdSupported) {
       ptr = _allocate(count * 4);
     } else {
       _fallbackList = Int32List(count);
@@ -195,11 +222,12 @@ class NativeSpansBuffer {
   Int32List? _fallbackList;
 
   // Wasm memory can grow during any allocation; fetch the current view.
-  Int32List get typedList =>
-      ptr != null ? _heap.asInt32List(ptr!, _count) : _fallbackList!;
+  Int32List get typedList => _allowWasmKernels && ptr != null
+      ? _heap.asInt32List(ptr!, _count)
+      : _fallbackList!;
 
   void reallocate(int newCount, int copyCount) {
-    if (ptr != null) {
+    if (_allowWasmKernels && ptr != null) {
       final nextPtr = _allocate(newCount * 4);
       final nextList = _heap.asInt32List(nextPtr, newCount);
       if (copyCount > 0) nextList.setRange(0, copyCount, typedList);
@@ -215,7 +243,7 @@ class NativeSpansBuffer {
   }
 
   void dispose() {
-    if (ptr != null) {
+    if (_allowWasmKernels && ptr != null) {
       _kernels!.free(ptr!);
       ptr = null;
     }
@@ -224,7 +252,7 @@ class NativeSpansBuffer {
 
 class NativePixelBuffer {
   NativePixelBuffer(int count) : _owned = true, _count = count {
-    if (isSimdSupported) {
+    if (_allowWasmKernels && isSimdSupported) {
       ptr = _allocate(count * 4);
     } else {
       _fallbackList = Uint32List(count);
@@ -240,12 +268,13 @@ class NativePixelBuffer {
   Uint32List? _fallbackList;
 
   // Wasm memory can grow during any allocation; fetch the current view.
-  Uint32List get typedList =>
-      ptr != null ? _heap.asUint32List(ptr!, _count) : _fallbackList!;
+  Uint32List get typedList => _allowWasmKernels && ptr != null
+      ? _heap.asUint32List(ptr!, _count)
+      : _fallbackList!;
 
   NativePixelBuffer slice(int start, int count) {
     RangeError.checkValidRange(start, start + count, _count);
-    final pointer = ptr;
+    final pointer = _allowWasmKernels ? ptr : null;
     return NativePixelBuffer._view(
       pointer == null ? null : pointer + start * 4,
       count,
@@ -257,7 +286,7 @@ class NativePixelBuffer {
 
   void reallocate(int newCount, int copyCount) {
     if (!_owned) throw StateError('Cannot resize a borrowed pixel buffer');
-    if (ptr != null) {
+    if (_allowWasmKernels && ptr != null) {
       final nextPtr = _allocate(newCount * 4);
       final nextList = _heap.asUint32List(nextPtr, newCount);
       if (copyCount > 0) nextList.setRange(0, copyCount, typedList);
@@ -273,7 +302,7 @@ class NativePixelBuffer {
   }
 
   void dispose() {
-    if (_owned && ptr != null) {
+    if (_allowWasmKernels && _owned && ptr != null) {
       _kernels!.free(ptr!);
       ptr = null;
     }
@@ -281,10 +310,10 @@ class NativePixelBuffer {
 }
 
 void simdClearPixels(NativePixelBuffer dst, int count) {
-  if (dst.ptr != null) {
+  if (_allowWasmKernels && dst.ptr != null) {
     _kernels!.clearPixels(dst.ptr!, count);
   } else {
-    dst.typedList.fillRange(0, count, 0);
+    _clearU32Fast(dst.typedList, count);
   }
 }
 
@@ -297,6 +326,7 @@ bool simdFillSolidSpans(
   int spanCount,
   int srcPremul,
 ) {
+  if (!_allowWasmKernels) return false;
   if (dst.ptr != null && spans.ptr != null) {
     _kernels!.fillSolidSpans(
       dst.ptr!,
@@ -321,6 +351,7 @@ bool nativeBlendRect(
   int height,
   int mode,
 ) {
+  if (!_allowWasmKernels) return false;
   final d = dst.ptr, s = src.ptr;
   if (d == null || s == null) return false;
   try {
@@ -341,6 +372,7 @@ bool nativeBlendSolid(
   int color,
   int mode,
 ) {
+  if (!_allowWasmKernels) return false;
   final d = dst.ptr, s = spans.ptr;
   if (d == null || s == null) return false;
   try {
@@ -369,6 +401,7 @@ bool nativeInnerShadow(
   int tint,
   int opacity,
 ) {
+  if (!_allowWasmKernels) return false;
   final d = dst.ptr, s = src.ptr;
   if (d == null || s == null) return false;
   try {
@@ -418,6 +451,7 @@ bool nativeGradientSpans(
   double ex,
   double ey,
 ) {
+  if (!_allowWasmKernels) return false;
   if (dst.ptr == null || spans.ptr == null || lut.ptr == null) {
     return false;
   }
@@ -471,7 +505,7 @@ class NativeCoverageWorkspace {
   static int _users = 0;
 
   static NativeCoverageWorkspace? tryCreate() {
-    if (!isSimdSupported) return null;
+    if (!_allowWasmKernels || !isSimdSupported) return null;
     try {
       final state = _kernels!.denseNew();
       if (state != 0) {

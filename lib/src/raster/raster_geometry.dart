@@ -155,12 +155,13 @@ class PolyPath {
       addVertex(x3, y3);
       return;
     }
-    final dx1 = x1 - (2.0 * x0 + x3) / 3.0;
-    final dy1 = y1 - (2.0 * y0 + y3) / 3.0;
-    final dx2 = x2 - (x0 + 2.0 * x3) / 3.0;
-    final dy2 = y2 - (y0 + 2.0 * y3) / 3.0;
-    final d = math.max(dx1 * dx1 + dy1 * dy1, dx2 * dx2 + dy2 * dy2);
-    if (d * 0.5625 <= flatnessSq) {
+    final dx1 = 3.0 * x1 - (2.0 * x0 + x3);
+    final dy1 = 3.0 * y1 - (2.0 * y0 + y3);
+    final dx2 = 3.0 * x2 - (x0 + 2.0 * x3);
+    final dy2 = 3.0 * y2 - (y0 + 2.0 * y3);
+    final d1 = dx1 * dx1 + dy1 * dy1;
+    final d2 = dx2 * dx2 + dy2 * dy2;
+    if (d1 * 0.0625 <= flatnessSq && d2 * 0.0625 <= flatnessSq) {
       addVertex(x3, y3);
       return;
     }

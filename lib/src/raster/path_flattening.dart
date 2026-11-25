@@ -168,21 +168,6 @@ double _localFlatnessSq(
   return scaleSq <= 1e-12 ? flatnessSq : flatnessSq / scaleSq;
 }
 
-// Avoid allocating a transform callback for every animated contour.
-void _appendBezierVertex(
-  PolyPath out,
-  double x,
-  double y,
-  (double, double, double, double, double, double)? transform,
-) {
-  if (transform == null) {
-    out.addVertex(x, y);
-    return;
-  }
-  final (a, b, c, d, tx, ty) = transform;
-  out.addVertex(a * x + c * y + tx, b * x + d * y + ty);
-}
-
 void _flattenBezier(
   _BezierGeometry src,
   double frame,
@@ -229,51 +214,70 @@ void _flattenBezier(
       out.ensureVertexCapacity(out.vx.length + 1);
     }
   }
-  _appendBezierVertex(out, pts[0], pts[1], transform);
-  var lx = pts[0], ly = pts[1];
   final limit = closingCurve ? count : count - 1;
-  for (var step = 1; step <= limit; step++) {
-    final prev = step - 1;
-    final curr = step % count;
-    final p = prev * 6, c = curr * 6;
-    final ox = pts[p + 4], oy = pts[p + 5];
-    final ix = pts[c + 2], iy = pts[c + 3];
-    final nx = pts[c], ny = pts[c + 1];
-    if (ox.abs() <= 1e-4 &&
-        oy.abs() <= 1e-4 &&
-        ix.abs() <= 1e-4 &&
-        iy.abs() <= 1e-4) {
-      _appendBezierVertex(out, nx, ny, transform);
-    } else if (transform != null) {
-      final (a, b, c, d, tx, ty) = transform;
-      final x1 = pts[p] + ox, y1 = pts[p + 1] + oy;
-      final x2 = nx + ix, y2 = ny + iy;
-      out.addCubic(
-        a * lx + c * ly + tx,
-        b * lx + d * ly + ty,
-        a * x1 + c * y1 + tx,
-        b * x1 + d * y1 + ty,
-        a * x2 + c * y2 + tx,
-        b * x2 + d * y2 + ty,
-        a * nx + c * ny + tx,
-        b * nx + d * ny + ty,
-        flatnessSq,
-      );
-    } else {
-      out.addCubic(
-        lx,
-        ly,
-        pts[p] + ox,
-        pts[p + 1] + oy,
-        nx + ix,
-        ny + iy,
-        nx,
-        ny,
-        flatnessSq,
-      );
+  if (transform != null) {
+    final (ma, mb, mc, md, mtx, mty) = transform;
+    var lx = pts[0], ly = pts[1];
+    out.addVertex(ma * lx + mc * ly + mtx, mb * lx + md * ly + mty);
+    for (var step = 1; step <= limit; step++) {
+      final p = (step - 1) * 6;
+      final c = (step == count ? 0 : step) * 6;
+      final ox = pts[p + 4], oy = pts[p + 5];
+      final ix = pts[c + 2], iy = pts[c + 3];
+      final nx = pts[c], ny = pts[c + 1];
+      if (ox.abs() <= 1e-4 &&
+          oy.abs() <= 1e-4 &&
+          ix.abs() <= 1e-4 &&
+          iy.abs() <= 1e-4) {
+        out.addVertex(ma * nx + mc * ny + mtx, mb * nx + md * ny + mty);
+      } else {
+        final x1 = pts[p] + ox, y1 = pts[p + 1] + oy;
+        final x2 = nx + ix, y2 = ny + iy;
+        out.addCubic(
+          ma * lx + mc * ly + mtx,
+          mb * lx + md * ly + mty,
+          ma * x1 + mc * y1 + mtx,
+          mb * x1 + md * y1 + mty,
+          ma * x2 + mc * y2 + mtx,
+          mb * x2 + md * y2 + mty,
+          ma * nx + mc * ny + mtx,
+          mb * nx + md * ny + mty,
+          flatnessSq,
+        );
+      }
+      lx = nx;
+      ly = ny;
     }
-    lx = nx;
-    ly = ny;
+  } else {
+    var lx = pts[0], ly = pts[1];
+    out.addVertex(lx, ly);
+    for (var step = 1; step <= limit; step++) {
+      final p = (step - 1) * 6;
+      final c = (step == count ? 0 : step) * 6;
+      final ox = pts[p + 4], oy = pts[p + 5];
+      final ix = pts[c + 2], iy = pts[c + 3];
+      final nx = pts[c], ny = pts[c + 1];
+      if (ox.abs() <= 1e-4 &&
+          oy.abs() <= 1e-4 &&
+          ix.abs() <= 1e-4 &&
+          iy.abs() <= 1e-4) {
+        out.addVertex(nx, ny);
+      } else {
+        out.addCubic(
+          lx,
+          ly,
+          pts[p] + ox,
+          pts[p + 1] + oy,
+          nx + ix,
+          ny + iy,
+          nx,
+          ny,
+          flatnessSq,
+        );
+      }
+      lx = nx;
+      ly = ny;
+    }
   }
   out.endContour();
 }
@@ -911,6 +915,136 @@ class _StrokeScratch {
   }
 }
 
+// Trigonometry-free recursive unit-normal bisection for round joins and caps.
+// Bisects the arc from unit normal (nx0, ny0) to (nx1, ny1) (< 180 degrees)
+// around (cx, cy) with radius hw without calling atan2, acos, cos, or sin.
+void _strokeNormalArc(
+  PolyPath dst,
+  double hw,
+  double sagittaTol,
+  double cx,
+  double cy,
+  double nx0,
+  double ny0,
+  double nx1,
+  double ny1,
+  int depth,
+) {
+  var mx = nx0 + nx1;
+  var my = ny0 + ny1;
+  final lenSq = mx * mx + my * my;
+  if (lenSq > 1e-12 && depth < 5) {
+    final invLen = 1.0 / math.sqrt(lenSq);
+    mx *= invLen;
+    my *= invLen;
+    final sagitta = hw * (1.0 - (nx0 * mx + ny0 * my));
+    if (depth < 2 || sagitta > sagittaTol) {
+      _strokeNormalArc(
+        dst,
+        hw,
+        sagittaTol,
+        cx,
+        cy,
+        nx0,
+        ny0,
+        mx,
+        my,
+        depth + 1,
+      );
+      dst.addVertex(cx + hw * mx, cy + hw * my);
+      _strokeNormalArc(
+        dst,
+        hw,
+        sagittaTol,
+        cx,
+        cy,
+        mx,
+        my,
+        nx1,
+        ny1,
+        depth + 1,
+      );
+      return;
+    }
+  }
+  if (depth == 0) {
+    dst.addVertex(cx + hw * nx1, cy + hw * ny1);
+  }
+}
+
+void _strokeEmitNormalArc(
+  PolyPath dst,
+  double hw,
+  double sagittaTol,
+  double cx,
+  double cy,
+  double nx0,
+  double ny0,
+  double nx1,
+  double ny1,
+) {
+  _strokeNormalArc(dst, hw, sagittaTol, cx, cy, nx0, ny0, nx1, ny1, 0);
+  dst.addVertex(cx + hw * nx1, cy + hw * ny1);
+}
+
+void _strokeAddJoin(
+  PolyPath dst,
+  Float64List tx,
+  Float64List ty,
+  double hw,
+  double miterSq,
+  double sagittaTol,
+  int join,
+  int s0,
+  int s1,
+  double vx,
+  double vy,
+  bool reversed,
+) {
+  final sign = reversed ? -1.0 : 1.0;
+  final u0x = tx[s0] * sign, u0y = ty[s0] * sign;
+  final u1x = tx[s1] * sign, u1y = ty[s1] * sign;
+  // Right-hand normal of (ux, uy) in Y-down coordinates: (-uy, ux) = N * sign.
+  final n0x = -u0y, n0y = u0x;
+  final n1x = -u1y, n1y = u1x;
+  final dot = u0x * u1x + u0y * u1y;
+  final cross = u0x * u1y - u0y * u1x;
+
+  final oaX = vx + hw * n0x, oaY = vy + hw * n0y;
+  final obX = vx + hw * n1x, obY = vy + hw * n1y;
+
+  if (cross.abs() < 1e-4 && dot > 0) {
+    dst.addVertex((oaX + obX) * 0.5, (oaY + obY) * 0.5);
+    return;
+  }
+
+  // Outer bend on the right-hand side occurs when turning counter-clockwise (cross < 0).
+  if (cross >= 0) {
+    // Inner crease: route cleanly through joint center so NonZero fill has zero notch.
+    dst.addVertex(oaX, oaY);
+    dst.addVertex(vx, vy);
+    dst.addVertex(obX, obY);
+    return;
+  }
+
+  if (join == 1 && (1.0 + dot) > 1e-6 && 2.0 <= miterSq * (1.0 + dot)) {
+    final scale = hw / (1.0 + dot);
+    dst.addVertex(vx + (n0x + n1x) * scale, vy + (n0y + n1y) * scale);
+  } else if (join == 2) {
+    dst.addVertex(oaX, oaY);
+    if (dot < -0.999) {
+      // Near-180 degree U-turn: split into two 90-degree normal arcs via tangent u0.
+      _strokeEmitNormalArc(dst, hw, sagittaTol, vx, vy, n0x, n0y, u0x, u0y);
+      _strokeEmitNormalArc(dst, hw, sagittaTol, vx, vy, u0x, u0y, n1x, n1y);
+    } else {
+      _strokeEmitNormalArc(dst, hw, sagittaTol, vx, vy, n0x, n0y, n1x, n1y);
+    }
+  } else {
+    dst.addVertex(oaX, oaY);
+    dst.addVertex(obX, obY);
+  }
+}
+
 void _expandStroke(
   PolyPath src,
   double hw,
@@ -928,50 +1062,6 @@ void _expandStroke(
   }
   final miterSq = miterLimit * miterLimit;
   final sagittaTol = math.max(0.12, flatness * 0.5);
-
-  // Trigonometry-free recursive unit-normal bisection for round joins and caps.
-  // Bisects the arc from unit normal (nx0, ny0) to (nx1, ny1) (< 180 degrees)
-  // around (cx, cy) with radius hw without calling atan2, acos, cos, or sin.
-  void addNormalArc(
-    double cx,
-    double cy,
-    double nx0,
-    double ny0,
-    double nx1,
-    double ny1,
-    int depth,
-  ) {
-    var mx = nx0 + nx1;
-    var my = ny0 + ny1;
-    final lenSq = mx * mx + my * my;
-    if (lenSq > 1e-12 && depth < 5) {
-      final invLen = 1.0 / math.sqrt(lenSq);
-      mx *= invLen;
-      my *= invLen;
-      final sagitta = hw * (1.0 - (nx0 * mx + ny0 * my));
-      if (depth < 2 || sagitta > sagittaTol) {
-        addNormalArc(cx, cy, nx0, ny0, mx, my, depth + 1);
-        dst.addVertex(cx + hw * mx, cy + hw * my);
-        addNormalArc(cx, cy, mx, my, nx1, ny1, depth + 1);
-        return;
-      }
-    }
-    if (depth == 0) {
-      dst.addVertex(cx + hw * nx1, cy + hw * ny1);
-    }
-  }
-
-  void emitNormalArc(
-    double cx,
-    double cy,
-    double nx0,
-    double ny0,
-    double nx1,
-    double ny1,
-  ) {
-    addNormalArc(cx, cy, nx0, ny0, nx1, ny1, 0);
-    dst.addVertex(cx + hw * nx1, cy + hw * ny1);
-  }
 
   for (var k = 0; k < src.contourCount; k++) {
     final start = src.contourStart[k];
@@ -1004,10 +1094,10 @@ void _expandStroke(
         // Round dot via 4 quadrant normal-bisection arcs (zero trig calls).
         dst.beginContour(true);
         dst.addVertex(cx + hw, cy);
-        emitNormalArc(cx, cy, 1.0, 0.0, 0.0, 1.0);
-        emitNormalArc(cx, cy, 0.0, 1.0, -1.0, 0.0);
-        emitNormalArc(cx, cy, -1.0, 0.0, 0.0, -1.0);
-        emitNormalArc(cx, cy, 0.0, -1.0, 1.0, 0.0);
+        _strokeEmitNormalArc(dst, hw, sagittaTol, cx, cy, 1.0, 0.0, 0.0, 1.0);
+        _strokeEmitNormalArc(dst, hw, sagittaTol, cx, cy, 0.0, 1.0, -1.0, 0.0);
+        _strokeEmitNormalArc(dst, hw, sagittaTol, cx, cy, -1.0, 0.0, 0.0, -1.0);
+        _strokeEmitNormalArc(dst, hw, sagittaTol, cx, cy, 0.0, -1.0, 1.0, 0.0);
         dst.endContour();
       } else if (cap == 3) {
         dst.beginContour(true);
@@ -1024,7 +1114,7 @@ void _expandStroke(
     final tx = scratch.tx.ensure(segCount);
     final ty = scratch.ty.ensure(segCount);
     for (var s = 0; s < segCount; s++) {
-      final sNext = (s + 1) % n;
+      final sNext = s + 1 == n ? 0 : s + 1;
       final dx = ptsX[sNext] - ptsX[s];
       final dy = ptsY[sNext] - ptsY[s];
       final len = _hypot(dx, dy);
@@ -1038,66 +1128,45 @@ void _expandStroke(
       }
     }
 
-    void addJoin(int s0, int s1, double vx, double vy, bool reversed) {
-      final sign = reversed ? -1.0 : 1.0;
-      final u0x = tx[s0] * sign, u0y = ty[s0] * sign;
-      final u1x = tx[s1] * sign, u1y = ty[s1] * sign;
-      // Right-hand normal of (ux, uy) in Y-down coordinates: (-uy, ux) = N * sign.
-      final n0x = -u0y, n0y = u0x;
-      final n1x = -u1y, n1y = u1x;
-      final dot = u0x * u1x + u0y * u1y;
-      final cross = u0x * u1y - u0y * u1x;
-
-      final oaX = vx + hw * n0x, oaY = vy + hw * n0y;
-      final obX = vx + hw * n1x, obY = vy + hw * n1y;
-
-      if (cross.abs() < 1e-4 && dot > 0) {
-        dst.addVertex((oaX + obX) * 0.5, (oaY + obY) * 0.5);
-        return;
-      }
-
-      // Outer bend on the right-hand side occurs when turning counter-clockwise (cross < 0).
-      if (cross >= 0) {
-        // Inner crease: route cleanly through joint center so NonZero fill has zero notch.
-        dst.addVertex(oaX, oaY);
-        dst.addVertex(vx, vy);
-        dst.addVertex(obX, obY);
-        return;
-      }
-
-      if (join == 1 && (1.0 + dot) > 1e-6 && 2.0 <= miterSq * (1.0 + dot)) {
-        final scale = hw / (1.0 + dot);
-        dst.addVertex(vx + (n0x + n1x) * scale, vy + (n0y + n1y) * scale);
-      } else if (join == 2) {
-        dst.addVertex(oaX, oaY);
-        if (dot < -0.999) {
-          // Near-180 degree U-turn: split into two 90-degree normal arcs via tangent u0.
-          emitNormalArc(vx, vy, n0x, n0y, u0x, u0y);
-          emitNormalArc(vx, vy, u0x, u0y, n1x, n1y);
-        } else {
-          emitNormalArc(vx, vy, n0x, n0y, n1x, n1y);
-        }
-      } else {
-        dst.addVertex(oaX, oaY);
-        dst.addVertex(obX, obY);
-      }
-    }
-
     if (closed) {
       // Closed contour: outer (+N forward) + inner (-N reversed) contours.
       dst.beginContour(true);
       for (var v = 0; v < n; v++) {
-        final prevSeg = (v - 1 + segCount) % segCount;
-        final nextSeg = v;
-        addJoin(prevSeg, nextSeg, ptsX[v], ptsY[v], false);
+        final prevSeg = v == 0 ? segCount - 1 : v - 1;
+        _strokeAddJoin(
+          dst,
+          tx,
+          ty,
+          hw,
+          miterSq,
+          sagittaTol,
+          join,
+          prevSeg,
+          v,
+          ptsX[v],
+          ptsY[v],
+          false,
+        );
       }
       dst.endContour();
 
       dst.beginContour(true);
       for (var v = n - 1; v >= 0; v--) {
-        final nextSeg = (v - 1 + segCount) % segCount;
-        final prevSeg = v;
-        addJoin(prevSeg, nextSeg, ptsX[v], ptsY[v], true);
+        final nextSeg = v == 0 ? segCount - 1 : v - 1;
+        _strokeAddJoin(
+          dst,
+          tx,
+          ty,
+          hw,
+          miterSq,
+          sagittaTol,
+          join,
+          v,
+          nextSeg,
+          ptsX[v],
+          ptsY[v],
+          true,
+        );
       }
       dst.endContour();
     } else {
@@ -1112,7 +1181,20 @@ void _expandStroke(
       }
       // Interior joins forward.
       for (var v = 1; v < n - 1; v++) {
-        addJoin(v - 1, v, ptsX[v], ptsY[v], false);
+        _strokeAddJoin(
+          dst,
+          tx,
+          ty,
+          hw,
+          miterSq,
+          sagittaTol,
+          join,
+          v - 1,
+          v,
+          ptsX[v],
+          ptsY[v],
+          false,
+        );
       }
       // End cap at vertex n-1.
       final lastS = segCount - 1;
@@ -1126,15 +1208,48 @@ void _expandStroke(
       } else if (cap == 2) {
         dst.addVertex(ePlusX, ePlusY);
         // Round semicircle via two quarter-turn normal bisections through tip.
-        emitNormalArc(ex, ey, -utyLast, utxLast, utxLast, utyLast);
-        emitNormalArc(ex, ey, utxLast, utyLast, utyLast, -utxLast);
+        _strokeEmitNormalArc(
+          dst,
+          hw,
+          sagittaTol,
+          ex,
+          ey,
+          -utyLast,
+          utxLast,
+          utxLast,
+          utyLast,
+        );
+        _strokeEmitNormalArc(
+          dst,
+          hw,
+          sagittaTol,
+          ex,
+          ey,
+          utxLast,
+          utyLast,
+          utyLast,
+          -utxLast,
+        );
       } else {
         dst.addVertex(ePlusX, ePlusY);
         dst.addVertex(eMinusX, eMinusY);
       }
       // Interior joins backward on -N side.
       for (var v = n - 2; v >= 1; v--) {
-        addJoin(v, v - 1, ptsX[v], ptsY[v], true);
+        _strokeAddJoin(
+          dst,
+          tx,
+          ty,
+          hw,
+          miterSq,
+          sagittaTol,
+          join,
+          v,
+          v - 1,
+          ptsX[v],
+          ptsY[v],
+          true,
+        );
       }
       // Start cap at vertex 0.
       final sx = ptsX[0], sy = ptsY[0];
@@ -1144,8 +1259,28 @@ void _expandStroke(
         dst.addVertex(sMinusX - hw * utx0, sMinusY - hw * uty0);
       } else if (cap == 2) {
         dst.addVertex(sMinusX, sMinusY);
-        emitNormalArc(sx, sy, uty0, -utx0, -utx0, -uty0);
-        emitNormalArc(sx, sy, -utx0, -uty0, -uty0, utx0);
+        _strokeEmitNormalArc(
+          dst,
+          hw,
+          sagittaTol,
+          sx,
+          sy,
+          uty0,
+          -utx0,
+          -utx0,
+          -uty0,
+        );
+        _strokeEmitNormalArc(
+          dst,
+          hw,
+          sagittaTol,
+          sx,
+          sy,
+          -utx0,
+          -uty0,
+          -uty0,
+          utx0,
+        );
       } else {
         dst.addVertex(sMinusX, sMinusY);
       }

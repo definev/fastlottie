@@ -155,6 +155,33 @@ class RasterWorkspace {
     return true;
   }
 
+  bool _rasterizeSolidDart(
+    PolyPath path,
+    bool evenOdd,
+    int x0,
+    int y0,
+    int x1,
+    int y1,
+    Uint32List dst,
+    int originX,
+    int originY,
+    int stride,
+    int color,
+  ) => (_scanline ??= FtScanlineRasterizer(initialHeight))
+      .rasterizePolyPathSolid(
+        path,
+        evenOdd,
+        x0,
+        y0,
+        x1,
+        y1,
+        dst,
+        originX,
+        originY,
+        stride,
+        color,
+      );
+
   RleSpans? _retained(Object owner, _CoverageKey key) {
     final entry = _coverage.remove(owner);
     if (entry == null) return null;

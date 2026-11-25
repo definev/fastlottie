@@ -6,8 +6,30 @@ import '../platform/simd_stub.dart'
     if (dart.library.js_interop) '../platform/simd_wasm.dart';
 import 'scanline_rasterizer.dart';
 
+const _isWeb = bool.fromEnvironment('dart.library.js_interop');
+
 /// 64-bit SWAR premultiplied BGRA8888 (`(A << 24) | (R << 16) | (G << 8) | B`) blenders.
 abstract final class SwarBlender {
+  static const int _zeroChunkPixels = 16384;
+  static final Uint32List _zeroU32 = Uint32List(_zeroChunkPixels);
+
+  /// Fast zero-fill for pixel buffers. Uses chunked `setRange` (native `memmove`
+  /// in Dart VM, `array.copy` in dart2wasm, and `TypedArray.set` in dart2js),
+  /// which is 10x-195x faster than `Uint32List.fillRange(0, count, 0)`.
+  static void clearPixels(Uint32List dst, int count) {
+    if (count <= 0) return;
+    if (count <= _zeroChunkPixels) {
+      dst.setRange(0, count, _zeroU32);
+      return;
+    }
+    var offset = 0;
+    while (offset < count) {
+      final end = offset + _zeroChunkPixels;
+      dst.setRange(offset, end < count ? end : count, _zeroU32);
+      offset = end;
+    }
+  }
+
   /// Exact 16.16 fixed-point reciprocal table for un-premultiplying `0..255`
   /// channels by `alpha` (`1..255`): `((c * _invAlphaLut[a]) >> 16) == (c * 255) ~/ a`.
   static final Uint32List _invAlphaLut = () {
@@ -89,6 +111,11 @@ abstract final class SwarBlender {
     final count = spans.spanCount * 2;
     final data = spans.data;
     final fullSa = srcPremul >>> 24;
+    final canUseDst4 =
+        !_isWeb && fullSa == 255 && (dst.offsetInBytes & 15) == 0;
+    final canUseDst64 = !_isWeb && (dst.offsetInBytes & 7) == 0;
+    Int32x4List? dst4;
+    Uint64List? dst64;
     for (var i = 0; i < count; i += 2) {
       final w0 = data[i];
       final w1 = data[i + 1];
@@ -102,11 +129,39 @@ abstract final class SwarBlender {
       final row = y * stride + x;
       final end = row + len;
       if (sa == 255) {
-        if (len >= 8) {
-          dst.fillRange(row, end, effSrc);
+        if (canUseDst4 && len >= 8) {
+          dst4 ??= Int32x4List.view(
+            dst.buffer,
+            dst.offsetInBytes,
+            dst.length >>> 2,
+          );
+          final v4 = Int32x4(effSrc, effSrc, effSrc, effSrc);
+          var p = row;
+          final alignEnd = (p + 3) & ~3;
+          while (p < alignEnd) {
+            dst[p++] = effSrc;
+          }
+          var q = p >>> 2;
+          final qEnd = end >>> 2;
+          while (q < qEnd) {
+            dst4[q++] = v4;
+          }
+          p = q << 2;
+          while (p < end) {
+            dst[p++] = effSrc;
+          }
         } else {
-          for (var p = row; p < end; p++) {
+          var p = row;
+          final end4 = end - 3;
+          while (p < end4) {
             dst[p] = effSrc;
+            dst[p + 1] = effSrc;
+            dst[p + 2] = effSrc;
+            dst[p + 3] = effSrc;
+            p += 4;
+          }
+          while (p < end) {
+            dst[p++] = effSrc;
           }
         }
       } else {
@@ -114,11 +169,134 @@ abstract final class SwarBlender {
         if (fullSa == 255 && len == 1) {
           final d = dst[row];
           dst[row] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
+        } else if (canUseDst64 && len >= 4) {
+          dst64 ??= Uint64List.view(
+            dst.buffer,
+            dst.offsetInBytes,
+            dst.length >>> 1,
+          );
+          _blendRun64(dst, dst64, row, end, effSrc, ia);
         } else {
           for (var p = row; p < end; p++) {
             final d = dst[p];
             dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
           }
+        }
+      }
+    }
+  }
+
+  static void _blendRun64(
+    Uint32List dst,
+    Uint64List dst64,
+    int row,
+    int end,
+    int effSrc,
+    int ia,
+  ) {
+    var p = row;
+    if ((p & 1) != 0) {
+      final d = dst[p];
+      dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
+      p++;
+    }
+    var q = p >>> 1;
+    final qEnd = end >>> 1;
+    final effSrc64 = (effSrc << 32) | effSrc;
+    const mask = (0x00FF00FF << 32) | 0x00FF00FF;
+    const bias = (0x00800080 << 32) | 0x00800080;
+    const agMask = (0xFF00FF00 << 32) | 0xFF00FF00;
+    final qEnd2 = qEnd - 1;
+    while (q < qEnd2) {
+      final d0 = dst64[q];
+      final d1 = dst64[q + 1];
+      if ((d0 | d1) == 0) {
+        dst64[q] = effSrc64;
+        dst64[q + 1] = effSrc64;
+        q += 2;
+        continue;
+      }
+      final rb0 = (d0 & mask) * ia + bias;
+      final rb1 = (d1 & mask) * ia + bias;
+      final ag0 = ((d0 >>> 8) & mask) * ia + bias;
+      final ag1 = ((d1 >>> 8) & mask) * ia + bias;
+      final r0 = ((rb0 + ((rb0 >>> 8) & mask)) >>> 8) & mask;
+      final r1 = ((rb1 + ((rb1 >>> 8) & mask)) >>> 8) & mask;
+      final a0 = (ag0 + ((ag0 >>> 8) & mask)) & agMask;
+      final a1 = (ag1 + ((ag1 >>> 8) & mask)) & agMask;
+      dst64[q] = effSrc64 + (r0 | a0);
+      dst64[q + 1] = effSrc64 + (r1 | a1);
+      q += 2;
+    }
+    while (q < qEnd) {
+      final d0 = dst64[q];
+      if (d0 == 0) {
+        dst64[q++] = effSrc64;
+      } else {
+        final rb0 = (d0 & mask) * ia + bias;
+        final rb = ((rb0 + ((rb0 >>> 8) & mask)) >>> 8) & mask;
+        final ag0 = ((d0 >>> 8) & mask) * ia + bias;
+        final ag = (ag0 + ((ag0 >>> 8) & mask)) & agMask;
+        dst64[q++] = effSrc64 + (rb | ag);
+      }
+    }
+    p = q << 1;
+    if (p < end) {
+      final d = dst[p];
+      dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
+    }
+  }
+
+  static void _fillSolidRun(
+    Uint32List dst,
+    Int32x4List? dst4,
+    Uint64List? dst64,
+    int row,
+    int len,
+    int effSrc,
+  ) {
+    if (effSrc == 0 || len <= 0) return;
+    final end = row + len;
+    final sa = effSrc >>> 24;
+    if (sa == 255) {
+      if (dst4 != null && len >= 8) {
+        var p = row;
+        final alignEnd = (p + 3) & ~3;
+        while (p < alignEnd) {
+          dst[p++] = effSrc;
+        }
+        var q = p >>> 2;
+        final qEnd = end >>> 2;
+        final v4 = Int32x4(effSrc, effSrc, effSrc, effSrc);
+        while (q < qEnd) {
+          dst4[q++] = v4;
+        }
+        p = q << 2;
+        while (p < end) {
+          dst[p++] = effSrc;
+        }
+      } else {
+        var p = row;
+        final end4 = end - 3;
+        while (p < end4) {
+          dst[p] = effSrc;
+          dst[p + 1] = effSrc;
+          dst[p + 2] = effSrc;
+          dst[p + 3] = effSrc;
+          p += 4;
+        }
+        while (p < end) {
+          dst[p++] = effSrc;
+        }
+      }
+    } else {
+      final ia = 255 - sa;
+      if (dst64 != null && len >= 4) {
+        _blendRun64(dst, dst64, row, end, effSrc, ia);
+      } else {
+        for (var p = row; p < end; p++) {
+          final d = dst[p];
+          dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
         }
       }
     }
@@ -165,7 +343,15 @@ abstract final class SwarBlender {
     final dtx = (ia * gx + ib * gy) * invLenSq;
     final count = spans.spanCount * 2;
     final data = spans.data;
-    final modulateAlpha = opacity255 < 255;
+    final fullOpacity = opacity255 >= 255;
+    final cLoBase = fullOpacity
+        ? lut1024[0]
+        : scalePremul255(lut1024[0], opacity255);
+    final cHiBase = fullOpacity
+        ? lut1024[1023]
+        : scalePremul255(lut1024[1023], opacity255);
+    Int32x4List? dst4;
+    Uint64List? dst64;
 
     for (var i = 0; i < count; i += 2) {
       final w0 = data[i];
@@ -180,25 +366,139 @@ abstract final class SwarBlender {
       final ly = ib * px + id * py + ity;
       var t = ((lx - sx) * gx + (ly - sy) * gy) * invLenSq;
       final row = (wy - dstOriginY) * stride + (wx - dstOriginX);
+
+      // Entire span stays clamped at an endpoint: fill as a solid run.
+      if (t <= 0.0 && dtx <= 0.0) {
+        final eff = cov == 256 ? cLoBase : scalePremul(cLoBase, cov);
+        if (!_isWeb) {
+          if (dst4 == null && (dst.offsetInBytes & 15) == 0 && len >= 8) {
+            dst4 = Int32x4List.view(
+              dst.buffer,
+              dst.offsetInBytes,
+              dst.length >>> 2,
+            );
+          }
+          if (dst64 == null && (dst.offsetInBytes & 7) == 0 && len >= 4) {
+            dst64 = Uint64List.view(
+              dst.buffer,
+              dst.offsetInBytes,
+              dst.length >>> 1,
+            );
+          }
+        }
+        _fillSolidRun(dst, dst4, dst64, row, len, eff);
+        continue;
+      }
+      if (t >= 1.0 && dtx >= 0.0) {
+        final eff = cov == 256 ? cHiBase : scalePremul(cHiBase, cov);
+        if (!_isWeb) {
+          if (dst4 == null && (dst.offsetInBytes & 15) == 0 && len >= 8) {
+            dst4 = Int32x4List.view(
+              dst.buffer,
+              dst.offsetInBytes,
+              dst.length >>> 2,
+            );
+          }
+          if (dst64 == null && (dst.offsetInBytes & 7) == 0 && len >= 4) {
+            dst64 = Uint64List.view(
+              dst.buffer,
+              dst.offsetInBytes,
+              dst.length >>> 1,
+            );
+          }
+        }
+        _fillSolidRun(dst, dst4, dst64, row, len, eff);
+        continue;
+      }
+
       final end = row + len;
-      if (cov == 256 && !modulateAlpha) {
-        for (var p = row; p < end; p++) {
+      var p = row;
+      if (cov == 256 && fullOpacity) {
+        final end4 = end - 3;
+        while (p < end4) {
+          final t0 = t;
+          final t1 = t0 + dtx;
+          final t2 = t1 + dtx;
+          final t3 = t2 + dtx;
+          t = t3 + dtx;
+          final int i0, i1, i2, i3;
+          if (t0 > 0.0 && t0 < 1.0 && t3 > 0.0 && t3 < 1.0) {
+            i0 = (t0 * 1023.0 + 0.5).toInt();
+            i1 = (t1 * 1023.0 + 0.5).toInt();
+            i2 = (t2 * 1023.0 + 0.5).toInt();
+            i3 = (t3 * 1023.0 + 0.5).toInt();
+          } else {
+            i0 = t0 <= 0.0
+                ? 0
+                : (t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt());
+            i1 = t1 <= 0.0
+                ? 0
+                : (t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt());
+            i2 = t2 <= 0.0
+                ? 0
+                : (t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt());
+            i3 = t3 <= 0.0
+                ? 0
+                : (t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt());
+          }
+          final c0 = lut1024[i0];
+          final c1 = lut1024[i1];
+          final c2 = lut1024[i2];
+          final c3 = lut1024[i3];
+          if ((c0 & c1 & c2 & c3) >= 0xFF000000) {
+            dst[p] = c0;
+            dst[p + 1] = c1;
+            dst[p + 2] = c2;
+            dst[p + 3] = c3;
+          } else {
+            dst[p] = blendSrcOver(c0, dst[p]);
+            dst[p + 1] = blendSrcOver(c1, dst[p + 1]);
+            dst[p + 2] = blendSrcOver(c2, dst[p + 2]);
+            dst[p + 3] = blendSrcOver(c3, dst[p + 3]);
+          }
+          p += 4;
+        }
+        while (p < end) {
           final clamped = t <= 0.0
               ? 0
               : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
           dst[p] = blendSrcOver(lut1024[clamped], dst[p]);
           t += dtx;
+          p++;
         }
-      } else {
-        for (var p = row; p < end; p++) {
+      } else if (fullOpacity) {
+        while (p < end) {
           final clamped = t <= 0.0
               ? 0
               : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
-          var c = lut1024[clamped];
-          if (modulateAlpha) c = scalePremul255(c, opacity255);
-          if (cov < 256) c = scalePremul(c, cov);
+          dst[p] = blendSrcOver(scalePremul(lut1024[clamped], cov), dst[p]);
+          t += dtx;
+          p++;
+        }
+      } else if (cov == 256) {
+        while (p < end) {
+          final clamped = t <= 0.0
+              ? 0
+              : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
+          dst[p] = blendSrcOver(
+            scalePremul255(lut1024[clamped], opacity255),
+            dst[p],
+          );
+          t += dtx;
+          p++;
+        }
+      } else {
+        while (p < end) {
+          final clamped = t <= 0.0
+              ? 0
+              : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
+          final c = scalePremul(
+            scalePremul255(lut1024[clamped], opacity255),
+            cov,
+          );
           dst[p] = blendSrcOver(c, dst[p]);
           t += dtx;
+          p++;
         }
       }
     }
@@ -240,6 +540,8 @@ abstract final class SwarBlender {
     final count = spans.spanCount * 2;
     final data = spans.data;
     final modulateAlpha = opacity255 < 255;
+    final cEndRaw = lut1024[1023];
+    final cEndOpaque = cEndRaw >= 0xFF000000;
 
     for (var i = 0; i < count; i += 2) {
       final w0 = data[i];
@@ -273,21 +575,45 @@ abstract final class SwarBlender {
           final s3 = dSq > 0.0 ? dSq : 0.0;
           dSq += step1;
           step1 += step2;
+          if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
+            if (cEndOpaque) {
+              dst[p] = cEndRaw;
+              dst[p + 1] = cEndRaw;
+              dst[p + 2] = cEndRaw;
+              dst[p + 3] = cEndRaw;
+            } else if (cEndRaw != 0) {
+              dst[p] = blendSrcOver(cEndRaw, dst[p]);
+              dst[p + 1] = blendSrcOver(cEndRaw, dst[p + 1]);
+              dst[p + 2] = blendSrcOver(cEndRaw, dst[p + 2]);
+              dst[p + 3] = blendSrcOver(cEndRaw, dst[p + 3]);
+            }
+            p += 4;
+            continue;
+          }
           final t4 = Float32x4(s0, s1, s2, s3).sqrt();
           final t0 = t4.x, t1 = t4.y, t2 = t4.z, t3 = t4.w;
-          final c0 = t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt();
-          final c1 = t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt();
-          final c2 = t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt();
-          final c3 = t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt();
-          dst[p] = blendSrcOver(lut1024[c0], dst[p]);
-          dst[p + 1] = blendSrcOver(lut1024[c1], dst[p + 1]);
-          dst[p + 2] = blendSrcOver(lut1024[c2], dst[p + 2]);
-          dst[p + 3] = blendSrcOver(lut1024[c3], dst[p + 3]);
+          final c0 = lut1024[t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt()];
+          final c1 = lut1024[t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt()];
+          final c2 = lut1024[t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt()];
+          final c3 = lut1024[t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt()];
+          if ((c0 & c1 & c2 & c3) >= 0xFF000000) {
+            dst[p] = c0;
+            dst[p + 1] = c1;
+            dst[p + 2] = c2;
+            dst[p + 3] = c3;
+          } else {
+            dst[p] = blendSrcOver(c0, dst[p]);
+            dst[p + 1] = blendSrcOver(c1, dst[p + 1]);
+            dst[p + 2] = blendSrcOver(c2, dst[p + 2]);
+            dst[p + 3] = blendSrcOver(c3, dst[p + 3]);
+          }
           p += 4;
         }
         while (p < end) {
-          final t = math.sqrt(dSq > 0.0 ? dSq : 0.0);
-          final clamped = t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt();
+          final q = dSq > 0.0 ? dSq : 0.0;
+          final clamped = q >= 1.0
+              ? 1023
+              : (math.sqrt(q) * 1023.0 + 0.5).toInt();
           dst[p] = blendSrcOver(lut1024[clamped], dst[p]);
           dSq += step1;
           step1 += step2;
@@ -308,12 +634,17 @@ abstract final class SwarBlender {
           final s3 = dSq > 0.0 ? dSq : 0.0;
           dSq += step1;
           step1 += step2;
-          final t4 = Float32x4(s0, s1, s2, s3).sqrt();
-          final t0 = t4.x, t1 = t4.y, t2 = t4.z, t3 = t4.w;
-          var c0 = lut1024[t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt()];
-          var c1 = lut1024[t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt()];
-          var c2 = lut1024[t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt()];
-          var c3 = lut1024[t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt()];
+          int c0, c1, c2, c3;
+          if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
+            c0 = c1 = c2 = c3 = cEndRaw;
+          } else {
+            final t4 = Float32x4(s0, s1, s2, s3).sqrt();
+            final t0 = t4.x, t1 = t4.y, t2 = t4.z, t3 = t4.w;
+            c0 = lut1024[t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt()];
+            c1 = lut1024[t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt()];
+            c2 = lut1024[t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt()];
+            c3 = lut1024[t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt()];
+          }
           if (modulateAlpha) {
             c0 = scalePremul255(c0, opacity255);
             c1 = scalePremul255(c1, opacity255);
@@ -333,8 +664,10 @@ abstract final class SwarBlender {
           p += 4;
         }
         while (p < end) {
-          final t = math.sqrt(dSq > 0.0 ? dSq : 0.0);
-          final clamped = t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt();
+          final q = dSq > 0.0 ? dSq : 0.0;
+          final clamped = q >= 1.0
+              ? 1023
+              : (math.sqrt(q) * 1023.0 + 0.5).toInt();
           var c = lut1024[clamped];
           if (modulateAlpha) c = scalePremul255(c, opacity255);
           if (cov < 256) c = scalePremul(c, cov);
@@ -490,6 +823,34 @@ abstract final class SwarBlender {
     return (clip(c.$1), clip(c.$2), clip(c.$3));
   }
 
+  static int _blendMultiply(int src, int dst) {
+    if (src == 0) return dst;
+    if (dst == 0) return src;
+    final sa = src >>> 24, da = dst >>> 24;
+    final invSa = 255 - sa, invDa = 255 - da;
+    final sr = (src >>> 16) & 255, dr = (dst >>> 16) & 255;
+    final sg = (src >>> 8) & 255, dg = (dst >>> 8) & 255;
+    final sb = src & 255, db = dst & 255;
+    final a = sa + da - div255(sa * da);
+    final r = div255(sr * invDa + dr * invSa + sr * dr);
+    final g = div255(sg * invDa + dg * invSa + sg * dg);
+    final b = div255(sb * invDa + db * invSa + sb * db);
+    return (a << 24) | (r << 16) | (g << 8) | b;
+  }
+
+  static int _blendScreen(int src, int dst) {
+    if (src == 0) return dst;
+    if (dst == 0) return src;
+    final sa = src >>> 24, da = dst >>> 24;
+    final sr = (src >>> 16) & 255, dr = (dst >>> 16) & 255;
+    final sg = (src >>> 8) & 255, dg = (dst >>> 8) & 255;
+    final sb = src & 255, db = dst & 255;
+    return ((sa + da - div255(sa * da)) << 24) |
+        ((sr + dr - div255(sr * dr)) << 16) |
+        ((sg + dg - div255(sg * dg)) << 8) |
+        (sb + db - div255(sb * db));
+  }
+
   static void blendSolidSpans(
     Uint32List dst,
     int originX,
@@ -516,8 +877,47 @@ abstract final class SwarBlender {
       return;
     }
     final data = spans.data;
+    final count = spans.spanCount * 2;
     var prevSrc = 0, prevDst = 0, result = 0;
-    for (var i = 0; i < spans.spanCount * 2; i += 2) {
+    if (mode == 1) {
+      for (var i = 0; i < count; i += 2) {
+        final xy = data[i], run = data[i + 1];
+        final src = scalePremul(color, (run & 255) + 1);
+        if (src == 0) continue;
+        final start = ((xy >>> 16) - originY) * stride + (xy & 65535) - originX;
+        final end = start + (run >>> 8);
+        for (var p = start; p < end; p++) {
+          final d = dst[p];
+          if (src != prevSrc || d != prevDst) {
+            prevSrc = src;
+            prevDst = d;
+            result = _blendMultiply(src, d);
+          }
+          dst[p] = result;
+        }
+      }
+      return;
+    }
+    if (mode == 2) {
+      for (var i = 0; i < count; i += 2) {
+        final xy = data[i], run = data[i + 1];
+        final src = scalePremul(color, (run & 255) + 1);
+        if (src == 0) continue;
+        final start = ((xy >>> 16) - originY) * stride + (xy & 65535) - originX;
+        final end = start + (run >>> 8);
+        for (var p = start; p < end; p++) {
+          final d = dst[p];
+          if (src != prevSrc || d != prevDst) {
+            prevSrc = src;
+            prevDst = d;
+            result = _blendScreen(src, d);
+          }
+          dst[p] = result;
+        }
+      }
+      return;
+    }
+    for (var i = 0; i < count; i += 2) {
       final xy = data[i], run = data[i + 1];
       final src = scalePremul(color, (run & 255) + 1);
       if (src == 0) continue;
@@ -553,6 +953,46 @@ abstract final class SwarBlender {
     var prevSrc = 0, prevDst = 0, result = 0;
     var dstRow = dstOriginY * dstStride + dstOriginX;
     var srcRow = srcOriginY * srcStride + srcOriginX;
+    if (blendMode == 1) {
+      for (var y = 0; y < h; y++, dstRow += dstStride, srcRow += srcStride) {
+        for (var x = 0; x < w; x++) {
+          final s = src[srcRow + x];
+          if (s == 0) continue;
+          final d = dst[dstRow + x];
+          if (d == 0) {
+            dst[dstRow + x] = s;
+            continue;
+          }
+          if (s != prevSrc || d != prevDst) {
+            prevSrc = s;
+            prevDst = d;
+            result = _blendMultiply(s, d);
+          }
+          dst[dstRow + x] = result;
+        }
+      }
+      return;
+    }
+    if (blendMode == 2) {
+      for (var y = 0; y < h; y++, dstRow += dstStride, srcRow += srcStride) {
+        for (var x = 0; x < w; x++) {
+          final s = src[srcRow + x];
+          if (s == 0) continue;
+          final d = dst[dstRow + x];
+          if (d == 0) {
+            dst[dstRow + x] = s;
+            continue;
+          }
+          if (s != prevSrc || d != prevDst) {
+            prevSrc = s;
+            prevDst = d;
+            result = _blendScreen(s, d);
+          }
+          dst[dstRow + x] = result;
+        }
+      }
+      return;
+    }
     for (var y = 0; y < h; y++, dstRow += dstStride, srcRow += srcStride) {
       for (var x = 0; x < w; x++) {
         final s = src[srcRow + x];

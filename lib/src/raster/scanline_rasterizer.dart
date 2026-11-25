@@ -8,6 +8,8 @@ import '../platform/simd_stub.dart'
 import 'raster_geometry.dart';
 
 const _isWeb = bool.fromEnvironment('dart.library.js_interop');
+const _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
+const _isJs = _isWeb && !_isWasm;
 
 /// Compact packed RLE span list:
 /// word0 = (y << 16) | x
@@ -264,9 +266,22 @@ class FtScanlineRasterizer {
         ..fillRange(0, math.max(64, initialHeight), -1);
 
   static const int _coordLimit = 1 << 20; // +/- 1,048,576 px
+  static const double _coordLimitD = 1048576.0;
   static const int _defaultCells = 8192;
   static const int _softMaxCells = 32768;
   static const int _softMaxRows = 2048;
+  static const int _maxDenseCells = 262144;
+  static const int _softDenseCells = 256 * 256;
+
+  static const int _debruijn64 = (0x03F79D71 << 32) | 0xB4CB0A89;
+  static final Uint8List _ctz64 = () {
+    final t = Uint8List(64);
+    for (var bit = 0; bit < 64; bit++) {
+      t[((1 << bit) * _debruijn64) >>> 58] = bit;
+    }
+    return t;
+  }();
+  static final Uint64List _zeroUsedChunk = Uint64List(2048);
 
   final int _initialRows;
   Int32List _rowHead;
@@ -276,11 +291,26 @@ class FtScanlineRasterizer {
   Int32List _cellNext = Int32List(_defaultCells);
   int _cellCount = 0;
 
+  // Direct-indexed dense cell plane + 64-bit sparse row bitset (same model as
+  // native FLDense) used for clips <= 262,144 cells on native Dart VM.
+  // Kept nullable so Web/JS (which lacks Uint64List) never instantiates it.
+  Int32List _denseCells = Int32List(0);
+  Uint64List? _denseUsed;
+  int _denseW = 0;
+  int _denseWords = 0;
+  bool _denseNeedsClear = false;
+  Uint32List? _cachedDst;
+  Int32x4List? _cachedDst4;
+  Uint64List? _cachedDst64;
+
   void trimIfOversized({bool aggressive = false}) {
     _cellCount = 0;
     _valid = false;
     _dirtyMaxY = -1;
     _dirtyMinY = 0;
+    _cachedDst = null;
+    _cachedDst4 = null;
+    _cachedDst64 = null;
     final rowCap = aggressive
         ? _initialRows
         : math.max(_initialRows, _softMaxRows);
@@ -293,6 +323,12 @@ class FtScanlineRasterizer {
       _cellCover = Int32List(_defaultCells);
       _cellArea = Int32List(_defaultCells);
       _cellNext = Int32List(_defaultCells);
+    }
+    final denseLimit = aggressive ? 0 : _softDenseCells;
+    if (_denseCells.length > denseLimit * 2) {
+      _denseCells = Int32List(0);
+      _denseUsed = null;
+      _denseNeedsClear = false;
     }
   }
 
@@ -316,7 +352,7 @@ class FtScanlineRasterizer {
     _minEy = clipY0;
     _maxEx = clipX1;
     _maxEy = clipY1;
-    if (_isWeb) {
+    if (_isJs) {
       _minBoundX = clipX0 * 256;
       _minBoundY = clipY0 * 256;
       _maxBoundX = clipX1 * 256;
@@ -343,11 +379,12 @@ class FtScanlineRasterizer {
     _cellNext = Int32List(next)..setRange(0, _cellCount, _cellNext);
   }
 
-  int _toFixed(double v) {
+  static int _toFixed(double v) {
+    if (v >= -_coordLimitD && v <= _coordLimitD) {
+      return (v * 256.0).round();
+    }
     if (!v.isFinite) return 0;
-    if (v > _coordLimit) v = _coordLimit.toDouble();
-    if (v < -_coordLimit) v = -_coordLimit.toDouble();
-    return (v * 256.0).round();
+    return v > 0 ? (_coordLimit << 8) : -(_coordLimit << 8);
   }
 
   void moveTo(double x, double y) {
@@ -373,6 +410,23 @@ class FtScanlineRasterizer {
   ) {
     out.clear();
     if (clipX0 >= clipX1 || clipY0 >= clipY1 || path.contourCount == 0) return;
+    if (!_isJs &&
+        clipX0 >= 0 &&
+        clipY0 >= 0 &&
+        clipX1 <= 65535 &&
+        clipY1 <= 65535 &&
+        (clipX1 - clipX0) * (clipY1 - clipY0) <= _maxDenseCells) {
+      _rasterizeDenseToSpans(
+        path,
+        evenOdd,
+        out,
+        clipX0,
+        clipY0,
+        clipX1,
+        clipY1,
+      );
+      return;
+    }
     begin(clipX0, clipY0, clipX1, clipY1);
     final vx = path.vx;
     final vy = path.vy;
@@ -390,6 +444,1052 @@ class FtScanlineRasterizer {
       lineTo(sx, sy);
     }
     sweep(evenOdd, out);
+  }
+
+  /// Fused dense scanline rasterization + solid premultiplied BGRA8888 fill
+  /// without allocating or round-tripping through [RleSpans]. Returns `true`
+  /// when handled directly; returns `false` when the caller should fall back.
+  bool rasterizePolyPathSolid(
+    PolyPath path,
+    bool evenOdd,
+    int clipX0,
+    int clipY0,
+    int clipX1,
+    int clipY1,
+    Uint32List dst,
+    int dstOriginX,
+    int dstOriginY,
+    int dstStride,
+    int srcPremul,
+  ) {
+    if (srcPremul == 0 ||
+        clipX0 >= clipX1 ||
+        clipY0 >= clipY1 ||
+        path.contourCount == 0) {
+      return true;
+    }
+    if (_isJs ||
+        clipX0 < 0 ||
+        clipY0 < 0 ||
+        clipX1 > 65535 ||
+        clipY1 > 65535 ||
+        (clipX1 - clipX0) * (clipY1 - clipY0) > _maxDenseCells) {
+      return false;
+    }
+    _prepareDense(clipX0, clipY0, clipX1, clipY1);
+    _rasterizeDenseEdges(path);
+    _sweepDenseSolid(
+      evenOdd,
+      dst,
+      dstOriginX,
+      dstOriginY,
+      dstStride,
+      srcPremul,
+    );
+    return true;
+  }
+
+  void _prepareDense(int clipX0, int clipY0, int clipX1, int clipY1) {
+    final w = clipX1 - clipX0;
+    final h = clipY1 - clipY0;
+    final words = (w + 63) >>> 6;
+    final needCells = w * h * 2;
+    final needUsed = words * h;
+    if (_denseCells.length < needCells) {
+      var cap = _denseCells.isEmpty ? 4096 * 2 : _denseCells.length;
+      while (cap < needCells) {
+        cap *= 2;
+      }
+      if (cap > _maxDenseCells * 2) cap = _maxDenseCells * 2;
+      _denseCells = Int32List(cap);
+    }
+    var used = _denseUsed;
+    if (used == null || used.length < needUsed) {
+      var cap = (used == null || used.isEmpty) ? 128 : used.length;
+      while (cap < needUsed) {
+        cap *= 2;
+      }
+      _denseUsed = Uint64List(cap);
+      _denseNeedsClear = false;
+    } else if (_denseNeedsClear) {
+      final clearLen = used.length;
+      var off = 0;
+      while (off < clearLen) {
+        final end = off + _zeroUsedChunk.length;
+        used.setRange(off, end < clearLen ? end : clearLen, _zeroUsedChunk);
+        off = end;
+      }
+      _denseNeedsClear = false;
+    }
+    _minEx = clipX0;
+    _minEy = clipY0;
+    _maxEx = clipX1;
+    _maxEy = clipY1;
+    _minBoundX = clipX0 << 8;
+    _minBoundY = clipY0 << 8;
+    _maxBoundX = clipX1 << 8;
+    _maxBoundY = clipY1 << 8;
+    _denseW = w;
+    _denseWords = words;
+    _dirtyMinY = clipY1;
+    _dirtyMaxY = clipY0 - 1;
+    _denseNeedsClear = true;
+  }
+
+  void _rasterizeDenseEdges(PolyPath path) {
+    final vx = path.vx;
+    final vy = path.vy;
+    final starts = path.contourStart;
+    final ends = path.contourEnd;
+    final contours = path.contourCount;
+    for (var k = 0; k < contours; k++) {
+      final start = starts[k];
+      final end = ends[k];
+      if (end - start < 2) continue;
+      final sx = _toFixed(vx[start]);
+      final sy = _toFixed(vy[start]);
+      var ax = sx;
+      var ay = sy;
+      for (var i = start + 1; i < end; i++) {
+        final bx = _toFixed(vx[i]);
+        final by = _toFixed(vy[i]);
+        _edgeDense(ax, ay, bx, by);
+        ax = bx;
+        ay = by;
+      }
+      _edgeDense(ax, ay, sx, sy);
+    }
+  }
+
+  static void _markCellAt(
+    Uint64List used,
+    Int32List cells,
+    int rowWordBase,
+    int rowCellBase,
+    int i,
+    int f1,
+    int f2,
+    int d,
+  ) {
+    if (d == 0) return;
+    final wordIdx = rowWordBase + (i >>> 6);
+    final bit = 1 << (i & 63);
+    final cellIdx = rowCellBase + (i << 1);
+    final area = (f1 + f2) * d;
+    final w = used[wordIdx];
+    if ((w & bit) != 0) {
+      cells[cellIdx] += d;
+      cells[cellIdx + 1] += area;
+    } else {
+      used[wordIdx] = w | bit;
+      cells[cellIdx] = d;
+      cells[cellIdx + 1] = area;
+    }
+  }
+
+  void _rowDense(int ey, int x1, int y1, int x2, int y2) {
+    final delta = y2 - y1;
+    if (delta == 0 || ey < _minEy || ey >= _maxEy) return;
+    var ex1 = x1 >> 8;
+    final ex2 = x2 >> 8;
+    final minEx = _minEx;
+    final maxEx = _maxEx;
+    final j = ey - _minEy;
+    final rowWordBase = j * _denseWords;
+    final rowCellBase = (j * _denseW) << 1;
+    final used = _denseUsed!;
+    final cells = _denseCells;
+
+    if (ex1 == ex2) {
+      if (ex1 >= maxEx) return;
+      if (ey < _dirtyMinY) _dirtyMinY = ey;
+      if (ey > _dirtyMaxY) _dirtyMaxY = ey;
+      if (ex1 < minEx) {
+        _markCellAt(used, cells, rowWordBase, rowCellBase, 0, 0, 0, delta);
+      } else {
+        _markCellAt(
+          used,
+          cells,
+          rowWordBase,
+          rowCellBase,
+          ex1 - minEx,
+          x1 - (ex1 << 8),
+          x2 - (ex1 << 8),
+          delta,
+        );
+      }
+      return;
+    }
+    final dx = x2 - x1;
+    var curFx = x1 - (ex1 << 8);
+    var curFy = y1;
+    if (x2 > x1) {
+      if (ex1 >= maxEx) return;
+      if (ey < _dirtyMinY) _dirtyMinY = ey;
+      if (ey > _dirtyMaxY) _dirtyMaxY = ey;
+      if (ex1 < minEx) {
+        if (ex2 < minEx) {
+          _markCellAt(used, cells, rowWordBase, rowCellBase, 0, 0, 0, delta);
+          return;
+        }
+        final crossFy = y1 + ((_minBoundX - x1) * delta) ~/ dx;
+        _markCellAt(
+          used,
+          cells,
+          rowWordBase,
+          rowCellBase,
+          0,
+          0,
+          0,
+          crossFy - curFy,
+        );
+        curFy = crossFy;
+        ex1 = minEx;
+        curFx = 0;
+      }
+      final limit = ex2 < maxEx ? ex2 : maxEx;
+      if (limit - ex1 >= 5) {
+        final absDelta = delta < 0 ? -delta : delta;
+        final sign = delta < 0 ? -1 : 1;
+        final firstNum = (((ex1 + 1) << 8) - x1) * absDelta;
+        final stepNum = absDelta << 8;
+        var q = firstNum ~/ dx;
+        var rem = firstNum - q * dx;
+        final stepQ = stepNum ~/ dx;
+        final stepR = stepNum - stepQ * dx;
+        while (ex1 < limit) {
+          final nextFy = y1 + sign * q;
+          _markCellAt(
+            used,
+            cells,
+            rowWordBase,
+            rowCellBase,
+            ex1 - minEx,
+            curFx,
+            256,
+            nextFy - curFy,
+          );
+          q += stepQ;
+          rem += stepR;
+          if (rem >= dx) {
+            rem -= dx;
+            q++;
+          }
+          curFy = nextFy;
+          curFx = 0;
+          ex1++;
+        }
+      } else {
+        while (ex1 < limit) {
+          final nextX = (ex1 + 1) << 8;
+          final nextFy = y1 + ((nextX - x1) * delta) ~/ dx;
+          _markCellAt(
+            used,
+            cells,
+            rowWordBase,
+            rowCellBase,
+            ex1 - minEx,
+            curFx,
+            256,
+            nextFy - curFy,
+          );
+          curFy = nextFy;
+          curFx = 0;
+          ex1++;
+        }
+      }
+      if (ex1 < maxEx) {
+        _markCellAt(
+          used,
+          cells,
+          rowWordBase,
+          rowCellBase,
+          ex1 - minEx,
+          curFx,
+          x2 - (ex2 << 8),
+          y2 - curFy,
+        );
+      }
+    } else {
+      if (ex2 >= maxEx) return;
+      if (ey < _dirtyMinY) _dirtyMinY = ey;
+      if (ey > _dirtyMaxY) _dirtyMaxY = ey;
+      if (ex1 >= maxEx) {
+        curFy = y1 + ((_maxBoundX - x1) * delta) ~/ dx;
+        ex1 = maxEx - 1;
+        curFx = 256;
+      }
+      final limit = ex2 > minEx - 1 ? ex2 : minEx - 1;
+      if (ex1 - limit >= 5) {
+        final absDx = -dx;
+        final absDelta = delta < 0 ? -delta : delta;
+        final sign = delta < 0 ? -1 : 1;
+        final firstNum = (x1 - (ex1 << 8)) * absDelta;
+        final stepNum = absDelta << 8;
+        var q = firstNum ~/ absDx;
+        var rem = firstNum - q * absDx;
+        final stepQ = stepNum ~/ absDx;
+        final stepR = stepNum - stepQ * absDx;
+        while (ex1 > limit) {
+          final nextFy = y1 + sign * q;
+          _markCellAt(
+            used,
+            cells,
+            rowWordBase,
+            rowCellBase,
+            ex1 - minEx,
+            curFx,
+            0,
+            nextFy - curFy,
+          );
+          q += stepQ;
+          rem += stepR;
+          if (rem >= absDx) {
+            rem -= absDx;
+            q++;
+          }
+          curFy = nextFy;
+          curFx = 256;
+          ex1--;
+        }
+      } else {
+        while (ex1 > limit) {
+          final nextX = ex1 << 8;
+          final nextFy = y1 + ((nextX - x1) * delta) ~/ dx;
+          _markCellAt(
+            used,
+            cells,
+            rowWordBase,
+            rowCellBase,
+            ex1 - minEx,
+            curFx,
+            0,
+            nextFy - curFy,
+          );
+          curFy = nextFy;
+          curFx = 256;
+          ex1--;
+        }
+      }
+      if (ex1 < minEx) {
+        _markCellAt(used, cells, rowWordBase, rowCellBase, 0, 0, 0, y2 - curFy);
+      } else {
+        _markCellAt(
+          used,
+          cells,
+          rowWordBase,
+          rowCellBase,
+          ex1 - minEx,
+          curFx,
+          x2 - (ex2 << 8),
+          y2 - curFy,
+        );
+      }
+    }
+  }
+
+  void _edgeDense(int x1, int y1, int x2, int y2) {
+    final dy = y2 - y1;
+    if (dy == 0) return;
+    var ey1 = y1 >> 8;
+    final ey2 = y2 >> 8;
+    if ((ey1 < _minEy && ey2 < _minEy) || (ey1 >= _maxEy && ey2 >= _maxEy)) {
+      return;
+    }
+    if (ey1 == ey2) {
+      _rowDense(ey1, x1, y1 - (ey1 << 8), x2, y2 - (ey1 << 8));
+      return;
+    }
+    final dx = x2 - x1;
+    var curX = x1;
+    var curY = y1;
+    if (dy > 0) {
+      if (ey1 < _minEy) {
+        curY = _minBoundY;
+        curX = x1 + ((curY - y1) * dx) ~/ dy;
+        ey1 = _minEy;
+      }
+      final limit = ey2 < _maxEy ? ey2 : _maxEy;
+      if (dx == 0) {
+        final rawEx = x1 >> 8;
+        if (rawEx < _maxEx && ey1 < limit) {
+          final clamped = rawEx < _minEx;
+          final i = clamped ? 0 : rawEx - _minEx;
+          final fx2 = clamped ? 0 : (x1 - (rawEx << 8)) << 1;
+          final words = _denseWords;
+          final w2 = _denseW << 1;
+          final used = _denseUsed!;
+          final cells = _denseCells;
+          final bit = 1 << (i & 63);
+          final j0 = ey1 - _minEy;
+          var wordIdx = j0 * words + (i >>> 6);
+          var cellIdx = (j0 * _denseW + i) << 1;
+          if (ey1 < _dirtyMinY) _dirtyMinY = ey1;
+          if (limit - 1 > _dirtyMaxY) _dirtyMaxY = limit - 1;
+          while (ey1 < limit) {
+            final ny = (ey1 + 1) << 8;
+            final d = ny - curY;
+            final area = fx2 * d;
+            final w = used[wordIdx];
+            if ((w & bit) != 0) {
+              cells[cellIdx] += d;
+              cells[cellIdx + 1] += area;
+            } else {
+              used[wordIdx] = w | bit;
+              cells[cellIdx] = d;
+              cells[cellIdx + 1] = area;
+            }
+            curY = ny;
+            wordIdx += words;
+            cellIdx += w2;
+            ey1++;
+          }
+        } else {
+          ey1 = limit;
+          curY = limit << 8;
+        }
+      } else if (limit - ey1 >= 5) {
+        final mag = dx < 0 ? -dx : dx;
+        final sign = dx < 0 ? -1 : 1;
+        final firstNum = (((ey1 + 1) << 8) - y1) * mag;
+        final stepNum = mag << 8;
+        var q = firstNum ~/ dy;
+        var rem = firstNum - q * dy;
+        final stepQ = stepNum ~/ dy;
+        final stepR = stepNum - stepQ * dy;
+        while (ey1 < limit) {
+          final ny = (ey1 + 1) << 8;
+          final nx = x1 + sign * q;
+          _rowDense(ey1, curX, curY - (ey1 << 8), nx, 256);
+          q += stepQ;
+          rem += stepR;
+          if (rem >= dy) {
+            rem -= dy;
+            q++;
+          }
+          curX = nx;
+          curY = ny;
+          ey1++;
+        }
+      } else {
+        while (ey1 < limit) {
+          final ny = (ey1 + 1) << 8;
+          final nx = x1 + ((ny - y1) * dx) ~/ dy;
+          _rowDense(ey1, curX, curY - (ey1 << 8), nx, 256);
+          curX = nx;
+          curY = ny;
+          ey1++;
+        }
+      }
+      if (ey1 < _maxEy) {
+        _rowDense(ey1, curX, curY - (ey1 << 8), x2, y2 - (ey1 << 8));
+      }
+    } else {
+      if (ey1 >= _maxEy) {
+        curY = _maxBoundY;
+        curX = x1 + ((curY - y1) * dx) ~/ dy;
+        ey1 = _maxEy - 1;
+      }
+      if (ey1 == ey2) {
+        if (ey1 >= _minEy) {
+          _rowDense(ey1, curX, curY - (ey1 << 8), x2, y2 - (ey1 << 8));
+        }
+        return;
+      }
+      final firstRowY = ey1 << 8;
+      var nx = x1 + ((firstRowY - y1) * dx) ~/ dy;
+      if (ey1 >= _minEy) {
+        _rowDense(ey1, curX, curY - firstRowY, nx, 0);
+      }
+      curX = nx;
+      ey1--;
+      final limit = ey2 > _minEy - 1 ? ey2 : _minEy - 1;
+      if (dx == 0) {
+        final rawEx = x1 >> 8;
+        if (rawEx < _maxEx && ey1 > limit) {
+          final clamped = rawEx < _minEx;
+          final i = clamped ? 0 : rawEx - _minEx;
+          final area = clamped ? 0 : -((x1 - (rawEx << 8)) << 9);
+          final words = _denseWords;
+          final w2 = _denseW << 1;
+          final used = _denseUsed!;
+          final cells = _denseCells;
+          final bit = 1 << (i & 63);
+          final j0 = ey1 - _minEy;
+          var wordIdx = j0 * words + (i >>> 6);
+          var cellIdx = (j0 * _denseW + i) << 1;
+          if (ey1 > _dirtyMaxY) _dirtyMaxY = ey1;
+          if (limit + 1 < _dirtyMinY) _dirtyMinY = limit + 1;
+          while (ey1 > limit) {
+            final w = used[wordIdx];
+            if ((w & bit) != 0) {
+              cells[cellIdx] -= 256;
+              cells[cellIdx + 1] += area;
+            } else {
+              used[wordIdx] = w | bit;
+              cells[cellIdx] = -256;
+              cells[cellIdx + 1] = area;
+            }
+            wordIdx -= words;
+            cellIdx -= w2;
+            ey1--;
+          }
+        } else {
+          ey1 = limit;
+        }
+      } else if (ey1 - limit >= 5) {
+        final mag = dx < 0 ? -dx : dx;
+        final sign = dx < 0 ? -1 : 1;
+        final absDy = -dy;
+        final firstNum = (y1 - (ey1 << 8)) * mag;
+        final stepNum = mag << 8;
+        var q = firstNum ~/ absDy;
+        var rem = firstNum - q * absDy;
+        final stepQ = stepNum ~/ absDy;
+        final stepR = stepNum - stepQ * absDy;
+        while (ey1 > limit) {
+          nx = x1 + sign * q;
+          _rowDense(ey1, curX, 256, nx, 0);
+          q += stepQ;
+          rem += stepR;
+          if (rem >= absDy) {
+            rem -= absDy;
+            q++;
+          }
+          curX = nx;
+          ey1--;
+        }
+      } else {
+        while (ey1 > limit) {
+          nx = x1 + (((ey1 << 8) - y1) * dx) ~/ dy;
+          _rowDense(ey1, curX, 256, nx, 0);
+          curX = nx;
+          ey1--;
+        }
+      }
+      if (ey1 >= _minEy) {
+        _rowDense(ey1, curX, 256, x2, y2 - (ey1 << 8));
+      }
+    }
+  }
+
+  void _rasterizeDenseToSpans(
+    PolyPath path,
+    bool evenOdd,
+    RleSpans out,
+    int clipX0,
+    int clipY0,
+    int clipX1,
+    int clipY1,
+  ) {
+    _prepareDense(clipX0, clipY0, clipX1, clipY1);
+    _rasterizeDenseEdges(path);
+    if (_dirtyMaxY < _dirtyMinY) {
+      _denseNeedsClear = false;
+      return;
+    }
+    final x0 = _minEx;
+    final y0 = _minEy;
+    final x1 = _maxEx;
+    final w = _denseW;
+    final words = _denseWords;
+    final used = _denseUsed!;
+    final cells = _denseCells;
+    final ctz = _ctz64;
+    final startY = _dirtyMinY;
+    final endY = _dirtyMaxY;
+
+    var d = out.data;
+    var capWords = d.length;
+    var spanCount = 0;
+    var minX = 0x7FFFFFFF;
+    var minY = 0x7FFFFFFF;
+    var maxX = 0;
+    var maxY = 0;
+    var lastY = -1;
+    var lastXEnd = -1;
+    var lastPackedCov = -1;
+
+    for (var cy = startY; cy <= endY; cy++) {
+      final j = cy - y0;
+      final rowWordOff = j * words;
+      final rowCellOff = (j * w) << 1;
+      var cover = 0;
+      var col = x0;
+      for (var wi = 0; wi < words; wi++) {
+        var word = used[rowWordOff + wi];
+        if (word == 0) continue;
+        used[rowWordOff + wi] = 0;
+        final xBase = x0 + (wi << 6);
+        final cellBase = rowCellOff + (wi << 7);
+        while (word != 0) {
+          final lsb = word & -word;
+          final bitIdx = ctz[(lsb * _debruijn64) >>> 58];
+          word ^= lsb;
+          final cx = xBase + bitIdx;
+          if (cx > col && cover != 0) {
+            final cov = _calcCoverage(cover << 9, evenOdd);
+            if (cov > 0) {
+              final len = cx - col;
+              final packedCov = cov >= 256 ? 255 : cov - 1;
+              if (cy == lastY &&
+                  col == lastXEnd &&
+                  packedCov == lastPackedCov) {
+                final prevIdx = (spanCount - 1) * 2 + 1;
+                d[prevIdx] = (((d[prevIdx] >>> 8) + len) << 8) | packedCov;
+                lastXEnd = cx;
+                if (cx > maxX) maxX = cx;
+              } else {
+                final idx = spanCount * 2;
+                if (idx + 2 > capWords) {
+                  out.spanCount = spanCount;
+                  out._grow();
+                  d = out.data;
+                  capWords = d.length;
+                }
+                d[idx] = (cy << 16) | col;
+                d[idx + 1] = (len << 8) | packedCov;
+                spanCount++;
+                lastY = cy;
+                lastXEnd = cx;
+                lastPackedCov = packedCov;
+                if (col < minX) minX = col;
+                if (cx > maxX) maxX = cx;
+                if (cy < minY) minY = cy;
+                if (cy + 1 > maxY) maxY = cy + 1;
+              }
+            }
+          }
+          final cIdx = cellBase + (bitIdx << 1);
+          cover += cells[cIdx];
+          final cov = _calcCoverage((cover << 9) - cells[cIdx + 1], evenOdd);
+          if (cov > 0) {
+            final packedCov = cov >= 256 ? 255 : cov - 1;
+            if (cy == lastY && cx == lastXEnd && packedCov == lastPackedCov) {
+              final prevIdx = (spanCount - 1) * 2 + 1;
+              d[prevIdx] = (((d[prevIdx] >>> 8) + 1) << 8) | packedCov;
+              lastXEnd = cx + 1;
+              if (lastXEnd > maxX) maxX = lastXEnd;
+            } else {
+              final idx = spanCount * 2;
+              if (idx + 2 > capWords) {
+                out.spanCount = spanCount;
+                out._grow();
+                d = out.data;
+                capWords = d.length;
+              }
+              d[idx] = (cy << 16) | cx;
+              d[idx + 1] = 256 | packedCov;
+              spanCount++;
+              lastY = cy;
+              lastXEnd = cx + 1;
+              lastPackedCov = packedCov;
+              if (cx < minX) minX = cx;
+              if (lastXEnd > maxX) maxX = lastXEnd;
+              if (cy < minY) minY = cy;
+              if (cy + 1 > maxY) maxY = cy + 1;
+            }
+          }
+          col = cx + 1;
+        }
+      }
+      if (cover != 0 && col < x1) {
+        final cov = _calcCoverage(cover << 9, evenOdd);
+        if (cov > 0) {
+          final len = x1 - col;
+          final packedCov = cov >= 256 ? 255 : cov - 1;
+          if (cy == lastY && col == lastXEnd && packedCov == lastPackedCov) {
+            final prevIdx = (spanCount - 1) * 2 + 1;
+            d[prevIdx] = (((d[prevIdx] >>> 8) + len) << 8) | packedCov;
+            lastXEnd = x1;
+            if (x1 > maxX) maxX = x1;
+          } else {
+            final idx = spanCount * 2;
+            if (idx + 2 > capWords) {
+              out.spanCount = spanCount;
+              out._grow();
+              d = out.data;
+              capWords = d.length;
+            }
+            d[idx] = (cy << 16) | col;
+            d[idx + 1] = (len << 8) | packedCov;
+            spanCount++;
+            lastY = cy;
+            lastXEnd = x1;
+            lastPackedCov = packedCov;
+            if (col < minX) minX = col;
+            if (x1 > maxX) maxX = x1;
+            if (cy < minY) minY = cy;
+            if (cy + 1 > maxY) maxY = cy + 1;
+          }
+        }
+      }
+    }
+    _denseNeedsClear = false;
+    out
+      ..spanCount = spanCount
+      ..minX = minX
+      ..minY = minY
+      ..maxX = maxX
+      ..maxY = maxY;
+  }
+
+  static int _scalePremul(int premul, int factor256) {
+    if (factor256 >= 256) return premul;
+    if (factor256 <= 0 || premul == 0) return 0;
+    final rb =
+        ((((premul & 0x00FF00FF) * factor256) + 0x00800080) >> 8) & 0x00FF00FF;
+    final ag =
+        ((((premul >> 8) & 0x00FF00FF) * factor256) + 0x00800080) & 0xFF00FF00;
+    return rb | ag;
+  }
+
+  static int _srcOverWithIa(int s, int d, int ia) {
+    final rb0 = (d & 0x00FF00FF) * ia + 0x00800080;
+    final rb = ((rb0 + ((rb0 >> 8) & 0x00FF00FF)) >> 8) & 0x00FF00FF;
+    final ag0 = ((d >> 8) & 0x00FF00FF) * ia + 0x00800080;
+    final ag = (ag0 + ((ag0 >> 8) & 0x00FF00FF)) & 0xFF00FF00;
+    return s + (rb | ag);
+  }
+
+  void _sweepDenseSolid(
+    bool evenOdd,
+    Uint32List dst,
+    int dstOriginX,
+    int dstOriginY,
+    int dstStride,
+    int srcPremul,
+  ) {
+    if (_dirtyMaxY < _dirtyMinY) {
+      _denseNeedsClear = false;
+      return;
+    }
+    final x0 = _minEx;
+    final y0 = _minEy;
+    final x1 = _maxEx;
+    final w = _denseW;
+    final words = _denseWords;
+    final used = _denseUsed!;
+    final cells = _denseCells;
+    final ctz = _ctz64;
+    final startY = _dirtyMinY;
+    final endY = _dirtyMaxY;
+
+    final fullSa = srcPremul >>> 24;
+    if (!_isWeb && !identical(dst, _cachedDst)) {
+      _cachedDst = dst;
+      _cachedDst4 = (dst.offsetInBytes & 15) == 0
+          ? Int32x4List.view(dst.buffer, dst.offsetInBytes, dst.length >>> 2)
+          : null;
+      _cachedDst64 = (dst.offsetInBytes & 7) == 0
+          ? Uint64List.view(dst.buffer, dst.offsetInBytes, dst.length >>> 1)
+          : null;
+    }
+
+    if (fullSa == 255) {
+      final dst4 = _isWeb ? null : _cachedDst4;
+      final dst64 = _isWeb ? null : _cachedDst64;
+      final v4 = Int32x4(srcPremul, srcPremul, srcPremul, srcPremul);
+      for (var cy = startY; cy <= endY; cy++) {
+        final j = cy - y0;
+        final rowWordOff = j * words;
+        final rowCellOff = (j * w) << 1;
+        final rowBase = (cy - dstOriginY) * dstStride - dstOriginX;
+        var cover = 0;
+        var col = x0;
+        for (var wi = 0; wi < words; wi++) {
+          var word = used[rowWordOff + wi];
+          if (word == 0) continue;
+          used[rowWordOff + wi] = 0;
+          final xBase = x0 + (wi << 6);
+          final cellBase = rowCellOff + (wi << 7);
+          while (word != 0) {
+            final lsb = word & -word;
+            final bitIdx = ctz[(lsb * _debruijn64) >>> 58];
+            word ^= lsb;
+            final cx = xBase + bitIdx;
+            if (cx > col && cover != 0) {
+              final cov = _calcCoverage(cover << 9, evenOdd);
+              if (cov == 256) {
+                final start = rowBase + col;
+                final end = rowBase + cx;
+                if (!_isWeb && dst4 != null && end - start >= 8) {
+                  var p = start;
+                  final alignEnd = (p + 3) & ~3;
+                  while (p < alignEnd) {
+                    dst[p++] = srcPremul;
+                  }
+                  var q = p >>> 2;
+                  final qEnd = end >>> 2;
+                  while (q < qEnd) {
+                    dst4[q++] = v4;
+                  }
+                  p = q << 2;
+                  while (p < end) {
+                    dst[p++] = srcPremul;
+                  }
+                } else {
+                  var p = start;
+                  final end4 = end - 3;
+                  while (p < end4) {
+                    dst[p] = srcPremul;
+                    dst[p + 1] = srcPremul;
+                    dst[p + 2] = srcPremul;
+                    dst[p + 3] = srcPremul;
+                    p += 4;
+                  }
+                  while (p < end) {
+                    dst[p++] = srcPremul;
+                  }
+                }
+              } else if (cov > 0) {
+                final effSrc = _scalePremul(srcPremul, cov);
+                if (effSrc != 0) {
+                  _blendDenseTranslucentRun(
+                    dst,
+                    dst64,
+                    rowBase + col,
+                    rowBase + cx,
+                    effSrc,
+                    255 - (effSrc >>> 24),
+                  );
+                }
+              }
+            }
+            final cIdx = cellBase + (bitIdx << 1);
+            cover += cells[cIdx];
+            final cov = _calcCoverage((cover << 9) - cells[cIdx + 1], evenOdd);
+            if (cov == 256) {
+              dst[rowBase + cx] = srcPremul;
+            } else if (cov > 0) {
+              final effSrc = _scalePremul(srcPremul, cov);
+              if (effSrc != 0) {
+                final idx = rowBase + cx;
+                final d = dst[idx];
+                dst[idx] = d == 0
+                    ? effSrc
+                    : _srcOverWithIa(effSrc, d, 255 - (effSrc >>> 24));
+              }
+            }
+            col = cx + 1;
+          }
+        }
+        if (cover != 0 && col < x1) {
+          final cov = _calcCoverage(cover << 9, evenOdd);
+          if (cov == 256) {
+            final start = rowBase + col;
+            final end = rowBase + x1;
+            if (!_isWeb && dst4 != null && end - start >= 8) {
+              var p = start;
+              final alignEnd = (p + 3) & ~3;
+              while (p < alignEnd) {
+                dst[p++] = srcPremul;
+              }
+              var q = p >>> 2;
+              final qEnd = end >>> 2;
+              while (q < qEnd) {
+                dst4[q++] = v4;
+              }
+              p = q << 2;
+              while (p < end) {
+                dst[p++] = srcPremul;
+              }
+            } else {
+              var p = start;
+              final end4 = end - 3;
+              while (p < end4) {
+                dst[p] = srcPremul;
+                dst[p + 1] = srcPremul;
+                dst[p + 2] = srcPremul;
+                dst[p + 3] = srcPremul;
+                p += 4;
+              }
+              while (p < end) {
+                dst[p++] = srcPremul;
+              }
+            }
+          } else if (cov > 0) {
+            final effSrc = _scalePremul(srcPremul, cov);
+            if (effSrc != 0) {
+              _blendDenseTranslucentRun(
+                dst,
+                dst64,
+                rowBase + col,
+                rowBase + x1,
+                effSrc,
+                255 - (effSrc >>> 24),
+              );
+            }
+          }
+        }
+      }
+      _denseNeedsClear = false;
+      return;
+    }
+
+    // Translucent solid sweep (fullSa < 255).
+    final fullIa = 255 - fullSa;
+    final dst64 = _isWeb ? null : _cachedDst64;
+    for (var cy = startY; cy <= endY; cy++) {
+      final j = cy - y0;
+      final rowWordOff = j * words;
+      final rowCellOff = (j * w) << 1;
+      final rowBase = (cy - dstOriginY) * dstStride - dstOriginX;
+      var cover = 0;
+      var col = x0;
+      for (var wi = 0; wi < words; wi++) {
+        var word = used[rowWordOff + wi];
+        if (word == 0) continue;
+        used[rowWordOff + wi] = 0;
+        final xBase = x0 + (wi << 6);
+        final cellBase = rowCellOff + (wi << 7);
+        while (word != 0) {
+          final lsb = word & -word;
+          final bitIdx = ctz[(lsb * _debruijn64) >>> 58];
+          word ^= lsb;
+          final cx = xBase + bitIdx;
+          if (cx > col && cover != 0) {
+            final cov = _calcCoverage(cover << 9, evenOdd);
+            if (cov == 256) {
+              _blendDenseTranslucentRun(
+                dst,
+                dst64,
+                rowBase + col,
+                rowBase + cx,
+                srcPremul,
+                fullIa,
+              );
+            } else if (cov > 0) {
+              final effSrc = _scalePremul(srcPremul, cov);
+              if (effSrc != 0) {
+                _blendDenseTranslucentRun(
+                  dst,
+                  dst64,
+                  rowBase + col,
+                  rowBase + cx,
+                  effSrc,
+                  255 - (effSrc >>> 24),
+                );
+              }
+            }
+          }
+          final cIdx = cellBase + (bitIdx << 1);
+          cover += cells[cIdx];
+          final cov = _calcCoverage((cover << 9) - cells[cIdx + 1], evenOdd);
+          if (cov > 0) {
+            final effSrc = cov == 256
+                ? srcPremul
+                : _scalePremul(srcPremul, cov);
+            if (effSrc != 0) {
+              final idx = rowBase + cx;
+              final d = dst[idx];
+              dst[idx] = d == 0
+                  ? effSrc
+                  : _srcOverWithIa(
+                      effSrc,
+                      d,
+                      cov == 256 ? fullIa : 255 - (effSrc >>> 24),
+                    );
+            }
+          }
+          col = cx + 1;
+        }
+      }
+      if (cover != 0 && col < x1) {
+        final cov = _calcCoverage(cover << 9, evenOdd);
+        if (cov == 256) {
+          _blendDenseTranslucentRun(
+            dst,
+            dst64,
+            rowBase + col,
+            rowBase + x1,
+            srcPremul,
+            fullIa,
+          );
+        } else if (cov > 0) {
+          final effSrc = _scalePremul(srcPremul, cov);
+          if (effSrc != 0) {
+            _blendDenseTranslucentRun(
+              dst,
+              dst64,
+              rowBase + col,
+              rowBase + x1,
+              effSrc,
+              255 - (effSrc >>> 24),
+            );
+          }
+        }
+      }
+    }
+    _denseNeedsClear = false;
+  }
+
+  static void _blendDenseTranslucentRun(
+    Uint32List dst,
+    Uint64List? dst64,
+    int start,
+    int end,
+    int effSrc,
+    int ia,
+  ) {
+    if (!_isWeb && dst64 != null && end - start >= 4) {
+      var p = start;
+      if ((p & 1) != 0) {
+        final d = dst[p];
+        dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
+        p++;
+      }
+      var q = p >>> 1;
+      final qEnd = end >>> 1;
+      final effSrc64 = (effSrc << 32) | effSrc;
+      const mask = (0x00FF00FF << 32) | 0x00FF00FF;
+      const bias = (0x00800080 << 32) | 0x00800080;
+      const agMask = (0xFF00FF00 << 32) | 0xFF00FF00;
+      final qEnd2 = qEnd - 1;
+      while (q < qEnd2) {
+        final d0 = dst64[q];
+        final d1 = dst64[q + 1];
+        if ((d0 | d1) == 0) {
+          dst64[q] = effSrc64;
+          dst64[q + 1] = effSrc64;
+          q += 2;
+          continue;
+        }
+        final rb0 = (d0 & mask) * ia + bias;
+        final rb1 = (d1 & mask) * ia + bias;
+        final ag0 = ((d0 >>> 8) & mask) * ia + bias;
+        final ag1 = ((d1 >>> 8) & mask) * ia + bias;
+        final r0 = ((rb0 + ((rb0 >>> 8) & mask)) >>> 8) & mask;
+        final r1 = ((rb1 + ((rb1 >>> 8) & mask)) >>> 8) & mask;
+        final a0 = (ag0 + ((ag0 >>> 8) & mask)) & agMask;
+        final a1 = (ag1 + ((ag1 >>> 8) & mask)) & agMask;
+        dst64[q] = effSrc64 + (r0 | a0);
+        dst64[q + 1] = effSrc64 + (r1 | a1);
+        q += 2;
+      }
+      while (q < qEnd) {
+        final d0 = dst64[q];
+        if (d0 == 0) {
+          dst64[q++] = effSrc64;
+        } else {
+          final rb0 = (d0 & mask) * ia + bias;
+          final rb = ((rb0 + ((rb0 >>> 8) & mask)) >>> 8) & mask;
+          final ag0 = ((d0 >>> 8) & mask) * ia + bias;
+          final ag = (ag0 + ((ag0 >>> 8) & mask)) & agMask;
+          dst64[q++] = effSrc64 + (rb | ag);
+        }
+      }
+      p = q << 1;
+      if (p < end) {
+        final d = dst[p];
+        dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
+      }
+      return;
+    }
+    for (var p = start; p < end; p++) {
+      final d = dst[p];
+      dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
+    }
   }
 
   void _flushCell() {
@@ -463,7 +1563,7 @@ class FtScanlineRasterizer {
   }
 
   void _renderScanline(int ey, int x1, int y1, int x2, int y2) {
-    if (_isWeb) {
+    if (_isJs) {
       _renderScanlineWeb(ey, x1, y1, x2, y2);
       return;
     }
@@ -590,7 +1690,7 @@ class FtScanlineRasterizer {
   }
 
   void _renderLine(int toX, int toY) {
-    if (_isWeb) {
+    if (_isJs) {
       _renderLineWeb(toX, toY);
       return;
     }
@@ -765,7 +1865,7 @@ class FtScanlineRasterizer {
   }
 
   void sweep(bool evenOdd, RleSpans out) {
-    if (_isWeb) {
+    if (_isJs) {
       _sweepWeb(evenOdd, out);
       return;
     }

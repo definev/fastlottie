@@ -20,7 +20,7 @@ void _renderSceneSoftware(
   if (ws.preferNative) {
     simdClearPixels(outBgra8888, allocated);
   } else {
-    outBgra8888.typedList.fillRange(0, allocated, 0);
+    SwarBlender.clearPixels(outBgra8888.typedList, allocated);
   }
   if (pixelWidth <= 0 ||
       pixelHeight <= 0 ||
@@ -184,7 +184,7 @@ void _renderCompilerInto(
             if (useNative) {
               simdClearPixels(layerBufPlane, bw * bh);
             } else {
-              layerBufPlane.typedList.fillRange(0, bw * bh, 0);
+              SwarBlender.clearPixels(layerBufPlane.typedList, bw * bh);
             }
 
             _renderLayerInto(
@@ -326,7 +326,7 @@ void _renderCompilerInto(
     if (useNative) {
       simdClearPixels(layerBufPlane, boxPixels);
     } else {
-      layerBufPlane.typedList.fillRange(0, boxPixels, 0);
+      SwarBlender.clearPixels(layerBufPlane.typedList, boxPixels);
     }
     _renderLayerInto(
       layer,
@@ -360,7 +360,7 @@ void _renderCompilerInto(
     if (useNative) {
       simdClearPixels(matteBufPlane, boxPixels);
     } else {
-      matteBufPlane.typedList.fillRange(0, boxPixels, 0);
+      SwarBlender.clearPixels(matteBufPlane.typedList, boxPixels);
     }
     if (overlap) {
       _renderLayerInto(
@@ -414,50 +414,252 @@ void _renderCompilerInto(
       ws.nativeMatteComposites++;
       continue;
     }
-    final layerBuf = layerBufPlane.typedList;
-    final matteBuf = matteBufPlane.typedList;
-    final target = dst.typedList;
+    _compositeMatteDart(
+      dst.typedList,
+      dstOriginX,
+      dstOriginY,
+      dstStride,
+      layerBufPlane.typedList,
+      matteBufPlane.typedList,
+      bw,
+      bh,
+      bx0,
+      by0,
+      isDstOut,
+      isLuma,
+      bm,
+    );
+  }
+}
+
+void _compositeMatteDart(
+  Uint32List target,
+  int dstOriginX,
+  int dstOriginY,
+  int dstStride,
+  Uint32List layerBuf,
+  Uint32List matteBuf,
+  int bw,
+  int bh,
+  int bx0,
+  int by0,
+  bool isDstOut,
+  bool isLuma,
+  int bm,
+) {
+  final dstColOffset = bx0 - dstOriginX;
+  if (!isLuma && bm == 0) {
+    if (!isDstOut) {
+      // Alpha dstIn + normal SrcOver (most common matte path).
+      for (var row = 0; row < bh; row++) {
+        final srcRow = row * bw;
+        final dstRow = (by0 + row - dstOriginY) * dstStride + dstColOffset;
+        var col = 0;
+        final colEnd4 = bw - 3;
+        while (col < colEnd4) {
+          final s = srcRow + col;
+          final t0 = layerBuf[s];
+          final t1 = layerBuf[s + 1];
+          final t2 = layerBuf[s + 2];
+          final t3 = layerBuf[s + 3];
+          if ((t0 | t1 | t2 | t3) == 0) {
+            col += 4;
+            continue;
+          }
+          final mp0 = matteBuf[s];
+          final mp1 = matteBuf[s + 1];
+          final mp2 = matteBuf[s + 2];
+          final mp3 = matteBuf[s + 3];
+          if (((mp0 | mp1 | mp2 | mp3) & 0xFF000000) == 0) {
+            col += 4;
+            continue;
+          }
+          final d = dstRow + col;
+          if ((mp0 & mp1 & mp2 & mp3) >= 0xFF000000) {
+            if ((t0 & t1 & t2 & t3) >= 0xFF000000) {
+              target[d] = t0;
+              target[d + 1] = t1;
+              target[d + 2] = t2;
+              target[d + 3] = t3;
+            } else {
+              if (t0 != 0) target[d] = SwarBlender.blendSrcOver(t0, target[d]);
+              if (t1 != 0) {
+                target[d + 1] = SwarBlender.blendSrcOver(t1, target[d + 1]);
+              }
+              if (t2 != 0) {
+                target[d + 2] = SwarBlender.blendSrcOver(t2, target[d + 2]);
+              }
+              if (t3 != 0) {
+                target[d + 3] = SwarBlender.blendSrcOver(t3, target[d + 3]);
+              }
+            }
+            col += 4;
+            continue;
+          }
+          final m0 = mp0 >>> 24;
+          if (t0 != 0 && m0 != 0) {
+            final masked = m0 == 255 ? t0 : SwarBlender.scalePremul255(t0, m0);
+            target[d] = SwarBlender.blendSrcOver(masked, target[d]);
+          }
+          final m1 = mp1 >>> 24;
+          if (t1 != 0 && m1 != 0) {
+            final masked = m1 == 255 ? t1 : SwarBlender.scalePremul255(t1, m1);
+            target[d + 1] = SwarBlender.blendSrcOver(masked, target[d + 1]);
+          }
+          final m2 = mp2 >>> 24;
+          if (t2 != 0 && m2 != 0) {
+            final masked = m2 == 255 ? t2 : SwarBlender.scalePremul255(t2, m2);
+            target[d + 2] = SwarBlender.blendSrcOver(masked, target[d + 2]);
+          }
+          final m3 = mp3 >>> 24;
+          if (t3 != 0 && m3 != 0) {
+            final masked = m3 == 255 ? t3 : SwarBlender.scalePremul255(t3, m3);
+            target[d + 3] = SwarBlender.blendSrcOver(masked, target[d + 3]);
+          }
+          col += 4;
+        }
+        while (col < bw) {
+          final tPx = layerBuf[srcRow + col];
+          if (tPx != 0) {
+            final mAlpha = matteBuf[srcRow + col] >>> 24;
+            if (mAlpha != 0) {
+              final masked = mAlpha == 255
+                  ? tPx
+                  : SwarBlender.scalePremul255(tPx, mAlpha);
+              final i = dstRow + col;
+              target[i] = SwarBlender.blendSrcOver(masked, target[i]);
+            }
+          }
+          col++;
+        }
+      }
+      return;
+    }
+
+    // Alpha dstOut (inverted) + normal SrcOver.
     for (var row = 0; row < bh; row++) {
       final srcRow = row * bw;
-      final dstRow = (by0 + row - dstOriginY) * dstStride + (bx0 - dstOriginX);
-      for (var col = 0; col < bw; col++) {
-        final tPx = layerBuf[srcRow + col];
-        if (tPx == 0) continue;
-        final mPx = matteBuf[srcRow + col];
-        final mAlpha = mPx >>> 24;
-        int factor;
-        if (!isLuma) {
-          factor = isDstOut ? (255 - mAlpha) : mAlpha;
-        } else {
-          if (mAlpha == 0) {
-            factor = isDstOut ? 255 : 0;
+      final dstRow = (by0 + row - dstOriginY) * dstStride + dstColOffset;
+      var col = 0;
+      final colEnd4 = bw - 3;
+      while (col < colEnd4) {
+        final s = srcRow + col;
+        final t0 = layerBuf[s];
+        final t1 = layerBuf[s + 1];
+        final t2 = layerBuf[s + 2];
+        final t3 = layerBuf[s + 3];
+        if ((t0 | t1 | t2 | t3) == 0) {
+          col += 4;
+          continue;
+        }
+        final mp0 = matteBuf[s];
+        final mp1 = matteBuf[s + 1];
+        final mp2 = matteBuf[s + 2];
+        final mp3 = matteBuf[s + 3];
+        if ((mp0 & mp1 & mp2 & mp3) >= 0xFF000000) {
+          col += 4;
+          continue;
+        }
+        final d = dstRow + col;
+        if (((mp0 | mp1 | mp2 | mp3) & 0xFF000000) == 0) {
+          if ((t0 & t1 & t2 & t3) >= 0xFF000000) {
+            target[d] = t0;
+            target[d + 1] = t1;
+            target[d + 2] = t2;
+            target[d + 3] = t3;
           } else {
-            var r = (mPx >>> 16) & 0xFF;
-            var g = (mPx >>> 8) & 0xFF;
-            var b = mPx & 0xFF;
-            if (mAlpha != 255) {
-              final inv = SwarBlender.inverseAlpha(mAlpha);
-              r = (r * inv) >>> 16;
-              g = (g * inv) >>> 16;
-              b = (b * inv) >>> 16;
+            if (t0 != 0) target[d] = SwarBlender.blendSrcOver(t0, target[d]);
+            if (t1 != 0) {
+              target[d + 1] = SwarBlender.blendSrcOver(t1, target[d + 1]);
             }
-            // Division-free BT.601 integer luminance: 0.299*65536=19595, 0.587*65536=38470, 0.114*65536=7471.
-            final lum = ((19595 * r + 38470 * g + 7471 * b) >>> 16).clamp(
-              0,
-              255,
-            );
-            factor = isDstOut ? (255 - lum) : lum;
+            if (t2 != 0) {
+              target[d + 2] = SwarBlender.blendSrcOver(t2, target[d + 2]);
+            }
+            if (t3 != 0) {
+              target[d + 3] = SwarBlender.blendSrcOver(t3, target[d + 3]);
+            }
+          }
+          col += 4;
+          continue;
+        }
+        final f0 = 255 - (mp0 >>> 24);
+        if (t0 != 0 && f0 != 0) {
+          final masked = f0 == 255 ? t0 : SwarBlender.scalePremul255(t0, f0);
+          target[d] = SwarBlender.blendSrcOver(masked, target[d]);
+        }
+        final f1 = 255 - (mp1 >>> 24);
+        if (t1 != 0 && f1 != 0) {
+          final masked = f1 == 255 ? t1 : SwarBlender.scalePremul255(t1, f1);
+          target[d + 1] = SwarBlender.blendSrcOver(masked, target[d + 1]);
+        }
+        final f2 = 255 - (mp2 >>> 24);
+        if (t2 != 0 && f2 != 0) {
+          final masked = f2 == 255 ? t2 : SwarBlender.scalePremul255(t2, f2);
+          target[d + 2] = SwarBlender.blendSrcOver(masked, target[d + 2]);
+        }
+        final f3 = 255 - (mp3 >>> 24);
+        if (t3 != 0 && f3 != 0) {
+          final masked = f3 == 255 ? t3 : SwarBlender.scalePremul255(t3, f3);
+          target[d + 3] = SwarBlender.blendSrcOver(masked, target[d + 3]);
+        }
+        col += 4;
+      }
+      while (col < bw) {
+        final tPx = layerBuf[srcRow + col];
+        if (tPx != 0) {
+          final factor = 255 - (matteBuf[srcRow + col] >>> 24);
+          if (factor != 0) {
+            final masked = factor == 255
+                ? tPx
+                : SwarBlender.scalePremul255(tPx, factor);
+            final i = dstRow + col;
+            target[i] = SwarBlender.blendSrcOver(masked, target[i]);
           }
         }
-        if (factor == 0) continue;
-        final masked = factor == 255
-            ? tPx
-            : SwarBlender.scalePremul255(tPx, factor);
-        final i = dstRow + col;
-        target[i] = bm == 0
-            ? SwarBlender.blendSrcOver(masked, target[i])
-            : SwarBlender.blendPixel(masked, target[i], bm);
+        col++;
       }
+    }
+    return;
+  }
+
+  for (var row = 0; row < bh; row++) {
+    final srcRow = row * bw;
+    final dstRow = (by0 + row - dstOriginY) * dstStride + dstColOffset;
+    for (var col = 0; col < bw; col++) {
+      final tPx = layerBuf[srcRow + col];
+      if (tPx == 0) continue;
+      final mPx = matteBuf[srcRow + col];
+      final mAlpha = mPx >>> 24;
+      int factor;
+      if (!isLuma) {
+        factor = isDstOut ? (255 - mAlpha) : mAlpha;
+      } else {
+        if (mAlpha == 0) {
+          factor = isDstOut ? 255 : 0;
+        } else {
+          var r = (mPx >>> 16) & 0xFF;
+          var g = (mPx >>> 8) & 0xFF;
+          var b = mPx & 0xFF;
+          if (mAlpha != 255) {
+            final inv = SwarBlender.inverseAlpha(mAlpha);
+            r = (r * inv) >>> 16;
+            g = (g * inv) >>> 16;
+            b = (b * inv) >>> 16;
+          }
+          // Division-free BT.601 integer luminance: 0.299*65536=19595, 0.587*65536=38470, 0.114*65536=7471.
+          final rawLum = (19595 * r + 38470 * g + 7471 * b) >>> 16;
+          final lum = rawLum > 255 ? 255 : rawLum;
+          factor = isDstOut ? (255 - lum) : lum;
+        }
+      }
+      if (factor == 0) continue;
+      final masked = factor == 255
+          ? tPx
+          : SwarBlender.scalePremul255(tPx, factor);
+      final i = dstRow + col;
+      target[i] = bm == 0
+          ? SwarBlender.blendSrcOver(masked, target[i])
+          : SwarBlender.blendPixel(masked, target[i], bm);
     }
   }
 }
@@ -598,7 +800,7 @@ void _renderLayerInto(
       if (ws.preferNative) {
         simdClearPixels(plane, w * h);
       } else {
-        plane.typedList.fillRange(0, w * h, 0);
+        SwarBlender.clearPixels(plane.typedList, w * h);
       }
     }
     _renderLayerInto(
@@ -716,7 +918,7 @@ void _renderLayerInto(
     if (useNative) {
       simdClearPixels(plane, w * h);
     } else {
-      plane.typedList.fillRange(0, w * h, 0);
+      SwarBlender.clearPixels(plane.typedList, w * h);
     }
     _renderLayerInto(
       layer,
@@ -964,7 +1166,7 @@ void _renderLayerInto(
         if (useNative) {
           simdClearPixels(preBufPlane, bw * bh);
         } else {
-          preBufPlane.typedList.fillRange(0, bw * bh, 0);
+          SwarBlender.clearPixels(preBufPlane.typedList, bw * bh);
         }
         _renderCompilerInto(
           child,
@@ -1406,29 +1608,44 @@ void _renderStyleInto(
       final (x0, y0, x1, y1) = bounds;
       final useEvenOdd = !style.stroke && style.evenOdd;
       final canFuseSolid =
-          clipMask == null &&
-          style.gradient == null &&
-          blendMode == 0 &&
-          useNative;
-      final color = canFuseSolid ? _stylePremul(style, frame, a) : 0;
-      if (canFuseSolid &&
-          ws._rasterizeSolid(
-            ws._workPolyB,
-            useEvenOdd,
-            ws._spans,
-            x0,
-            y0,
-            x1,
-            y1,
-            dst,
-            dstOriginX,
-            dstOriginY,
-            dstStride,
-            color,
-          )) {
-        spans = ws._spans;
-        if (key != null && spans.spanCount > 0) ws._retain(style, key, spans);
-        return;
+          clipMask == null && style.gradient == null && blendMode == 0;
+      if (canFuseSolid && useNative) {
+        final color = _stylePremul(style, frame, a);
+        if (ws._rasterizeSolid(
+          ws._workPolyB,
+          useEvenOdd,
+          ws._spans,
+          x0,
+          y0,
+          x1,
+          y1,
+          dst,
+          dstOriginX,
+          dstOriginY,
+          dstStride,
+          color,
+        )) {
+          spans = ws._spans;
+          if (key != null && spans.spanCount > 0) ws._retain(style, key, spans);
+          return;
+        }
+      } else if (canFuseSolid && !useNative && key == null) {
+        final color = _stylePremul(style, frame, a);
+        if (ws._rasterizeSolidDart(
+          ws._workPolyB,
+          useEvenOdd,
+          x0,
+          y0,
+          x1,
+          y1,
+          dst.typedList,
+          dstOriginX,
+          dstOriginY,
+          dstStride,
+          color,
+        )) {
+          return;
+        }
       }
       ws._rasterize(ws._workPolyB, useEvenOdd, ws._spans, x0, y0, x1, y1);
       spans = ws._spans;
