@@ -194,9 +194,9 @@ class PackAssets {
           final page = entry['page'] as String;
           final load = _pages.remove(page) ?? _bundle.load('$_directory/$page');
           _pages[page] = load;
-          // All interleaves four sticker packs. Keep one page per pack so
+          // All interleaves five sticker packs. Keep one page per pack so
           // the next row can reuse the pages just read for the previous row.
-          if (_pages.length > 4) _pages.remove(_pages.keys.first);
+          if (_pages.length > 5) _pages.remove(_pages.keys.first);
           final data = await load;
           final offset = entry['offset'] as int;
           bytes = Uint8List.sublistView(

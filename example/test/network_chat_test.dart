@@ -52,7 +52,9 @@ TgsModel _dummyModel([int sourceBytes = 10]) => TgsModel(
 );
 
 void main() {
-  testWidgets('opening All reads each visible poster page once', (tester) async {
+  testWidgets('opening All reads each visible poster page once', (
+    tester,
+  ) async {
     final bundle = _CountingBundle();
     final assets = PackAssets(bundle: bundle);
     addTearDown(assets.dispose);
@@ -99,8 +101,13 @@ void main() {
       expect(unchanged.statusCode, HttpStatus.notModified);
       await unchanged.drain<void>();
       final catalog = await assets.catalog(server.baseUri);
-      expect(catalog.stickerPacks.length, 4);
-      expect(catalog.emojiPacks.length, 2);
+      expect(catalog.stickerPacks.length, 5);
+      expect(catalog.emojiPacks.length, 1);
+      expect(
+        catalog.stickerPacks.map((p) => p.id),
+        contains('Topics-1794247486249'),
+      );
+      expect(catalog.emojiPacks.single.id, 'NotoEmoji');
       expect(catalog.packs.every((pack) => pack.revision != null), isTrue);
       final emoji = catalog.emojis.first;
       final sticker = catalog.stickers.first;
@@ -148,18 +155,16 @@ void main() {
 
     final catalog = await fetchRemoteTgsCatalog(server.baseUri);
     expect(catalog.packs.length, 6);
-    expect(catalog.stickers.length, 94);
-    expect(catalog.emojis.length, 969);
-    expect(catalog.shortcodeMap.length, 969);
+    expect(catalog.stickers.length, 182);
+    expect(catalog.emojis.length, 881);
+    expect(catalog.shortcodeMap.length, 881);
     expect(
-      catalog.emojiPacks.map((p) => p.id),
-      containsAll(['NotoEmoji', 'Topics-1794247486249']),
+      catalog.stickerPacks.map((p) => p.id),
+      contains('Topics-1794247486249'),
     );
-    expect(catalog.shortcodeMap.containsKey(':studio_microphone:'), isTrue);
-    expect(catalog.shortcodeMap.containsKey(':nail_polish:'), isTrue);
-    expect(catalog.shortcodeMap.containsKey(':writing_hand:'), isTrue);
-    expect(catalog.shortcodeMap.containsKey(':brain:'), isTrue);
-    expect(catalog.shortcodeMap.containsKey(':cat2:'), isTrue);
+    expect(catalog.emojiPacks.map((p) => p.id), ['NotoEmoji']);
+    expect(catalog.shortcodeMap.containsKey(':studio_microphone:'), isFalse);
+    expect(catalog.shortcodeMap.containsKey(':cool_1f192:'), isTrue);
     expect(catalog.shortcodeMap.containsKey(':smile:'), isTrue);
     expect(catalog.shortcodeMap.containsKey(':heart_eyes:'), isTrue);
     expect(catalog.shortcodeMap.containsKey(':partying_face:'), isTrue);
@@ -174,6 +179,7 @@ void main() {
     expect(catalog.findItem(':smile:')?.unicode, '😀');
     for (final emoji in catalog.emojis) {
       expect(emoji.shortcode, matches(RegExp(r'^:[a-z0-9_]+:$')));
+      expect(emoji.unicode, isNotNull);
     }
 
     final client = HttpClient();
@@ -185,8 +191,8 @@ void main() {
     final healthJson =
         jsonDecode(await utf8.decodeStream(healthResp)) as Map<String, dynamic>;
     expect(healthJson['ok'], isTrue);
-    expect(healthJson['stickers'], 94);
-    expect(healthJson['emojis'], 969);
+    expect(healthJson['stickers'], 182);
+    expect(healthJson['emojis'], 881);
 
     final firstUri = catalog.stickers.first.uri;
     final tgsReq = await client.getUrl(firstUri);
@@ -458,6 +464,23 @@ void main() {
         find.byKey(const ValueKey('picker-tab-NotoEmoji')),
         findsOneWidget,
       );
+      final tabScrollable = find.descendant(
+        of: find.byKey(const ValueKey('sticker-picker-panel')),
+        matching: find.byWidgetPredicate(
+          (w) => w is Scrollable && w.axisDirection == AxisDirection.right,
+        ),
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('picker-tab-Topics-1794247486249')),
+        120,
+        scrollable: tabScrollable,
+      );
+      expect(
+        find.byKey(const ValueKey('picker-tab-Topics-1794247486249')),
+        findsOneWidget,
+      );
+      tester.state<ScrollableState>(tabScrollable).position.jumpTo(0);
+      await tester.pump();
 
       // Switch to Emoji tab, tap first emoji to insert 1-char PUA token with inline animated sticker.
       await tester.tap(find.byKey(const ValueKey('picker-tab-__emoji__')));
@@ -472,7 +495,7 @@ void main() {
       // Exactly 1 UTF-16 code unit in composer text (BMP PUA base 0xE000).
       expect(composerCtrl.text.length, 1);
       expect(composerCtrl.text.codeUnitAt(0), EmojiComposerController.puaBase);
-      expect(composerCtrl.toShortcodeText(), contains(':studio_microphone:'));
+      expect(composerCtrl.toShortcodeText(), contains(':cool_1f192:'));
 
       // The animated InlineNetworkSticker is mounted directly inside the CupertinoTextField!
       expect(
@@ -483,11 +506,11 @@ void main() {
         findsOneWidget,
       );
 
-      // Typing a typed shortcode (e.g. `:nail_polish:`) automatically collapses into
+      // Typing a typed shortcode (e.g. `:nail_care:`) automatically collapses into
       // a second inline animated sticker in the composer!
       await tester.enterText(
         find.byKey(const ValueKey('chat-composer-field')),
-        '${composerCtrl.text} :nail_polish: Cupertino Network!',
+        '${composerCtrl.text} :nail_care: Cupertino Network!',
       );
       await tester.pump();
 
@@ -498,8 +521,8 @@ void main() {
         ),
         findsNWidgets(2),
       );
-      expect(composerCtrl.toShortcodeText(), contains(':studio_microphone:'));
-      expect(composerCtrl.toShortcodeText(), contains(':nail_polish:'));
+      expect(composerCtrl.toShortcodeText(), contains(':cool_1f192:'));
+      expect(composerCtrl.toShortcodeText(), contains(':nail_care:'));
 
       await tester.tap(find.byKey(const ValueKey('composer-send-button')));
       await tester.pump();
@@ -653,7 +676,9 @@ void main() {
     final catalog = (await tester.runAsync(
       () => assets.catalog(PackAssets.bundleOrigin),
     ))!;
-    final bottomItems = catalog.stickers.skip(80).toList();
+    final bottomItems = catalog.stickers
+        .skip(catalog.stickers.length - 14)
+        .toList();
     // Keep rootBundle futures out of fake time when other tests reuse them.
     await tester.runAsync(
       () => Future.wait([
@@ -1217,7 +1242,7 @@ void main() {
       addTearDown(controller.dispose);
 
       // Verify charForEmoji maps each emoji deterministically to exactly 1 UTF-16 code unit
-      expect(catalog.emojis.length, 969);
+      expect(catalog.emojis.length, 881);
       for (var i = 0; i < catalog.emojis.length; i++) {
         final char = controller.charForEmoji(catalog.emojis[i])!;
         expect(char.length, 1);
@@ -1225,7 +1250,7 @@ void main() {
       }
 
       // Roundtrip test: text with mixed shortcodes -> PUA -> shortcode
-      const original = 'Xin chào :studio_microphone: và :nail_polish: nhé!';
+      const original = 'Xin chào :smile: và :nail_care: nhé!';
       final decoded = controller.decodeShortcodes(original);
       expect(decoded.length, 'Xin chào \uE000 và \uE001 nhé!'.length);
       expect(controller.toShortcodeText(decoded), original);
@@ -1255,19 +1280,29 @@ void main() {
         isFalse,
       );
 
-      // Verify toEmojiText with Topics emoji (which has no Unicode) falls back to shortcode (never tofu box!)
-      final puaWithTopic = controller.decodeShortcodes(
+      // Verify toEmojiText with a custom emoji without Unicode falls back to shortcode
+      final customCatalog = TgsRemoteCatalog(
+        baseUri: Uri.parse('http://127.0.0.1:8080/'),
+        packs: const [],
+        stickers: const [],
+        emojis: [
+          TgsRemoteItem(
+            id: 'custom/0.tgs',
+            packId: 'custom',
+            packTitle: 'Custom',
+            fileName: '0.tgs',
+            kind: TgsItemKind.emoji,
+            relativePath: 'tgs/0.tgs',
+            label: 'Studio Microphone',
+            bytes: 100,
+            uri: Uri.parse('http://127.0.0.1:8080/tgs/0.tgs'),
+            shortcode: ':studio_microphone:',
+          ),
+        ],
+      );
+      expect(
+        customCatalog.toEmojiText('Music \uE000'),
         'Music :studio_microphone:',
-      );
-      expect(
-        puaWithTopic.codeUnits.any((c) => c >= 0xE000 && c <= 0xF8FF),
-        isTrue,
-      );
-      final copiedTopic = controller.toEmojiText(puaWithTopic);
-      expect(copiedTopic, 'Music :studio_microphone:');
-      expect(
-        copiedTopic.codeUnits.any((c) => c >= 0xE000 && c <= 0xF8FF),
-        isFalse,
       );
 
       // Verify single-tap backspace behavior:
@@ -1617,7 +1652,7 @@ void main() {
         // mount InlineNetworkSticker with `still: true`.
         await tester.enterText(
           find.byKey(const ValueKey('chat-composer-field')),
-          'Static :studio_microphone:',
+          'Static :smile:',
         );
         await tester.pump();
 
@@ -1637,4 +1672,279 @@ void main() {
       },
     );
   });
+
+  test('Noto Emoji mapping covers all 881 bundled files bidirectionally', () {
+    final assetsDir = Directory('assets/tgs/NotoEmoji');
+    final diskFiles =
+        assetsDir
+            .listSync()
+            .whereType<File>()
+            .map((file) => file.uri.pathSegments.last)
+            .where((name) => name.endsWith('.tgs'))
+            .toList()
+          ..sort();
+
+    expect(diskFiles.length, 881);
+    expect(bundledNotoEmojiFileNames.length, diskFiles.length);
+    expect(notoEmojiMetadataByFile.length, diskFiles.length);
+    expect(notoEmojiUnicodeByFile.length, diskFiles.length);
+    expect(notoEmojiFileByUnicode.length, diskFiles.length);
+
+    for (final fileName in diskFiles) {
+      final unicode = findNotoEmojiUnicode(fileName);
+      expect(unicode, isNotNull, reason: 'Missing unicode for $fileName');
+      expect(unicode, isNotEmpty);
+      expect(
+        findNotoEmojiFileName(unicode!),
+        fileName,
+        reason: 'Round-trip failed for $fileName ($unicode)',
+      );
+
+      final item = TgsRemoteItem(
+        id: 'NotoEmoji/$fileName',
+        packId: 'NotoEmoji',
+        packTitle: 'Noto Emoji',
+        fileName: fileName,
+        kind: TgsItemKind.emoji,
+        relativePath: '/tgs/NotoEmoji/$fileName',
+        uri: Uri.parse('http://localhost/tgs/NotoEmoji/$fileName'),
+        bytes: 0,
+        label: notoEmojiMetadataByFile[fileName]!.label,
+        shortcode: notoEmojiMetadataByFile[fileName]!.shortcode,
+      );
+      expect(item.unicode, unicode);
+    }
+
+    // Variation-selector normalization checks (U+FE0F optional)
+    expect(findNotoEmojiFileName('❤️'), 'emoji_u2764_fe0f.tgs');
+    expect(findNotoEmojiFileName('❤'), 'emoji_u2764_fe0f.tgs');
+    expect(findNotoEmojiFileName('✌️'), 'emoji_u270c_fe0f.tgs');
+    expect(findNotoEmojiFileName('✌'), 'emoji_u270c_fe0f.tgs');
+    expect(findNotoEmojiFileName('🐦\u200D🔥'), 'emoji_u1f426_200d_1f525.tgs');
+
+    final jsonMap = jsonDecode(
+      File('../docs/noto-emoji-mapping.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final entries = jsonMap['emojis'] as List<dynamic>;
+    expect(jsonMap['count'], diskFiles.length);
+    expect(entries.length, diskFiles.length);
+    for (final raw in entries) {
+      final entry = raw as Map<String, dynamic>;
+      final fileName = entry['fileName'] as String;
+      expect(entry['unicode'], notoEmojiUnicodeByFile[fileName]);
+      expect(entry['shortcode'], notoEmojiMetadataByFile[fileName]!.shortcode);
+      expect(entry['label'], notoEmojiMetadataByFile[fileName]!.label);
+    }
+  });
+
+  testWidgets(
+    'Telegram-style static emoji fallback & normalized sizing in composer and chat',
+    (tester) async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = _PassthroughHttpOverrides();
+      addTearDown(() => HttpOverrides.global = previous);
+
+      late LocalTgsServer server;
+      await tester.runAsync(() async {
+        server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
+      });
+      addTearDown(() async {
+        await tester.runAsync(() => server.close(force: true));
+      });
+
+      final catalog = server.catalog;
+      final store = NetworkTgsStore(framePaced: false);
+      final rasterCache = FastLottieRasterCache(
+        framesPerStrip: 1,
+        maximumBytes: 4 << 20,
+      );
+      final sheet = StickerSheet(
+        assets: [for (final e in catalog.emojis) e.urlString],
+        pixelSize: 96,
+        store: store,
+        rasterCache: rasterCache,
+        frameRate: 30,
+      );
+      final clock = StickerClock()
+        ..configure(playing: true, reducedMotion: false, maximumFrameRate: 30);
+      addTearDown(() {
+        clock.dispose();
+        sheet.dispose();
+        rasterCache.dispose();
+        store.dispose();
+      });
+
+      // 1. Compound missing ZWJ / tag emojis starting with a Noto prefix
+      // must NOT be torn apart into prefix animated emoji + ZWJ tail.
+      final controller = EmojiComposerController(
+        catalog: catalog,
+        sheet: sheet,
+        clock: clock,
+        store: store,
+      );
+      addTearDown(controller.dispose);
+
+      const compoundInput = 'Bear 🐻\u200D❄️ Lime 🍋\u200D🟩 Flag 🏳️\u200D🌈';
+      expect(controller.decodeShortcodes(compoundInput), compoundInput);
+      expect(controller.toShortcodeText(compoundInput), compoundInput);
+      expect(
+        ChatMessage.text(
+          id: 'm1',
+          text: compoundInput,
+          isOutgoing: true,
+          timestamp: DateTime(2026),
+        ).resolveInlineItems(catalog),
+        isEmpty,
+      );
+
+      // 2. Composer normalizes static OS emojis without breaking UTF-16 length.
+      final mixedDecoded = controller.decodeShortcodes('Hi 😀 ☠️!');
+      controller.value = TextEditingValue(
+        text: mixedDecoded,
+        selection: TextSelection.collapsed(offset: mixedDecoded.length),
+      );
+      late BuildContext capturedContext;
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: Builder(
+            builder: (ctx) {
+              capturedContext = ctx;
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      final composerSpan = controller.buildTextSpan(
+        context: capturedContext,
+        style: const TextStyle(fontSize: 15),
+        withComposing: false,
+      );
+      expect(composerSpan.toPlainText().length, controller.text.length);
+      final children = composerSpan.children!;
+      expect((children[0] as TextSpan).text, 'Hi ');
+      expect(children[1], isA<WidgetSpan>());
+      final composerSticker =
+          ((children[1] as WidgetSpan).child as Padding).child
+              as InlineNetworkSticker;
+      expect(composerSticker.size, 21);
+      final staticComposerSpan = children.whereType<TextSpan>().firstWhere(
+        (s) => s.text == '☠️',
+      );
+      expect(staticComposerSpan.style?.fontSize, closeTo(21 * 0.86, 0.01));
+
+      // 3. Full chat app: verify inline parity and 1/2/3 jumbo emoji sizing.
+      final dir = Directory.systemTemp.createTempSync('fastlottie_tele_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final cacheStore = NetworkTgsStore(
+        framePaced: true,
+        sourceCacheDirectory: dir.path,
+      );
+      addTearDown(cacheStore.dispose);
+
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: CupertinoChatScreen(
+            externalServerUri: server.baseUri,
+            store: cacheStore,
+          ),
+        ),
+      );
+      for (
+        var i = 0;
+        i < 120 &&
+            find
+                .byKey(const ValueKey('cupertino-message-list'))
+                .evaluate()
+                .isEmpty;
+        i++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(
+        find.byKey(const ValueKey('cupertino-message-list')),
+        findsOneWidget,
+      );
+
+      Future<void> sendText(String msg) async {
+        await tester.enterText(
+          find.byKey(const ValueKey('chat-composer-field')),
+          msg,
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('composer-send-button')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 260));
+      }
+
+      // 1 static emoji -> jumbo 48.0
+      await sendText('☠️');
+      final skullText = tester.widget<Text>(find.text('☠️').last);
+      final skullBox = tester.widget<SizedBox>(
+        find
+            .ancestor(of: find.text('☠️').last, matching: find.byType(SizedBox))
+            .first,
+      );
+      expect(skullBox.width, 48.0);
+      expect(skullBox.height, 48.0);
+      expect(skullText.style?.fontSize, closeTo(48.0 * 0.86, 0.01));
+
+      // 2 mixed emojis (1 animated + 1 static) -> both 42.0
+      await sendText('😀 🐻\u200D❄️');
+      final bearBox = tester.widget<SizedBox>(
+        find
+            .ancestor(
+              of: find.text('🐻\u200D❄️').last,
+              matching: find.byType(SizedBox),
+            )
+            .first,
+      );
+      expect(bearBox.width, 42.0);
+      final jumboPairStickers = tester
+          .widgetList<InlineNetworkSticker>(find.byType(InlineNetworkSticker))
+          .where((w) => w.size == 42.0);
+      expect(jumboPairStickers, isNotEmpty);
+
+      // 3 mixed emojis -> all 36.0
+      await sendText('😀 ☠️ 🍋\u200D🟩');
+      final limeBox = tester.widget<SizedBox>(
+        find
+            .ancestor(
+              of: find.text('🍋\u200D🟩').last,
+              matching: find.byType(SizedBox),
+            )
+            .first,
+      );
+      expect(limeBox.width, 36.0);
+      final jumboTripleStickers = tester
+          .widgetList<InlineNetworkSticker>(find.byType(InlineNetworkSticker))
+          .where((w) => w.size == 36.0);
+      expect(jumboTripleStickers, isNotEmpty);
+
+      // Mixed with text -> normalized inline 23.2 (16 * 1.45)
+      await sendText('Static fallback 🏳️\u200D🌈 inline');
+      final flagBox = tester.widget<SizedBox>(
+        find
+            .ancestor(
+              of: find.text('🏳️\u200D🌈').last,
+              matching: find.byType(SizedBox),
+            )
+            .first,
+      );
+      expect(flagBox.width, closeTo(23.2, 0.01));
+      expect(flagBox.height, closeTo(23.2, 0.01));
+      final inlineStickers = tester
+          .widgetList<InlineNetworkSticker>(find.byType(InlineNetworkSticker))
+          .where((w) => (w.size - 23.2).abs() < 0.01);
+      expect(inlineStickers, isNotEmpty);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    },
+  );
 }

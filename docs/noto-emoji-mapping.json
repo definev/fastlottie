@@ -1,0 +1,8356 @@
+{
+  "packId": "NotoEmoji",
+  "count": 881,
+  "source": "example/assets/tgs/NotoEmoji",
+  "emojis": [
+    {
+      "fileName": "emoji_u1f192.tgs",
+      "unicode": "🆒",
+      "codepoints": [
+        "U+1F192"
+      ],
+      "shortcode": ":cool_1f192:",
+      "label": "Cool"
+    },
+    {
+      "fileName": "emoji_u1f193.tgs",
+      "unicode": "🆓",
+      "codepoints": [
+        "U+1F193"
+      ],
+      "shortcode": ":free:",
+      "label": "Free"
+    },
+    {
+      "fileName": "emoji_u1f195.tgs",
+      "unicode": "🆕",
+      "codepoints": [
+        "U+1F195"
+      ],
+      "shortcode": ":new:",
+      "label": "New"
+    },
+    {
+      "fileName": "emoji_u1f197.tgs",
+      "unicode": "🆗",
+      "codepoints": [
+        "U+1F197"
+      ],
+      "shortcode": ":ok_button:",
+      "label": "Ok Button"
+    },
+    {
+      "fileName": "emoji_u1f198.tgs",
+      "unicode": "🆘",
+      "codepoints": [
+        "U+1F198"
+      ],
+      "shortcode": ":sos:",
+      "label": "Sos"
+    },
+    {
+      "fileName": "emoji_u1f199.tgs",
+      "unicode": "🆙",
+      "codepoints": [
+        "U+1F199"
+      ],
+      "shortcode": ":up:",
+      "label": "Up"
+    },
+    {
+      "fileName": "emoji_u1f300.tgs",
+      "unicode": "🌀",
+      "codepoints": [
+        "U+1F300"
+      ],
+      "shortcode": ":cyclone:",
+      "label": "Cyclone"
+    },
+    {
+      "fileName": "emoji_u1f304.tgs",
+      "unicode": "🌄",
+      "codepoints": [
+        "U+1F304"
+      ],
+      "shortcode": ":sunrise_over_mountains:",
+      "label": "Sunrise Over Mountains"
+    },
+    {
+      "fileName": "emoji_u1f305.tgs",
+      "unicode": "🌅",
+      "codepoints": [
+        "U+1F305"
+      ],
+      "shortcode": ":sunrise:",
+      "label": "Sunrise"
+    },
+    {
+      "fileName": "emoji_u1f307.tgs",
+      "unicode": "🌇",
+      "codepoints": [
+        "U+1F307"
+      ],
+      "shortcode": ":sunset:",
+      "label": "Sunset"
+    },
+    {
+      "fileName": "emoji_u1f308.tgs",
+      "unicode": "🌈",
+      "codepoints": [
+        "U+1F308"
+      ],
+      "shortcode": ":rainbow:",
+      "label": "Rainbow"
+    },
+    {
+      "fileName": "emoji_u1f30a.tgs",
+      "unicode": "🌊",
+      "codepoints": [
+        "U+1F30A"
+      ],
+      "shortcode": ":ocean:",
+      "label": "Ocean"
+    },
+    {
+      "fileName": "emoji_u1f30b.tgs",
+      "unicode": "🌋",
+      "codepoints": [
+        "U+1F30B"
+      ],
+      "shortcode": ":volcano:",
+      "label": "Volcano"
+    },
+    {
+      "fileName": "emoji_u1f30c.tgs",
+      "unicode": "🌌",
+      "codepoints": [
+        "U+1F30C"
+      ],
+      "shortcode": ":milky_way:",
+      "label": "Milky Way"
+    },
+    {
+      "fileName": "emoji_u1f30d.tgs",
+      "unicode": "🌍",
+      "codepoints": [
+        "U+1F30D"
+      ],
+      "shortcode": ":globe_showing_europe_africa:",
+      "label": "Globe Showing Europe Africa"
+    },
+    {
+      "fileName": "emoji_u1f30e.tgs",
+      "unicode": "🌎",
+      "codepoints": [
+        "U+1F30E"
+      ],
+      "shortcode": ":globe_showing_americas:",
+      "label": "Globe Showing Americas"
+    },
+    {
+      "fileName": "emoji_u1f30f.tgs",
+      "unicode": "🌏",
+      "codepoints": [
+        "U+1F30F"
+      ],
+      "shortcode": ":globe_showing_asia_australia:",
+      "label": "Globe Showing Asia Australia"
+    },
+    {
+      "fileName": "emoji_u1f31a.tgs",
+      "unicode": "🌚",
+      "codepoints": [
+        "U+1F31A"
+      ],
+      "shortcode": ":moon_face_new:",
+      "label": "Moon Face New"
+    },
+    {
+      "fileName": "emoji_u1f31b.tgs",
+      "unicode": "🌛",
+      "codepoints": [
+        "U+1F31B"
+      ],
+      "shortcode": ":moon_face_first_quarter:",
+      "label": "Moon Face First Quarter"
+    },
+    {
+      "fileName": "emoji_u1f31c.tgs",
+      "unicode": "🌜",
+      "codepoints": [
+        "U+1F31C"
+      ],
+      "shortcode": ":moon_face_last_quarter:",
+      "label": "Moon Face Last Quarter"
+    },
+    {
+      "fileName": "emoji_u1f31d.tgs",
+      "unicode": "🌝",
+      "codepoints": [
+        "U+1F31D"
+      ],
+      "shortcode": ":moon_face_full:",
+      "label": "Moon Face Full"
+    },
+    {
+      "fileName": "emoji_u1f31e.tgs",
+      "unicode": "🌞",
+      "codepoints": [
+        "U+1F31E"
+      ],
+      "shortcode": ":sun_with_face:",
+      "label": "Sun With Face"
+    },
+    {
+      "fileName": "emoji_u1f31f.tgs",
+      "unicode": "🌟",
+      "codepoints": [
+        "U+1F31F"
+      ],
+      "shortcode": ":glowing_star:",
+      "label": "Glowing Star"
+    },
+    {
+      "fileName": "emoji_u1f321_fe0f.tgs",
+      "unicode": "🌡️",
+      "codepoints": [
+        "U+1F321",
+        "U+FE0F"
+      ],
+      "shortcode": ":thermometer:",
+      "label": "Thermometer"
+    },
+    {
+      "fileName": "emoji_u1f327_fe0f.tgs",
+      "unicode": "🌧️",
+      "codepoints": [
+        "U+1F327",
+        "U+FE0F"
+      ],
+      "shortcode": ":rain_cloud:",
+      "label": "Rain Cloud"
+    },
+    {
+      "fileName": "emoji_u1f329_fe0f.tgs",
+      "unicode": "🌩️",
+      "codepoints": [
+        "U+1F329",
+        "U+FE0F"
+      ],
+      "shortcode": ":cloud_with_lightning:",
+      "label": "Cloud With Lightning"
+    },
+    {
+      "fileName": "emoji_u1f32a_fe0f.tgs",
+      "unicode": "🌪️",
+      "codepoints": [
+        "U+1F32A",
+        "U+FE0F"
+      ],
+      "shortcode": ":tornado:",
+      "label": "Tornado"
+    },
+    {
+      "fileName": "emoji_u1f32c_fe0f.tgs",
+      "unicode": "🌬️",
+      "codepoints": [
+        "U+1F32C",
+        "U+FE0F"
+      ],
+      "shortcode": ":wind_face:",
+      "label": "Wind Face"
+    },
+    {
+      "fileName": "emoji_u1f32d.tgs",
+      "unicode": "🌭",
+      "codepoints": [
+        "U+1F32D"
+      ],
+      "shortcode": ":hot_dog:",
+      "label": "Hot Dog"
+    },
+    {
+      "fileName": "emoji_u1f32e.tgs",
+      "unicode": "🌮",
+      "codepoints": [
+        "U+1F32E"
+      ],
+      "shortcode": ":taco:",
+      "label": "Taco"
+    },
+    {
+      "fileName": "emoji_u1f32f.tgs",
+      "unicode": "🌯",
+      "codepoints": [
+        "U+1F32F"
+      ],
+      "shortcode": ":burrito:",
+      "label": "Burrito"
+    },
+    {
+      "fileName": "emoji_u1f331.tgs",
+      "unicode": "🌱",
+      "codepoints": [
+        "U+1F331"
+      ],
+      "shortcode": ":plant:",
+      "label": "Plant"
+    },
+    {
+      "fileName": "emoji_u1f332.tgs",
+      "unicode": "🌲",
+      "codepoints": [
+        "U+1F332"
+      ],
+      "shortcode": ":evergreen_tree:",
+      "label": "Evergreen Tree"
+    },
+    {
+      "fileName": "emoji_u1f335.tgs",
+      "unicode": "🌵",
+      "codepoints": [
+        "U+1F335"
+      ],
+      "shortcode": ":cactus:",
+      "label": "Cactus"
+    },
+    {
+      "fileName": "emoji_u1f337.tgs",
+      "unicode": "🌷",
+      "codepoints": [
+        "U+1F337"
+      ],
+      "shortcode": ":tulip:",
+      "label": "Tulip"
+    },
+    {
+      "fileName": "emoji_u1f338.tgs",
+      "unicode": "🌸",
+      "codepoints": [
+        "U+1F338"
+      ],
+      "shortcode": ":cherry_blossom:",
+      "label": "Cherry Blossom"
+    },
+    {
+      "fileName": "emoji_u1f339.tgs",
+      "unicode": "🌹",
+      "codepoints": [
+        "U+1F339"
+      ],
+      "shortcode": ":rose:",
+      "label": "Rose"
+    },
+    {
+      "fileName": "emoji_u1f33c.tgs",
+      "unicode": "🌼",
+      "codepoints": [
+        "U+1F33C"
+      ],
+      "shortcode": ":blossom:",
+      "label": "Blossom"
+    },
+    {
+      "fileName": "emoji_u1f33d.tgs",
+      "unicode": "🌽",
+      "codepoints": [
+        "U+1F33D"
+      ],
+      "shortcode": ":ear_of_corn:",
+      "label": "Ear Of Corn"
+    },
+    {
+      "fileName": "emoji_u1f33f.tgs",
+      "unicode": "🌿",
+      "codepoints": [
+        "U+1F33F"
+      ],
+      "shortcode": ":herb:",
+      "label": "Herb"
+    },
+    {
+      "fileName": "emoji_u1f340.tgs",
+      "unicode": "🍀",
+      "codepoints": [
+        "U+1F340"
+      ],
+      "shortcode": ":luck:",
+      "label": "Luck"
+    },
+    {
+      "fileName": "emoji_u1f341.tgs",
+      "unicode": "🍁",
+      "codepoints": [
+        "U+1F341"
+      ],
+      "shortcode": ":maple_leaf:",
+      "label": "Maple Leaf"
+    },
+    {
+      "fileName": "emoji_u1f342.tgs",
+      "unicode": "🍂",
+      "codepoints": [
+        "U+1F342"
+      ],
+      "shortcode": ":fallen_leaf:",
+      "label": "Fallen Leaf"
+    },
+    {
+      "fileName": "emoji_u1f343.tgs",
+      "unicode": "🍃",
+      "codepoints": [
+        "U+1F343"
+      ],
+      "shortcode": ":leaves:",
+      "label": "Leaves"
+    },
+    {
+      "fileName": "emoji_u1f344.tgs",
+      "unicode": "🍄",
+      "codepoints": [
+        "U+1F344"
+      ],
+      "shortcode": ":mushroom:",
+      "label": "Mushroom"
+    },
+    {
+      "fileName": "emoji_u1f345.tgs",
+      "unicode": "🍅",
+      "codepoints": [
+        "U+1F345"
+      ],
+      "shortcode": ":tomato:",
+      "label": "Tomato"
+    },
+    {
+      "fileName": "emoji_u1f347.tgs",
+      "unicode": "🍇",
+      "codepoints": [
+        "U+1F347"
+      ],
+      "shortcode": ":grapes:",
+      "label": "Grapes"
+    },
+    {
+      "fileName": "emoji_u1f348.tgs",
+      "unicode": "🍈",
+      "codepoints": [
+        "U+1F348"
+      ],
+      "shortcode": ":melon:",
+      "label": "Melon"
+    },
+    {
+      "fileName": "emoji_u1f349.tgs",
+      "unicode": "🍉",
+      "codepoints": [
+        "U+1F349"
+      ],
+      "shortcode": ":watermelon:",
+      "label": "Watermelon"
+    },
+    {
+      "fileName": "emoji_u1f34a.tgs",
+      "unicode": "🍊",
+      "codepoints": [
+        "U+1F34A"
+      ],
+      "shortcode": ":tangerine:",
+      "label": "Tangerine"
+    },
+    {
+      "fileName": "emoji_u1f34b.tgs",
+      "unicode": "🍋",
+      "codepoints": [
+        "U+1F34B"
+      ],
+      "shortcode": ":lemon:",
+      "label": "Lemon"
+    },
+    {
+      "fileName": "emoji_u1f34d.tgs",
+      "unicode": "🍍",
+      "codepoints": [
+        "U+1F34D"
+      ],
+      "shortcode": ":pineapple:",
+      "label": "Pineapple"
+    },
+    {
+      "fileName": "emoji_u1f34e.tgs",
+      "unicode": "🍎",
+      "codepoints": [
+        "U+1F34E"
+      ],
+      "shortcode": ":red_apple:",
+      "label": "Red Apple"
+    },
+    {
+      "fileName": "emoji_u1f350.tgs",
+      "unicode": "🍐",
+      "codepoints": [
+        "U+1F350"
+      ],
+      "shortcode": ":pear:",
+      "label": "Pear"
+    },
+    {
+      "fileName": "emoji_u1f352.tgs",
+      "unicode": "🍒",
+      "codepoints": [
+        "U+1F352"
+      ],
+      "shortcode": ":cherries:",
+      "label": "Cherries"
+    },
+    {
+      "fileName": "emoji_u1f353.tgs",
+      "unicode": "🍓",
+      "codepoints": [
+        "U+1F353"
+      ],
+      "shortcode": ":strawberry_1f353:",
+      "label": "Strawberry"
+    },
+    {
+      "fileName": "emoji_u1f354.tgs",
+      "unicode": "🍔",
+      "codepoints": [
+        "U+1F354"
+      ],
+      "shortcode": ":hamburger_1f354:",
+      "label": "Hamburger"
+    },
+    {
+      "fileName": "emoji_u1f355.tgs",
+      "unicode": "🍕",
+      "codepoints": [
+        "U+1F355"
+      ],
+      "shortcode": ":pizza_1f355:",
+      "label": "Pizza"
+    },
+    {
+      "fileName": "emoji_u1f357.tgs",
+      "unicode": "🍗",
+      "codepoints": [
+        "U+1F357"
+      ],
+      "shortcode": ":poultry_leg:",
+      "label": "Poultry Leg"
+    },
+    {
+      "fileName": "emoji_u1f35c.tgs",
+      "unicode": "🍜",
+      "codepoints": [
+        "U+1F35C"
+      ],
+      "shortcode": ":steaming_bowl:",
+      "label": "Steaming Bowl"
+    },
+    {
+      "fileName": "emoji_u1f35d.tgs",
+      "unicode": "🍝",
+      "codepoints": [
+        "U+1F35D"
+      ],
+      "shortcode": ":spaghetti:",
+      "label": "Spaghetti"
+    },
+    {
+      "fileName": "emoji_u1f35e.tgs",
+      "unicode": "🍞",
+      "codepoints": [
+        "U+1F35E"
+      ],
+      "shortcode": ":bread:",
+      "label": "Bread"
+    },
+    {
+      "fileName": "emoji_u1f361.tgs",
+      "unicode": "🍡",
+      "codepoints": [
+        "U+1F361"
+      ],
+      "shortcode": ":dango:",
+      "label": "Dango"
+    },
+    {
+      "fileName": "emoji_u1f362.tgs",
+      "unicode": "🍢",
+      "codepoints": [
+        "U+1F362"
+      ],
+      "shortcode": ":oden:",
+      "label": "Oden"
+    },
+    {
+      "fileName": "emoji_u1f366.tgs",
+      "unicode": "🍦",
+      "codepoints": [
+        "U+1F366"
+      ],
+      "shortcode": ":soft_ice_cream:",
+      "label": "Soft Ice Cream"
+    },
+    {
+      "fileName": "emoji_u1f368.tgs",
+      "unicode": "🍨",
+      "codepoints": [
+        "U+1F368"
+      ],
+      "shortcode": ":ice_cream:",
+      "label": "Ice Cream"
+    },
+    {
+      "fileName": "emoji_u1f369.tgs",
+      "unicode": "🍩",
+      "codepoints": [
+        "U+1F369"
+      ],
+      "shortcode": ":doughnut:",
+      "label": "Doughnut"
+    },
+    {
+      "fileName": "emoji_u1f36a.tgs",
+      "unicode": "🍪",
+      "codepoints": [
+        "U+1F36A"
+      ],
+      "shortcode": ":cookie:",
+      "label": "Cookie"
+    },
+    {
+      "fileName": "emoji_u1f373.tgs",
+      "unicode": "🍳",
+      "codepoints": [
+        "U+1F373"
+      ],
+      "shortcode": ":cooking:",
+      "label": "Cooking"
+    },
+    {
+      "fileName": "emoji_u1f375.tgs",
+      "unicode": "🍵",
+      "codepoints": [
+        "U+1F375"
+      ],
+      "shortcode": ":teacup_without_handle:",
+      "label": "Teacup Without Handle"
+    },
+    {
+      "fileName": "emoji_u1f377.tgs",
+      "unicode": "🍷",
+      "codepoints": [
+        "U+1F377"
+      ],
+      "shortcode": ":wine_glass:",
+      "label": "Wine Glass"
+    },
+    {
+      "fileName": "emoji_u1f379.tgs",
+      "unicode": "🍹",
+      "codepoints": [
+        "U+1F379"
+      ],
+      "shortcode": ":tropical_drink_1f379:",
+      "label": "Tropical Drink"
+    },
+    {
+      "fileName": "emoji_u1f37b.tgs",
+      "unicode": "🍻",
+      "codepoints": [
+        "U+1F37B"
+      ],
+      "shortcode": ":clinking_beer_mugs:",
+      "label": "Clinking Beer Mugs"
+    },
+    {
+      "fileName": "emoji_u1f37c.tgs",
+      "unicode": "🍼",
+      "codepoints": [
+        "U+1F37C"
+      ],
+      "shortcode": ":baby_bottle:",
+      "label": "Baby Bottle"
+    },
+    {
+      "fileName": "emoji_u1f37d_fe0f.tgs",
+      "unicode": "🍽️",
+      "codepoints": [
+        "U+1F37D",
+        "U+FE0F"
+      ],
+      "shortcode": ":fork_and_knife_with_plate:",
+      "label": "Fork And Knife With Plate"
+    },
+    {
+      "fileName": "emoji_u1f37e.tgs",
+      "unicode": "🍾",
+      "codepoints": [
+        "U+1F37E"
+      ],
+      "shortcode": ":bottle_with_popping_cork:",
+      "label": "Bottle With Popping Cork"
+    },
+    {
+      "fileName": "emoji_u1f37f.tgs",
+      "unicode": "🍿",
+      "codepoints": [
+        "U+1F37F"
+      ],
+      "shortcode": ":popcorn:",
+      "label": "Popcorn"
+    },
+    {
+      "fileName": "emoji_u1f381.tgs",
+      "unicode": "🎁",
+      "codepoints": [
+        "U+1F381"
+      ],
+      "shortcode": ":wrapped_gift:",
+      "label": "Wrapped Gift"
+    },
+    {
+      "fileName": "emoji_u1f382.tgs",
+      "unicode": "🎂",
+      "codepoints": [
+        "U+1F382"
+      ],
+      "shortcode": ":birthday_cake:",
+      "label": "Birthday Cake"
+    },
+    {
+      "fileName": "emoji_u1f386.tgs",
+      "unicode": "🎆",
+      "codepoints": [
+        "U+1F386"
+      ],
+      "shortcode": ":fireworks:",
+      "label": "Fireworks"
+    },
+    {
+      "fileName": "emoji_u1f388.tgs",
+      "unicode": "🎈",
+      "codepoints": [
+        "U+1F388"
+      ],
+      "shortcode": ":balloon:",
+      "label": "Balloon"
+    },
+    {
+      "fileName": "emoji_u1f389.tgs",
+      "unicode": "🎉",
+      "codepoints": [
+        "U+1F389"
+      ],
+      "shortcode": ":party_popper:",
+      "label": "Party Popper"
+    },
+    {
+      "fileName": "emoji_u1f38a.tgs",
+      "unicode": "🎊",
+      "codepoints": [
+        "U+1F38A"
+      ],
+      "shortcode": ":confetti_ball:",
+      "label": "Confetti Ball"
+    },
+    {
+      "fileName": "emoji_u1f393.tgs",
+      "unicode": "🎓",
+      "codepoints": [
+        "U+1F393"
+      ],
+      "shortcode": ":graduation_cap:",
+      "label": "Graduation Cap"
+    },
+    {
+      "fileName": "emoji_u1f39e_fe0f.tgs",
+      "unicode": "🎞️",
+      "codepoints": [
+        "U+1F39E",
+        "U+FE0F"
+      ],
+      "shortcode": ":film:",
+      "label": "Film"
+    },
+    {
+      "fileName": "emoji_u1f39f_fe0f.tgs",
+      "unicode": "🎟️",
+      "codepoints": [
+        "U+1F39F",
+        "U+FE0F"
+      ],
+      "shortcode": ":admission_tickets:",
+      "label": "Admission Tickets"
+    },
+    {
+      "fileName": "emoji_u1f3a0.tgs",
+      "unicode": "🎠",
+      "codepoints": [
+        "U+1F3A0"
+      ],
+      "shortcode": ":carousel_horse:",
+      "label": "Carousel Horse"
+    },
+    {
+      "fileName": "emoji_u1f3a1.tgs",
+      "unicode": "🎡",
+      "codepoints": [
+        "U+1F3A1"
+      ],
+      "shortcode": ":ferris_wheel:",
+      "label": "Ferris Wheel"
+    },
+    {
+      "fileName": "emoji_u1f3a2.tgs",
+      "unicode": "🎢",
+      "codepoints": [
+        "U+1F3A2"
+      ],
+      "shortcode": ":roller_coaster:",
+      "label": "Roller Coaster"
+    },
+    {
+      "fileName": "emoji_u1f3a3.tgs",
+      "unicode": "🎣",
+      "codepoints": [
+        "U+1F3A3"
+      ],
+      "shortcode": ":fishing_pole:",
+      "label": "Fishing Pole"
+    },
+    {
+      "fileName": "emoji_u1f3ac.tgs",
+      "unicode": "🎬",
+      "codepoints": [
+        "U+1F3AC"
+      ],
+      "shortcode": ":clapper_1f3ac:",
+      "label": "Clapper"
+    },
+    {
+      "fileName": "emoji_u1f3ad.tgs",
+      "unicode": "🎭",
+      "codepoints": [
+        "U+1F3AD"
+      ],
+      "shortcode": ":performing_arts_1f3ad:",
+      "label": "Performing Arts"
+    },
+    {
+      "fileName": "emoji_u1f3af.tgs",
+      "unicode": "🎯",
+      "codepoints": [
+        "U+1F3AF"
+      ],
+      "shortcode": ":direct_hit:",
+      "label": "Direct Hit"
+    },
+    {
+      "fileName": "emoji_u1f3b0.tgs",
+      "unicode": "🎰",
+      "codepoints": [
+        "U+1F3B0"
+      ],
+      "shortcode": ":slot_machine:",
+      "label": "Slot Machine"
+    },
+    {
+      "fileName": "emoji_u1f3b1.tgs",
+      "unicode": "🎱",
+      "codepoints": [
+        "U+1F3B1"
+      ],
+      "shortcode": ":8_ball:",
+      "label": "8 Ball"
+    },
+    {
+      "fileName": "emoji_u1f3b2.tgs",
+      "unicode": "🎲",
+      "codepoints": [
+        "U+1F3B2"
+      ],
+      "shortcode": ":die:",
+      "label": "Die"
+    },
+    {
+      "fileName": "emoji_u1f3b3.tgs",
+      "unicode": "🎳",
+      "codepoints": [
+        "U+1F3B3"
+      ],
+      "shortcode": ":bowling:",
+      "label": "Bowling"
+    },
+    {
+      "fileName": "emoji_u1f3b6.tgs",
+      "unicode": "🎶",
+      "codepoints": [
+        "U+1F3B6"
+      ],
+      "shortcode": ":musical_notes:",
+      "label": "Musical Notes"
+    },
+    {
+      "fileName": "emoji_u1f3b7.tgs",
+      "unicode": "🎷",
+      "codepoints": [
+        "U+1F3B7"
+      ],
+      "shortcode": ":saxophone:",
+      "label": "Saxophone"
+    },
+    {
+      "fileName": "emoji_u1f3b8.tgs",
+      "unicode": "🎸",
+      "codepoints": [
+        "U+1F3B8"
+      ],
+      "shortcode": ":guitar:",
+      "label": "Guitar"
+    },
+    {
+      "fileName": "emoji_u1f3ba.tgs",
+      "unicode": "🎺",
+      "codepoints": [
+        "U+1F3BA"
+      ],
+      "shortcode": ":trumpet:",
+      "label": "Trumpet"
+    },
+    {
+      "fileName": "emoji_u1f3bb.tgs",
+      "unicode": "🎻",
+      "codepoints": [
+        "U+1F3BB"
+      ],
+      "shortcode": ":violin:",
+      "label": "Violin"
+    },
+    {
+      "fileName": "emoji_u1f3be.tgs",
+      "unicode": "🎾",
+      "codepoints": [
+        "U+1F3BE"
+      ],
+      "shortcode": ":tennis:",
+      "label": "Tennis"
+    },
+    {
+      "fileName": "emoji_u1f3bf.tgs",
+      "unicode": "🎿",
+      "codepoints": [
+        "U+1F3BF"
+      ],
+      "shortcode": ":skis:",
+      "label": "Skis"
+    },
+    {
+      "fileName": "emoji_u1f3c0.tgs",
+      "unicode": "🏀",
+      "codepoints": [
+        "U+1F3C0"
+      ],
+      "shortcode": ":basketball_1f3c0:",
+      "label": "Basketball"
+    },
+    {
+      "fileName": "emoji_u1f3c1.tgs",
+      "unicode": "🏁",
+      "codepoints": [
+        "U+1F3C1"
+      ],
+      "shortcode": ":chequered_flag:",
+      "label": "Chequered Flag"
+    },
+    {
+      "fileName": "emoji_u1f3c6.tgs",
+      "unicode": "🏆",
+      "codepoints": [
+        "U+1F3C6"
+      ],
+      "shortcode": ":trophy_1f3c6:",
+      "label": "Trophy"
+    },
+    {
+      "fileName": "emoji_u1f3c9.tgs",
+      "unicode": "🏉",
+      "codepoints": [
+        "U+1F3C9"
+      ],
+      "shortcode": ":rugby_football:",
+      "label": "Rugby Football"
+    },
+    {
+      "fileName": "emoji_u1f3cd_fe0f.tgs",
+      "unicode": "🏍️",
+      "codepoints": [
+        "U+1F3CD",
+        "U+FE0F"
+      ],
+      "shortcode": ":motorcycle:",
+      "label": "Motorcycle"
+    },
+    {
+      "fileName": "emoji_u1f3ce_fe0f.tgs",
+      "unicode": "🏎️",
+      "codepoints": [
+        "U+1F3CE",
+        "U+FE0F"
+      ],
+      "shortcode": ":racing_car:",
+      "label": "Racing Car"
+    },
+    {
+      "fileName": "emoji_u1f3cf.tgs",
+      "unicode": "🏏",
+      "codepoints": [
+        "U+1F3CF"
+      ],
+      "shortcode": ":cricket_game:",
+      "label": "Cricket Game"
+    },
+    {
+      "fileName": "emoji_u1f3d1.tgs",
+      "unicode": "🏑",
+      "codepoints": [
+        "U+1F3D1"
+      ],
+      "shortcode": ":field_hockey:",
+      "label": "Field Hockey"
+    },
+    {
+      "fileName": "emoji_u1f3d2.tgs",
+      "unicode": "🏒",
+      "codepoints": [
+        "U+1F3D2"
+      ],
+      "shortcode": ":ice_hockey:",
+      "label": "Ice Hockey"
+    },
+    {
+      "fileName": "emoji_u1f3d3.tgs",
+      "unicode": "🏓",
+      "codepoints": [
+        "U+1F3D3"
+      ],
+      "shortcode": ":ping_pong:",
+      "label": "Ping Pong"
+    },
+    {
+      "fileName": "emoji_u1f3d5_fe0f.tgs",
+      "unicode": "🏕️",
+      "codepoints": [
+        "U+1F3D5",
+        "U+FE0F"
+      ],
+      "shortcode": ":camping_1f3d5:",
+      "label": "Camping"
+    },
+    {
+      "fileName": "emoji_u1f3da_fe0f.tgs",
+      "unicode": "🏚️",
+      "codepoints": [
+        "U+1F3DA",
+        "U+FE0F"
+      ],
+      "shortcode": ":derelict_house:",
+      "label": "Derelict House"
+    },
+    {
+      "fileName": "emoji_u1f3de_fe0f.tgs",
+      "unicode": "🏞️",
+      "codepoints": [
+        "U+1F3DE",
+        "U+FE0F"
+      ],
+      "shortcode": ":national_park:",
+      "label": "National Park"
+    },
+    {
+      "fileName": "emoji_u1f3e0.tgs",
+      "unicode": "🏠",
+      "codepoints": [
+        "U+1F3E0"
+      ],
+      "shortcode": ":house_1f3e0:",
+      "label": "House"
+    },
+    {
+      "fileName": "emoji_u1f3f3_fe0f.tgs",
+      "unicode": "🏳️",
+      "codepoints": [
+        "U+1F3F3",
+        "U+FE0F"
+      ],
+      "shortcode": ":white_flag:",
+      "label": "White Flag"
+    },
+    {
+      "fileName": "emoji_u1f3f4.tgs",
+      "unicode": "🏴",
+      "codepoints": [
+        "U+1F3F4"
+      ],
+      "shortcode": ":black_flag:",
+      "label": "Black Flag"
+    },
+    {
+      "fileName": "emoji_u1f3f8.tgs",
+      "unicode": "🏸",
+      "codepoints": [
+        "U+1F3F8"
+      ],
+      "shortcode": ":badminton:",
+      "label": "Badminton"
+    },
+    {
+      "fileName": "emoji_u1f400.tgs",
+      "unicode": "🐀",
+      "codepoints": [
+        "U+1F400"
+      ],
+      "shortcode": ":rat:",
+      "label": "Rat"
+    },
+    {
+      "fileName": "emoji_u1f402.tgs",
+      "unicode": "🐂",
+      "codepoints": [
+        "U+1F402"
+      ],
+      "shortcode": ":ox:",
+      "label": "Ox"
+    },
+    {
+      "fileName": "emoji_u1f405.tgs",
+      "unicode": "🐅",
+      "codepoints": [
+        "U+1F405"
+      ],
+      "shortcode": ":tiger:",
+      "label": "Tiger"
+    },
+    {
+      "fileName": "emoji_u1f407.tgs",
+      "unicode": "🐇",
+      "codepoints": [
+        "U+1F407"
+      ],
+      "shortcode": ":rabbit:",
+      "label": "Rabbit"
+    },
+    {
+      "fileName": "emoji_u1f409.tgs",
+      "unicode": "🐉",
+      "codepoints": [
+        "U+1F409"
+      ],
+      "shortcode": ":dragon:",
+      "label": "Dragon"
+    },
+    {
+      "fileName": "emoji_u1f40a.tgs",
+      "unicode": "🐊",
+      "codepoints": [
+        "U+1F40A"
+      ],
+      "shortcode": ":crocodile:",
+      "label": "Crocodile"
+    },
+    {
+      "fileName": "emoji_u1f40c.tgs",
+      "unicode": "🐌",
+      "codepoints": [
+        "U+1F40C"
+      ],
+      "shortcode": ":snail:",
+      "label": "Snail"
+    },
+    {
+      "fileName": "emoji_u1f40d.tgs",
+      "unicode": "🐍",
+      "codepoints": [
+        "U+1F40D"
+      ],
+      "shortcode": ":snake:",
+      "label": "Snake"
+    },
+    {
+      "fileName": "emoji_u1f40e.tgs",
+      "unicode": "🐎",
+      "codepoints": [
+        "U+1F40E"
+      ],
+      "shortcode": ":racehorse:",
+      "label": "Racehorse"
+    },
+    {
+      "fileName": "emoji_u1f410.tgs",
+      "unicode": "🐐",
+      "codepoints": [
+        "U+1F410"
+      ],
+      "shortcode": ":goat:",
+      "label": "Goat"
+    },
+    {
+      "fileName": "emoji_u1f412.tgs",
+      "unicode": "🐒",
+      "codepoints": [
+        "U+1F412"
+      ],
+      "shortcode": ":monkey:",
+      "label": "Monkey"
+    },
+    {
+      "fileName": "emoji_u1f413.tgs",
+      "unicode": "🐓",
+      "codepoints": [
+        "U+1F413"
+      ],
+      "shortcode": ":rooster:",
+      "label": "Rooster"
+    },
+    {
+      "fileName": "emoji_u1f415.tgs",
+      "unicode": "🐕",
+      "codepoints": [
+        "U+1F415"
+      ],
+      "shortcode": ":dog:",
+      "label": "Dog"
+    },
+    {
+      "fileName": "emoji_u1f415_200d_1f9ba.tgs",
+      "unicode": "🐕‍🦺",
+      "codepoints": [
+        "U+1F415",
+        "U+200D",
+        "U+1F9BA"
+      ],
+      "shortcode": ":service_dog:",
+      "label": "Service Dog"
+    },
+    {
+      "fileName": "emoji_u1f416.tgs",
+      "unicode": "🐖",
+      "codepoints": [
+        "U+1F416"
+      ],
+      "shortcode": ":pig:",
+      "label": "Pig"
+    },
+    {
+      "fileName": "emoji_u1f419.tgs",
+      "unicode": "🐙",
+      "codepoints": [
+        "U+1F419"
+      ],
+      "shortcode": ":octopus:",
+      "label": "Octopus"
+    },
+    {
+      "fileName": "emoji_u1f41b.tgs",
+      "unicode": "🐛",
+      "codepoints": [
+        "U+1F41B"
+      ],
+      "shortcode": ":bug:",
+      "label": "Bug"
+    },
+    {
+      "fileName": "emoji_u1f41c.tgs",
+      "unicode": "🐜",
+      "codepoints": [
+        "U+1F41C"
+      ],
+      "shortcode": ":ant:",
+      "label": "Ant"
+    },
+    {
+      "fileName": "emoji_u1f41d.tgs",
+      "unicode": "🐝",
+      "codepoints": [
+        "U+1F41D"
+      ],
+      "shortcode": ":bee:",
+      "label": "Bee"
+    },
+    {
+      "fileName": "emoji_u1f41e.tgs",
+      "unicode": "🐞",
+      "codepoints": [
+        "U+1F41E"
+      ],
+      "shortcode": ":lady_bug:",
+      "label": "Lady Bug"
+    },
+    {
+      "fileName": "emoji_u1f41f.tgs",
+      "unicode": "🐟",
+      "codepoints": [
+        "U+1F41F"
+      ],
+      "shortcode": ":fish_1f41f:",
+      "label": "Fish"
+    },
+    {
+      "fileName": "emoji_u1f421.tgs",
+      "unicode": "🐡",
+      "codepoints": [
+        "U+1F421"
+      ],
+      "shortcode": ":blowfish:",
+      "label": "Blowfish"
+    },
+    {
+      "fileName": "emoji_u1f422.tgs",
+      "unicode": "🐢",
+      "codepoints": [
+        "U+1F422"
+      ],
+      "shortcode": ":turtle:",
+      "label": "Turtle"
+    },
+    {
+      "fileName": "emoji_u1f423.tgs",
+      "unicode": "🐣",
+      "codepoints": [
+        "U+1F423"
+      ],
+      "shortcode": ":hatching_chick:",
+      "label": "Hatching Chick"
+    },
+    {
+      "fileName": "emoji_u1f424.tgs",
+      "unicode": "🐤",
+      "codepoints": [
+        "U+1F424"
+      ],
+      "shortcode": ":baby_chick:",
+      "label": "Baby Chick"
+    },
+    {
+      "fileName": "emoji_u1f425.tgs",
+      "unicode": "🐥",
+      "codepoints": [
+        "U+1F425"
+      ],
+      "shortcode": ":hatched_chick:",
+      "label": "Hatched Chick"
+    },
+    {
+      "fileName": "emoji_u1f426.tgs",
+      "unicode": "🐦",
+      "codepoints": [
+        "U+1F426"
+      ],
+      "shortcode": ":bird:",
+      "label": "Bird"
+    },
+    {
+      "fileName": "emoji_u1f426_200d_1f525.tgs",
+      "unicode": "🐦‍🔥",
+      "codepoints": [
+        "U+1F426",
+        "U+200D",
+        "U+1F525"
+      ],
+      "shortcode": ":phoenix:",
+      "label": "Phoenix"
+    },
+    {
+      "fileName": "emoji_u1f426_200d_2b1b.tgs",
+      "unicode": "🐦‍⬛",
+      "codepoints": [
+        "U+1F426",
+        "U+200D",
+        "U+2B1B"
+      ],
+      "shortcode": ":black_bird:",
+      "label": "Black Bird"
+    },
+    {
+      "fileName": "emoji_u1f427.tgs",
+      "unicode": "🐧",
+      "codepoints": [
+        "U+1F427"
+      ],
+      "shortcode": ":penguin:",
+      "label": "Penguin"
+    },
+    {
+      "fileName": "emoji_u1f429.tgs",
+      "unicode": "🐩",
+      "codepoints": [
+        "U+1F429"
+      ],
+      "shortcode": ":poodle:",
+      "label": "Poodle"
+    },
+    {
+      "fileName": "emoji_u1f42c.tgs",
+      "unicode": "🐬",
+      "codepoints": [
+        "U+1F42C"
+      ],
+      "shortcode": ":dolphin:",
+      "label": "Dolphin"
+    },
+    {
+      "fileName": "emoji_u1f42e.tgs",
+      "unicode": "🐮",
+      "codepoints": [
+        "U+1F42E"
+      ],
+      "shortcode": ":cow_face:",
+      "label": "Cow Face"
+    },
+    {
+      "fileName": "emoji_u1f433.tgs",
+      "unicode": "🐳",
+      "codepoints": [
+        "U+1F433"
+      ],
+      "shortcode": ":whale:",
+      "label": "Whale"
+    },
+    {
+      "fileName": "emoji_u1f438.tgs",
+      "unicode": "🐸",
+      "codepoints": [
+        "U+1F438"
+      ],
+      "shortcode": ":frog:",
+      "label": "Frog"
+    },
+    {
+      "fileName": "emoji_u1f43a.tgs",
+      "unicode": "🐺",
+      "codepoints": [
+        "U+1F43A"
+      ],
+      "shortcode": ":wolf:",
+      "label": "Wolf"
+    },
+    {
+      "fileName": "emoji_u1f43b.tgs",
+      "unicode": "🐻",
+      "codepoints": [
+        "U+1F43B"
+      ],
+      "shortcode": ":bear_face:",
+      "label": "Bear Face"
+    },
+    {
+      "fileName": "emoji_u1f43c.tgs",
+      "unicode": "🐼",
+      "codepoints": [
+        "U+1F43C"
+      ],
+      "shortcode": ":panda:",
+      "label": "Panda"
+    },
+    {
+      "fileName": "emoji_u1f43e.tgs",
+      "unicode": "🐾",
+      "codepoints": [
+        "U+1F43E"
+      ],
+      "shortcode": ":paw_prints:",
+      "label": "Paw Prints"
+    },
+    {
+      "fileName": "emoji_u1f43f_fe0f.tgs",
+      "unicode": "🐿️",
+      "codepoints": [
+        "U+1F43F",
+        "U+FE0F"
+      ],
+      "shortcode": ":chipmunk:",
+      "label": "Chipmunk"
+    },
+    {
+      "fileName": "emoji_u1f440.tgs",
+      "unicode": "👀",
+      "codepoints": [
+        "U+1F440"
+      ],
+      "shortcode": ":eyes_1f440:",
+      "label": "Eyes"
+    },
+    {
+      "fileName": "emoji_u1f441_fe0f.tgs",
+      "unicode": "👁️",
+      "codepoints": [
+        "U+1F441",
+        "U+FE0F"
+      ],
+      "shortcode": ":eye:",
+      "label": "Eye"
+    },
+    {
+      "fileName": "emoji_u1f442.tgs",
+      "unicode": "👂",
+      "codepoints": [
+        "U+1F442"
+      ],
+      "shortcode": ":ear:",
+      "label": "Ear"
+    },
+    {
+      "fileName": "emoji_u1f442_1f3fb.tgs",
+      "unicode": "👂🏻",
+      "codepoints": [
+        "U+1F442",
+        "U+1F3FB"
+      ],
+      "shortcode": ":ear_1f442:",
+      "label": "Ear"
+    },
+    {
+      "fileName": "emoji_u1f442_1f3fc.tgs",
+      "unicode": "👂🏼",
+      "codepoints": [
+        "U+1F442",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f442_1f3fc:",
+      "label": "Ear"
+    },
+    {
+      "fileName": "emoji_u1f442_1f3fd.tgs",
+      "unicode": "👂🏽",
+      "codepoints": [
+        "U+1F442",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f442_1f3fd:",
+      "label": "Ear"
+    },
+    {
+      "fileName": "emoji_u1f442_1f3fe.tgs",
+      "unicode": "👂🏾",
+      "codepoints": [
+        "U+1F442",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f442_1f3fe:",
+      "label": "Ear"
+    },
+    {
+      "fileName": "emoji_u1f442_1f3ff.tgs",
+      "unicode": "👂🏿",
+      "codepoints": [
+        "U+1F442",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f442_1f3ff:",
+      "label": "Ear"
+    },
+    {
+      "fileName": "emoji_u1f443.tgs",
+      "unicode": "👃",
+      "codepoints": [
+        "U+1F443"
+      ],
+      "shortcode": ":nose:",
+      "label": "Nose"
+    },
+    {
+      "fileName": "emoji_u1f443_1f3fb.tgs",
+      "unicode": "👃🏻",
+      "codepoints": [
+        "U+1F443",
+        "U+1F3FB"
+      ],
+      "shortcode": ":nose_1f443:",
+      "label": "Nose"
+    },
+    {
+      "fileName": "emoji_u1f443_1f3fc.tgs",
+      "unicode": "👃🏼",
+      "codepoints": [
+        "U+1F443",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f443_1f3fc:",
+      "label": "Nose"
+    },
+    {
+      "fileName": "emoji_u1f443_1f3fd.tgs",
+      "unicode": "👃🏽",
+      "codepoints": [
+        "U+1F443",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f443_1f3fd:",
+      "label": "Nose"
+    },
+    {
+      "fileName": "emoji_u1f443_1f3fe.tgs",
+      "unicode": "👃🏾",
+      "codepoints": [
+        "U+1F443",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f443_1f3fe:",
+      "label": "Nose"
+    },
+    {
+      "fileName": "emoji_u1f443_1f3ff.tgs",
+      "unicode": "👃🏿",
+      "codepoints": [
+        "U+1F443",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f443_1f3ff:",
+      "label": "Nose"
+    },
+    {
+      "fileName": "emoji_u1f446.tgs",
+      "unicode": "👆",
+      "codepoints": [
+        "U+1F446"
+      ],
+      "shortcode": ":point_up:",
+      "label": "Point Up"
+    },
+    {
+      "fileName": "emoji_u1f446_1f3fb.tgs",
+      "unicode": "👆🏻",
+      "codepoints": [
+        "U+1F446",
+        "U+1F3FB"
+      ],
+      "shortcode": ":point_up_1f446:",
+      "label": "Point Up"
+    },
+    {
+      "fileName": "emoji_u1f446_1f3fc.tgs",
+      "unicode": "👆🏼",
+      "codepoints": [
+        "U+1F446",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f446_1f3fc:",
+      "label": "Point Up"
+    },
+    {
+      "fileName": "emoji_u1f446_1f3fd.tgs",
+      "unicode": "👆🏽",
+      "codepoints": [
+        "U+1F446",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f446_1f3fd:",
+      "label": "Point Up"
+    },
+    {
+      "fileName": "emoji_u1f446_1f3fe.tgs",
+      "unicode": "👆🏾",
+      "codepoints": [
+        "U+1F446",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f446_1f3fe:",
+      "label": "Point Up"
+    },
+    {
+      "fileName": "emoji_u1f446_1f3ff.tgs",
+      "unicode": "👆🏿",
+      "codepoints": [
+        "U+1F446",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f446_1f3ff:",
+      "label": "Point Up"
+    },
+    {
+      "fileName": "emoji_u1f447.tgs",
+      "unicode": "👇",
+      "codepoints": [
+        "U+1F447"
+      ],
+      "shortcode": ":point_down:",
+      "label": "Point Down"
+    },
+    {
+      "fileName": "emoji_u1f447_1f3fb.tgs",
+      "unicode": "👇🏻",
+      "codepoints": [
+        "U+1F447",
+        "U+1F3FB"
+      ],
+      "shortcode": ":point_down_1f447:",
+      "label": "Point Down"
+    },
+    {
+      "fileName": "emoji_u1f447_1f3fc.tgs",
+      "unicode": "👇🏼",
+      "codepoints": [
+        "U+1F447",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f447_1f3fc:",
+      "label": "Point Down"
+    },
+    {
+      "fileName": "emoji_u1f447_1f3fd.tgs",
+      "unicode": "👇🏽",
+      "codepoints": [
+        "U+1F447",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f447_1f3fd:",
+      "label": "Point Down"
+    },
+    {
+      "fileName": "emoji_u1f447_1f3fe.tgs",
+      "unicode": "👇🏾",
+      "codepoints": [
+        "U+1F447",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f447_1f3fe:",
+      "label": "Point Down"
+    },
+    {
+      "fileName": "emoji_u1f447_1f3ff.tgs",
+      "unicode": "👇🏿",
+      "codepoints": [
+        "U+1F447",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f447_1f3ff:",
+      "label": "Point Down"
+    },
+    {
+      "fileName": "emoji_u1f448.tgs",
+      "unicode": "👈",
+      "codepoints": [
+        "U+1F448"
+      ],
+      "shortcode": ":point_left:",
+      "label": "Point Left"
+    },
+    {
+      "fileName": "emoji_u1f448_1f3fb.tgs",
+      "unicode": "👈🏻",
+      "codepoints": [
+        "U+1F448",
+        "U+1F3FB"
+      ],
+      "shortcode": ":point_left_1f448:",
+      "label": "Point Left"
+    },
+    {
+      "fileName": "emoji_u1f448_1f3fc.tgs",
+      "unicode": "👈🏼",
+      "codepoints": [
+        "U+1F448",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f448_1f3fc:",
+      "label": "Point Left"
+    },
+    {
+      "fileName": "emoji_u1f448_1f3fd.tgs",
+      "unicode": "👈🏽",
+      "codepoints": [
+        "U+1F448",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f448_1f3fd:",
+      "label": "Point Left"
+    },
+    {
+      "fileName": "emoji_u1f448_1f3fe.tgs",
+      "unicode": "👈🏾",
+      "codepoints": [
+        "U+1F448",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f448_1f3fe:",
+      "label": "Point Left"
+    },
+    {
+      "fileName": "emoji_u1f448_1f3ff.tgs",
+      "unicode": "👈🏿",
+      "codepoints": [
+        "U+1F448",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f448_1f3ff:",
+      "label": "Point Left"
+    },
+    {
+      "fileName": "emoji_u1f449.tgs",
+      "unicode": "👉",
+      "codepoints": [
+        "U+1F449"
+      ],
+      "shortcode": ":point_right:",
+      "label": "Point Right"
+    },
+    {
+      "fileName": "emoji_u1f449_1f3fb.tgs",
+      "unicode": "👉🏻",
+      "codepoints": [
+        "U+1F449",
+        "U+1F3FB"
+      ],
+      "shortcode": ":point_right_1f449:",
+      "label": "Point Right"
+    },
+    {
+      "fileName": "emoji_u1f449_1f3fc.tgs",
+      "unicode": "👉🏼",
+      "codepoints": [
+        "U+1F449",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f449_1f3fc:",
+      "label": "Point Right"
+    },
+    {
+      "fileName": "emoji_u1f449_1f3fd.tgs",
+      "unicode": "👉🏽",
+      "codepoints": [
+        "U+1F449",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f449_1f3fd:",
+      "label": "Point Right"
+    },
+    {
+      "fileName": "emoji_u1f449_1f3fe.tgs",
+      "unicode": "👉🏾",
+      "codepoints": [
+        "U+1F449",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f449_1f3fe:",
+      "label": "Point Right"
+    },
+    {
+      "fileName": "emoji_u1f449_1f3ff.tgs",
+      "unicode": "👉🏿",
+      "codepoints": [
+        "U+1F449",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f449_1f3ff:",
+      "label": "Point Right"
+    },
+    {
+      "fileName": "emoji_u1f44a.tgs",
+      "unicode": "👊",
+      "codepoints": [
+        "U+1F44A"
+      ],
+      "shortcode": ":fist:",
+      "label": "Fist"
+    },
+    {
+      "fileName": "emoji_u1f44a_1f3fb.tgs",
+      "unicode": "👊🏻",
+      "codepoints": [
+        "U+1F44A",
+        "U+1F3FB"
+      ],
+      "shortcode": ":bump:",
+      "label": "Bump"
+    },
+    {
+      "fileName": "emoji_u1f44a_1f3fc.tgs",
+      "unicode": "👊🏼",
+      "codepoints": [
+        "U+1F44A",
+        "U+1F3FC"
+      ],
+      "shortcode": ":fist_1f44a:",
+      "label": "Fist"
+    },
+    {
+      "fileName": "emoji_u1f44a_1f3fd.tgs",
+      "unicode": "👊🏽",
+      "codepoints": [
+        "U+1F44A",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f44a_1f3fd:",
+      "label": "Fist"
+    },
+    {
+      "fileName": "emoji_u1f44a_1f3fe.tgs",
+      "unicode": "👊🏾",
+      "codepoints": [
+        "U+1F44A",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f44a_1f3fe:",
+      "label": "Fist"
+    },
+    {
+      "fileName": "emoji_u1f44a_1f3ff.tgs",
+      "unicode": "👊🏿",
+      "codepoints": [
+        "U+1F44A",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f44a_1f3ff:",
+      "label": "Fist"
+    },
+    {
+      "fileName": "emoji_u1f44b.tgs",
+      "unicode": "👋",
+      "codepoints": [
+        "U+1F44B"
+      ],
+      "shortcode": ":wave:",
+      "label": "Waving Hand"
+    },
+    {
+      "fileName": "emoji_u1f44b_1f3fb.tgs",
+      "unicode": "👋🏻",
+      "codepoints": [
+        "U+1F44B",
+        "U+1F3FB"
+      ],
+      "shortcode": ":wave_1f44b:",
+      "label": "Wave"
+    },
+    {
+      "fileName": "emoji_u1f44b_1f3fc.tgs",
+      "unicode": "👋🏼",
+      "codepoints": [
+        "U+1F44B",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f44b_1f3fc:",
+      "label": "Wave"
+    },
+    {
+      "fileName": "emoji_u1f44b_1f3fd.tgs",
+      "unicode": "👋🏽",
+      "codepoints": [
+        "U+1F44B",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f44b_1f3fd:",
+      "label": "Wave"
+    },
+    {
+      "fileName": "emoji_u1f44b_1f3fe.tgs",
+      "unicode": "👋🏾",
+      "codepoints": [
+        "U+1F44B",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f44b_1f3fe:",
+      "label": "Wave"
+    },
+    {
+      "fileName": "emoji_u1f44b_1f3ff.tgs",
+      "unicode": "👋🏿",
+      "codepoints": [
+        "U+1F44B",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f44b_1f3ff:",
+      "label": "Wave"
+    },
+    {
+      "fileName": "emoji_u1f44c.tgs",
+      "unicode": "👌",
+      "codepoints": [
+        "U+1F44C"
+      ],
+      "shortcode": ":ok:",
+      "label": "Ok"
+    },
+    {
+      "fileName": "emoji_u1f44c_1f3fb.tgs",
+      "unicode": "👌🏻",
+      "codepoints": [
+        "U+1F44C",
+        "U+1F3FB"
+      ],
+      "shortcode": ":ok_1f44c:",
+      "label": "Ok"
+    },
+    {
+      "fileName": "emoji_u1f44c_1f3fc.tgs",
+      "unicode": "👌🏼",
+      "codepoints": [
+        "U+1F44C",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f44c_1f3fc:",
+      "label": "Ok"
+    },
+    {
+      "fileName": "emoji_u1f44c_1f3fd.tgs",
+      "unicode": "👌🏽",
+      "codepoints": [
+        "U+1F44C",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f44c_1f3fd:",
+      "label": "Ok"
+    },
+    {
+      "fileName": "emoji_u1f44c_1f3fe.tgs",
+      "unicode": "👌🏾",
+      "codepoints": [
+        "U+1F44C",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f44c_1f3fe:",
+      "label": "Ok"
+    },
+    {
+      "fileName": "emoji_u1f44c_1f3ff.tgs",
+      "unicode": "👌🏿",
+      "codepoints": [
+        "U+1F44C",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f44c_1f3ff:",
+      "label": "Ok"
+    },
+    {
+      "fileName": "emoji_u1f44d.tgs",
+      "unicode": "👍",
+      "codepoints": [
+        "U+1F44D"
+      ],
+      "shortcode": ":thumbs_up:",
+      "label": "Thumbs Up"
+    },
+    {
+      "fileName": "emoji_u1f44d_1f3fb.tgs",
+      "unicode": "👍🏻",
+      "codepoints": [
+        "U+1F44D",
+        "U+1F3FB"
+      ],
+      "shortcode": ":1:",
+      "label": "1"
+    },
+    {
+      "fileName": "emoji_u1f44d_1f3fc.tgs",
+      "unicode": "👍🏼",
+      "codepoints": [
+        "U+1F44D",
+        "U+1F3FC"
+      ],
+      "shortcode": ":thumbs_up_1f44d:",
+      "label": "Thumbs Up"
+    },
+    {
+      "fileName": "emoji_u1f44d_1f3fd.tgs",
+      "unicode": "👍🏽",
+      "codepoints": [
+        "U+1F44D",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f44d_1f3fd:",
+      "label": "Thumbs Up"
+    },
+    {
+      "fileName": "emoji_u1f44d_1f3fe.tgs",
+      "unicode": "👍🏾",
+      "codepoints": [
+        "U+1F44D",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f44d_1f3fe:",
+      "label": "Thumbs Up"
+    },
+    {
+      "fileName": "emoji_u1f44d_1f3ff.tgs",
+      "unicode": "👍🏿",
+      "codepoints": [
+        "U+1F44D",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f44d_1f3ff:",
+      "label": "Thumbs Up"
+    },
+    {
+      "fileName": "emoji_u1f44e.tgs",
+      "unicode": "👎",
+      "codepoints": [
+        "U+1F44E"
+      ],
+      "shortcode": ":thumbs_down:",
+      "label": "Thumbs Down"
+    },
+    {
+      "fileName": "emoji_u1f44e_1f3fb.tgs",
+      "unicode": "👎🏻",
+      "codepoints": [
+        "U+1F44E",
+        "U+1F3FB"
+      ],
+      "shortcode": ":thumbs_down_1f44e:",
+      "label": "Thumbs Down"
+    },
+    {
+      "fileName": "emoji_u1f44e_1f3fc.tgs",
+      "unicode": "👎🏼",
+      "codepoints": [
+        "U+1F44E",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f44e_1f3fc:",
+      "label": "Thumbs Down"
+    },
+    {
+      "fileName": "emoji_u1f44e_1f3fd.tgs",
+      "unicode": "👎🏽",
+      "codepoints": [
+        "U+1F44E",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f44e_1f3fd:",
+      "label": "Thumbs Down"
+    },
+    {
+      "fileName": "emoji_u1f44e_1f3fe.tgs",
+      "unicode": "👎🏾",
+      "codepoints": [
+        "U+1F44E",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f44e_1f3fe:",
+      "label": "Thumbs Down"
+    },
+    {
+      "fileName": "emoji_u1f44e_1f3ff.tgs",
+      "unicode": "👎🏿",
+      "codepoints": [
+        "U+1F44E",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f44e_1f3ff:",
+      "label": "Thumbs Down"
+    },
+    {
+      "fileName": "emoji_u1f44f.tgs",
+      "unicode": "👏",
+      "codepoints": [
+        "U+1F44F"
+      ],
+      "shortcode": ":clap:",
+      "label": "Clapping Hands"
+    },
+    {
+      "fileName": "emoji_u1f44f_1f3fb.tgs",
+      "unicode": "👏🏻",
+      "codepoints": [
+        "U+1F44F",
+        "U+1F3FB"
+      ],
+      "shortcode": ":clap_1f44f:",
+      "label": "Clap"
+    },
+    {
+      "fileName": "emoji_u1f44f_1f3fc.tgs",
+      "unicode": "👏🏼",
+      "codepoints": [
+        "U+1F44F",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f44f_1f3fc:",
+      "label": "Clap"
+    },
+    {
+      "fileName": "emoji_u1f44f_1f3fd.tgs",
+      "unicode": "👏🏽",
+      "codepoints": [
+        "U+1F44F",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f44f_1f3fd:",
+      "label": "Clap"
+    },
+    {
+      "fileName": "emoji_u1f44f_1f3fe.tgs",
+      "unicode": "👏🏾",
+      "codepoints": [
+        "U+1F44F",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f44f_1f3fe:",
+      "label": "Clap"
+    },
+    {
+      "fileName": "emoji_u1f44f_1f3ff.tgs",
+      "unicode": "👏🏿",
+      "codepoints": [
+        "U+1F44F",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f44f_1f3ff:",
+      "label": "Clap"
+    },
+    {
+      "fileName": "emoji_u1f450.tgs",
+      "unicode": "👐",
+      "codepoints": [
+        "U+1F450"
+      ],
+      "shortcode": ":open_hands:",
+      "label": "Open Hands"
+    },
+    {
+      "fileName": "emoji_u1f450_1f3fb.tgs",
+      "unicode": "👐🏻",
+      "codepoints": [
+        "U+1F450",
+        "U+1F3FB"
+      ],
+      "shortcode": ":open_hands_1f450:",
+      "label": "Open Hands"
+    },
+    {
+      "fileName": "emoji_u1f450_1f3fc.tgs",
+      "unicode": "👐🏼",
+      "codepoints": [
+        "U+1F450",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f450_1f3fc:",
+      "label": "Open Hands"
+    },
+    {
+      "fileName": "emoji_u1f450_1f3fd.tgs",
+      "unicode": "👐🏽",
+      "codepoints": [
+        "U+1F450",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f450_1f3fd:",
+      "label": "Open Hands"
+    },
+    {
+      "fileName": "emoji_u1f450_1f3fe.tgs",
+      "unicode": "👐🏾",
+      "codepoints": [
+        "U+1F450",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f450_1f3fe:",
+      "label": "Open Hands"
+    },
+    {
+      "fileName": "emoji_u1f450_1f3ff.tgs",
+      "unicode": "👐🏿",
+      "codepoints": [
+        "U+1F450",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f450_1f3ff:",
+      "label": "Open Hands"
+    },
+    {
+      "fileName": "emoji_u1f451.tgs",
+      "unicode": "👑",
+      "codepoints": [
+        "U+1F451"
+      ],
+      "shortcode": ":crown_1f451:",
+      "label": "Crown"
+    },
+    {
+      "fileName": "emoji_u1f45f.tgs",
+      "unicode": "👟",
+      "codepoints": [
+        "U+1F45F"
+      ],
+      "shortcode": ":running_shoe:",
+      "label": "Running Shoe"
+    },
+    {
+      "fileName": "emoji_u1f460.tgs",
+      "unicode": "👠",
+      "codepoints": [
+        "U+1F460"
+      ],
+      "shortcode": ":high_heeled_shoe:",
+      "label": "High Heeled Shoe"
+    },
+    {
+      "fileName": "emoji_u1f463.tgs",
+      "unicode": "👣",
+      "codepoints": [
+        "U+1F463"
+      ],
+      "shortcode": ":footprints:",
+      "label": "Footprints"
+    },
+    {
+      "fileName": "emoji_u1f479.tgs",
+      "unicode": "👹",
+      "codepoints": [
+        "U+1F479"
+      ],
+      "shortcode": ":ogre:",
+      "label": "Ogre"
+    },
+    {
+      "fileName": "emoji_u1f47b.tgs",
+      "unicode": "👻",
+      "codepoints": [
+        "U+1F47B"
+      ],
+      "shortcode": ":ghost:",
+      "label": "Ghost"
+    },
+    {
+      "fileName": "emoji_u1f47d.tgs",
+      "unicode": "👽",
+      "codepoints": [
+        "U+1F47D"
+      ],
+      "shortcode": ":alien:",
+      "label": "Alien"
+    },
+    {
+      "fileName": "emoji_u1f47e.tgs",
+      "unicode": "👾",
+      "codepoints": [
+        "U+1F47E"
+      ],
+      "shortcode": ":alien_monster:",
+      "label": "Alien Monster"
+    },
+    {
+      "fileName": "emoji_u1f47f.tgs",
+      "unicode": "👿",
+      "codepoints": [
+        "U+1F47F"
+      ],
+      "shortcode": ":imp_frown:",
+      "label": "Imp Frown"
+    },
+    {
+      "fileName": "emoji_u1f480.tgs",
+      "unicode": "💀",
+      "codepoints": [
+        "U+1F480"
+      ],
+      "shortcode": ":skull:",
+      "label": "Skull"
+    },
+    {
+      "fileName": "emoji_u1f483.tgs",
+      "unicode": "💃",
+      "codepoints": [
+        "U+1F483"
+      ],
+      "shortcode": ":dancer_woman:",
+      "label": "Dancer Woman"
+    },
+    {
+      "fileName": "emoji_u1f483_1f3fb.tgs",
+      "unicode": "💃🏻",
+      "codepoints": [
+        "U+1F483",
+        "U+1F3FB"
+      ],
+      "shortcode": ":dancer_woman_1f483:",
+      "label": "Dancer Woman"
+    },
+    {
+      "fileName": "emoji_u1f483_1f3fc.tgs",
+      "unicode": "💃🏼",
+      "codepoints": [
+        "U+1F483",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f483_1f3fc:",
+      "label": "Dancer Woman"
+    },
+    {
+      "fileName": "emoji_u1f483_1f3fd.tgs",
+      "unicode": "💃🏽",
+      "codepoints": [
+        "U+1F483",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f483_1f3fd:",
+      "label": "Dancer Woman"
+    },
+    {
+      "fileName": "emoji_u1f483_1f3fe.tgs",
+      "unicode": "💃🏾",
+      "codepoints": [
+        "U+1F483",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f483_1f3fe:",
+      "label": "Dancer Woman"
+    },
+    {
+      "fileName": "emoji_u1f483_1f3ff.tgs",
+      "unicode": "💃🏿",
+      "codepoints": [
+        "U+1F483",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f483_1f3ff:",
+      "label": "Dancer Woman"
+    },
+    {
+      "fileName": "emoji_u1f485.tgs",
+      "unicode": "💅",
+      "codepoints": [
+        "U+1F485"
+      ],
+      "shortcode": ":nail_care:",
+      "label": "Nail Care"
+    },
+    {
+      "fileName": "emoji_u1f485_1f3fb.tgs",
+      "unicode": "💅🏻",
+      "codepoints": [
+        "U+1F485",
+        "U+1F3FB"
+      ],
+      "shortcode": ":nail_care_1f485:",
+      "label": "Nail Care"
+    },
+    {
+      "fileName": "emoji_u1f485_1f3fc.tgs",
+      "unicode": "💅🏼",
+      "codepoints": [
+        "U+1F485",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f485_1f3fc:",
+      "label": "Nail Care"
+    },
+    {
+      "fileName": "emoji_u1f485_1f3fd.tgs",
+      "unicode": "💅🏽",
+      "codepoints": [
+        "U+1F485",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f485_1f3fd:",
+      "label": "Nail Care"
+    },
+    {
+      "fileName": "emoji_u1f485_1f3fe.tgs",
+      "unicode": "💅🏾",
+      "codepoints": [
+        "U+1F485",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f485_1f3fe:",
+      "label": "Nail Care"
+    },
+    {
+      "fileName": "emoji_u1f485_1f3ff.tgs",
+      "unicode": "💅🏿",
+      "codepoints": [
+        "U+1F485",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f485_1f3ff:",
+      "label": "Nail Care"
+    },
+    {
+      "fileName": "emoji_u1f48b.tgs",
+      "unicode": "💋",
+      "codepoints": [
+        "U+1F48B"
+      ],
+      "shortcode": ":kiss:",
+      "label": "Kiss"
+    },
+    {
+      "fileName": "emoji_u1f48c.tgs",
+      "unicode": "💌",
+      "codepoints": [
+        "U+1F48C"
+      ],
+      "shortcode": ":love_letter:",
+      "label": "Love Letter"
+    },
+    {
+      "fileName": "emoji_u1f48d.tgs",
+      "unicode": "💍",
+      "codepoints": [
+        "U+1F48D"
+      ],
+      "shortcode": ":ring:",
+      "label": "Ring"
+    },
+    {
+      "fileName": "emoji_u1f48e.tgs",
+      "unicode": "💎",
+      "codepoints": [
+        "U+1F48E"
+      ],
+      "shortcode": ":gem_stone:",
+      "label": "Gem Stone"
+    },
+    {
+      "fileName": "emoji_u1f490.tgs",
+      "unicode": "💐",
+      "codepoints": [
+        "U+1F490"
+      ],
+      "shortcode": ":bouquet:",
+      "label": "Bouquet"
+    },
+    {
+      "fileName": "emoji_u1f493.tgs",
+      "unicode": "💓",
+      "codepoints": [
+        "U+1F493"
+      ],
+      "shortcode": ":heartbeat:",
+      "label": "Beating Heart"
+    },
+    {
+      "fileName": "emoji_u1f494.tgs",
+      "unicode": "💔",
+      "codepoints": [
+        "U+1F494"
+      ],
+      "shortcode": ":broken_heart:",
+      "label": "Broken Heart"
+    },
+    {
+      "fileName": "emoji_u1f495.tgs",
+      "unicode": "💕",
+      "codepoints": [
+        "U+1F495"
+      ],
+      "shortcode": ":two_hearts:",
+      "label": "Two Hearts"
+    },
+    {
+      "fileName": "emoji_u1f496.tgs",
+      "unicode": "💖",
+      "codepoints": [
+        "U+1F496"
+      ],
+      "shortcode": ":sparkling_heart:",
+      "label": "Sparkling Heart"
+    },
+    {
+      "fileName": "emoji_u1f497.tgs",
+      "unicode": "💗",
+      "codepoints": [
+        "U+1F497"
+      ],
+      "shortcode": ":heart_grow:",
+      "label": "Heart Grow"
+    },
+    {
+      "fileName": "emoji_u1f498.tgs",
+      "unicode": "💘",
+      "codepoints": [
+        "U+1F498"
+      ],
+      "shortcode": ":cupid_1f498:",
+      "label": "Cupid"
+    },
+    {
+      "fileName": "emoji_u1f499.tgs",
+      "unicode": "💙",
+      "codepoints": [
+        "U+1F499"
+      ],
+      "shortcode": ":blue_heart:",
+      "label": "Blue Heart"
+    },
+    {
+      "fileName": "emoji_u1f49a.tgs",
+      "unicode": "💚",
+      "codepoints": [
+        "U+1F49A"
+      ],
+      "shortcode": ":green_heart:",
+      "label": "Green Heart"
+    },
+    {
+      "fileName": "emoji_u1f49b.tgs",
+      "unicode": "💛",
+      "codepoints": [
+        "U+1F49B"
+      ],
+      "shortcode": ":yellow_heart:",
+      "label": "Yellow Heart"
+    },
+    {
+      "fileName": "emoji_u1f49c.tgs",
+      "unicode": "💜",
+      "codepoints": [
+        "U+1F49C"
+      ],
+      "shortcode": ":purple_heart:",
+      "label": "Purple Heart"
+    },
+    {
+      "fileName": "emoji_u1f49d.tgs",
+      "unicode": "💝",
+      "codepoints": [
+        "U+1F49D"
+      ],
+      "shortcode": ":gift_heart:",
+      "label": "Gift Heart"
+    },
+    {
+      "fileName": "emoji_u1f49e.tgs",
+      "unicode": "💞",
+      "codepoints": [
+        "U+1F49E"
+      ],
+      "shortcode": ":revolving_hearts:",
+      "label": "Revolving Hearts"
+    },
+    {
+      "fileName": "emoji_u1f49f.tgs",
+      "unicode": "💟",
+      "codepoints": [
+        "U+1F49F"
+      ],
+      "shortcode": ":heart_box:",
+      "label": "Heart Box"
+    },
+    {
+      "fileName": "emoji_u1f4a1.tgs",
+      "unicode": "💡",
+      "codepoints": [
+        "U+1F4A1"
+      ],
+      "shortcode": ":light_bulb:",
+      "label": "Light Bulb"
+    },
+    {
+      "fileName": "emoji_u1f4a3.tgs",
+      "unicode": "💣",
+      "codepoints": [
+        "U+1F4A3"
+      ],
+      "shortcode": ":bomb:",
+      "label": "Bomb"
+    },
+    {
+      "fileName": "emoji_u1f4a5.tgs",
+      "unicode": "💥",
+      "codepoints": [
+        "U+1F4A5"
+      ],
+      "shortcode": ":boom:",
+      "label": "Collision"
+    },
+    {
+      "fileName": "emoji_u1f4a7.tgs",
+      "unicode": "💧",
+      "codepoints": [
+        "U+1F4A7"
+      ],
+      "shortcode": ":droplet:",
+      "label": "Droplet"
+    },
+    {
+      "fileName": "emoji_u1f4a9.tgs",
+      "unicode": "💩",
+      "codepoints": [
+        "U+1F4A9"
+      ],
+      "shortcode": ":poop:",
+      "label": "Pile of Poo"
+    },
+    {
+      "fileName": "emoji_u1f4aa.tgs",
+      "unicode": "💪",
+      "codepoints": [
+        "U+1F4AA"
+      ],
+      "shortcode": ":muscle:",
+      "label": "Flexed Biceps"
+    },
+    {
+      "fileName": "emoji_u1f4aa_1f3fb.tgs",
+      "unicode": "💪🏻",
+      "codepoints": [
+        "U+1F4AA",
+        "U+1F3FB"
+      ],
+      "shortcode": ":flex:",
+      "label": "Flex"
+    },
+    {
+      "fileName": "emoji_u1f4aa_1f3fc.tgs",
+      "unicode": "💪🏼",
+      "codepoints": [
+        "U+1F4AA",
+        "U+1F3FC"
+      ],
+      "shortcode": ":bicep:",
+      "label": "Bicep"
+    },
+    {
+      "fileName": "emoji_u1f4aa_1f3fd.tgs",
+      "unicode": "💪🏽",
+      "codepoints": [
+        "U+1F4AA",
+        "U+1F3FD"
+      ],
+      "shortcode": ":strong:",
+      "label": "Strong"
+    },
+    {
+      "fileName": "emoji_u1f4aa_1f3fe.tgs",
+      "unicode": "💪🏾",
+      "codepoints": [
+        "U+1F4AA",
+        "U+1F3FE"
+      ],
+      "shortcode": ":muscle_1f4aa:",
+      "label": "Muscle"
+    },
+    {
+      "fileName": "emoji_u1f4aa_1f3ff.tgs",
+      "unicode": "💪🏿",
+      "codepoints": [
+        "U+1F4AA",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f4aa_1f3ff:",
+      "label": "Muscle"
+    },
+    {
+      "fileName": "emoji_u1f4ac.tgs",
+      "unicode": "💬",
+      "codepoints": [
+        "U+1F4AC"
+      ],
+      "shortcode": ":speech_bubble:",
+      "label": "Speech Bubble"
+    },
+    {
+      "fileName": "emoji_u1f4af.tgs",
+      "unicode": "💯",
+      "codepoints": [
+        "U+1F4AF"
+      ],
+      "shortcode": ":100:",
+      "label": "100"
+    },
+    {
+      "fileName": "emoji_u1f4b8.tgs",
+      "unicode": "💸",
+      "codepoints": [
+        "U+1F4B8"
+      ],
+      "shortcode": ":money_with_wings_1f4b8:",
+      "label": "Money With Wings"
+    },
+    {
+      "fileName": "emoji_u1f4bb.tgs",
+      "unicode": "💻",
+      "codepoints": [
+        "U+1F4BB"
+      ],
+      "shortcode": ":laptop_computer:",
+      "label": "Laptop Computer"
+    },
+    {
+      "fileName": "emoji_u1f4bf.tgs",
+      "unicode": "💿",
+      "codepoints": [
+        "U+1F4BF"
+      ],
+      "shortcode": ":optical_disk:",
+      "label": "Optical Disk"
+    },
+    {
+      "fileName": "emoji_u1f4c8.tgs",
+      "unicode": "📈",
+      "codepoints": [
+        "U+1F4C8"
+      ],
+      "shortcode": ":chart_increasing:",
+      "label": "Chart Increasing"
+    },
+    {
+      "fileName": "emoji_u1f4c9.tgs",
+      "unicode": "📉",
+      "codepoints": [
+        "U+1F4C9"
+      ],
+      "shortcode": ":chart_decreasing:",
+      "label": "Chart Decreasing"
+    },
+    {
+      "fileName": "emoji_u1f4ca.tgs",
+      "unicode": "📊",
+      "codepoints": [
+        "U+1F4CA"
+      ],
+      "shortcode": ":bar_chart:",
+      "label": "Bar Chart"
+    },
+    {
+      "fileName": "emoji_u1f4da.tgs",
+      "unicode": "📚",
+      "codepoints": [
+        "U+1F4DA"
+      ],
+      "shortcode": ":books_1f4da:",
+      "label": "Books"
+    },
+    {
+      "fileName": "emoji_u1f4df.tgs",
+      "unicode": "📟",
+      "codepoints": [
+        "U+1F4DF"
+      ],
+      "shortcode": ":pager:",
+      "label": "Pager"
+    },
+    {
+      "fileName": "emoji_u1f4e3.tgs",
+      "unicode": "📣",
+      "codepoints": [
+        "U+1F4E3"
+      ],
+      "shortcode": ":megaphone_1f4e3:",
+      "label": "Megaphone"
+    },
+    {
+      "fileName": "emoji_u1f4e6.tgs",
+      "unicode": "📦",
+      "codepoints": [
+        "U+1F4E6"
+      ],
+      "shortcode": ":package:",
+      "label": "Package"
+    },
+    {
+      "fileName": "emoji_u1f4f4.tgs",
+      "unicode": "📴",
+      "codepoints": [
+        "U+1F4F4"
+      ],
+      "shortcode": ":phone_off:",
+      "label": "Phone Off"
+    },
+    {
+      "fileName": "emoji_u1f4f7.tgs",
+      "unicode": "📷",
+      "codepoints": [
+        "U+1F4F7"
+      ],
+      "shortcode": ":camera:",
+      "label": "Camera"
+    },
+    {
+      "fileName": "emoji_u1f4f8.tgs",
+      "unicode": "📸",
+      "codepoints": [
+        "U+1F4F8"
+      ],
+      "shortcode": ":camera_flash:",
+      "label": "Camera Flash"
+    },
+    {
+      "fileName": "emoji_u1f4fa.tgs",
+      "unicode": "📺",
+      "codepoints": [
+        "U+1F4FA"
+      ],
+      "shortcode": ":television:",
+      "label": "Television"
+    },
+    {
+      "fileName": "emoji_u1f50b.tgs",
+      "unicode": "🔋",
+      "codepoints": [
+        "U+1F50B"
+      ],
+      "shortcode": ":battery_full:",
+      "label": "Battery Full"
+    },
+    {
+      "fileName": "emoji_u1f50c.tgs",
+      "unicode": "🔌",
+      "codepoints": [
+        "U+1F50C"
+      ],
+      "shortcode": ":electric_plug:",
+      "label": "Electric Plug"
+    },
+    {
+      "fileName": "emoji_u1f50e.tgs",
+      "unicode": "🔎",
+      "codepoints": [
+        "U+1F50E"
+      ],
+      "shortcode": ":magnifying_glass_tilted_right:",
+      "label": "Magnifying Glass Tilted Right"
+    },
+    {
+      "fileName": "emoji_u1f512.tgs",
+      "unicode": "🔒",
+      "codepoints": [
+        "U+1F512"
+      ],
+      "shortcode": ":locked:",
+      "label": "Locked"
+    },
+    {
+      "fileName": "emoji_u1f514.tgs",
+      "unicode": "🔔",
+      "codepoints": [
+        "U+1F514"
+      ],
+      "shortcode": ":bell:",
+      "label": "Bell"
+    },
+    {
+      "fileName": "emoji_u1f525.tgs",
+      "unicode": "🔥",
+      "codepoints": [
+        "U+1F525"
+      ],
+      "shortcode": ":burn:",
+      "label": "Burn"
+    },
+    {
+      "fileName": "emoji_u1f52e.tgs",
+      "unicode": "🔮",
+      "codepoints": [
+        "U+1F52E"
+      ],
+      "shortcode": ":crystal_ball_1f52e:",
+      "label": "Crystal Ball"
+    },
+    {
+      "fileName": "emoji_u1f54a_fe0f.tgs",
+      "unicode": "🕊️",
+      "codepoints": [
+        "U+1F54A",
+        "U+FE0F"
+      ],
+      "shortcode": ":peace:",
+      "label": "Peace"
+    },
+    {
+      "fileName": "emoji_u1f573_fe0f.tgs",
+      "unicode": "🕳️",
+      "codepoints": [
+        "U+1F573",
+        "U+FE0F"
+      ],
+      "shortcode": ":hole:",
+      "label": "Hole"
+    },
+    {
+      "fileName": "emoji_u1f577_fe0f.tgs",
+      "unicode": "🕷️",
+      "codepoints": [
+        "U+1F577",
+        "U+FE0F"
+      ],
+      "shortcode": ":spider:",
+      "label": "Spider"
+    },
+    {
+      "fileName": "emoji_u1f587_fe0f.tgs",
+      "unicode": "🖇️",
+      "codepoints": [
+        "U+1F587",
+        "U+FE0F"
+      ],
+      "shortcode": ":linked_paperclips:",
+      "label": "Linked Paperclips"
+    },
+    {
+      "fileName": "emoji_u1f590_1f3fb.tgs",
+      "unicode": "🖐🏻",
+      "codepoints": [
+        "U+1F590",
+        "U+1F3FB"
+      ],
+      "shortcode": ":palm:",
+      "label": "Palm"
+    },
+    {
+      "fileName": "emoji_u1f590_1f3fc.tgs",
+      "unicode": "🖐🏼",
+      "codepoints": [
+        "U+1F590",
+        "U+1F3FC"
+      ],
+      "shortcode": ":palm_1f590:",
+      "label": "Palm"
+    },
+    {
+      "fileName": "emoji_u1f590_1f3fd.tgs",
+      "unicode": "🖐🏽",
+      "codepoints": [
+        "U+1F590",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f590_1f3fd:",
+      "label": "Palm"
+    },
+    {
+      "fileName": "emoji_u1f590_1f3fe.tgs",
+      "unicode": "🖐🏾",
+      "codepoints": [
+        "U+1F590",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f590_1f3fe:",
+      "label": "Palm"
+    },
+    {
+      "fileName": "emoji_u1f590_1f3ff.tgs",
+      "unicode": "🖐🏿",
+      "codepoints": [
+        "U+1F590",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f590_1f3ff:",
+      "label": "Palm"
+    },
+    {
+      "fileName": "emoji_u1f590_fe0f.tgs",
+      "unicode": "🖐️",
+      "codepoints": [
+        "U+1F590",
+        "U+FE0F"
+      ],
+      "shortcode": ":noto_1f590_fe0f:",
+      "label": "Palm"
+    },
+    {
+      "fileName": "emoji_u1f595.tgs",
+      "unicode": "🖕",
+      "codepoints": [
+        "U+1F595"
+      ],
+      "shortcode": ":middle_finger:",
+      "label": "Middle Finger"
+    },
+    {
+      "fileName": "emoji_u1f595_1f3fb.tgs",
+      "unicode": "🖕🏻",
+      "codepoints": [
+        "U+1F595",
+        "U+1F3FB"
+      ],
+      "shortcode": ":middle_finger_1f595:",
+      "label": "Middle Finger"
+    },
+    {
+      "fileName": "emoji_u1f595_1f3fc.tgs",
+      "unicode": "🖕🏼",
+      "codepoints": [
+        "U+1F595",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f595_1f3fc:",
+      "label": "Middle Finger"
+    },
+    {
+      "fileName": "emoji_u1f595_1f3fd.tgs",
+      "unicode": "🖕🏽",
+      "codepoints": [
+        "U+1F595",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f595_1f3fd:",
+      "label": "Middle Finger"
+    },
+    {
+      "fileName": "emoji_u1f595_1f3fe.tgs",
+      "unicode": "🖕🏾",
+      "codepoints": [
+        "U+1F595",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f595_1f3fe:",
+      "label": "Middle Finger"
+    },
+    {
+      "fileName": "emoji_u1f595_1f3ff.tgs",
+      "unicode": "🖕🏿",
+      "codepoints": [
+        "U+1F595",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f595_1f3ff:",
+      "label": "Middle Finger"
+    },
+    {
+      "fileName": "emoji_u1f596.tgs",
+      "unicode": "🖖",
+      "codepoints": [
+        "U+1F596"
+      ],
+      "shortcode": ":vulcan:",
+      "label": "Vulcan"
+    },
+    {
+      "fileName": "emoji_u1f596_1f3fb.tgs",
+      "unicode": "🖖🏻",
+      "codepoints": [
+        "U+1F596",
+        "U+1F3FB"
+      ],
+      "shortcode": ":prosper:",
+      "label": "Prosper"
+    },
+    {
+      "fileName": "emoji_u1f596_1f3fc.tgs",
+      "unicode": "🖖🏼",
+      "codepoints": [
+        "U+1F596",
+        "U+1F3FC"
+      ],
+      "shortcode": ":spock:",
+      "label": "Spock"
+    },
+    {
+      "fileName": "emoji_u1f596_1f3fd.tgs",
+      "unicode": "🖖🏽",
+      "codepoints": [
+        "U+1F596",
+        "U+1F3FD"
+      ],
+      "shortcode": ":vulcan_1f596:",
+      "label": "Vulcan"
+    },
+    {
+      "fileName": "emoji_u1f596_1f3fe.tgs",
+      "unicode": "🖖🏾",
+      "codepoints": [
+        "U+1F596",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f596_1f3fe:",
+      "label": "Vulcan"
+    },
+    {
+      "fileName": "emoji_u1f596_1f3ff.tgs",
+      "unicode": "🖖🏿",
+      "codepoints": [
+        "U+1F596",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f596_1f3ff:",
+      "label": "Vulcan"
+    },
+    {
+      "fileName": "emoji_u1f5a4.tgs",
+      "unicode": "🖤",
+      "codepoints": [
+        "U+1F5A4"
+      ],
+      "shortcode": ":black_heart:",
+      "label": "Black Heart"
+    },
+    {
+      "fileName": "emoji_u1f5a8_fe0f.tgs",
+      "unicode": "🖨️",
+      "codepoints": [
+        "U+1F5A8",
+        "U+FE0F"
+      ],
+      "shortcode": ":printer_1f5a8:",
+      "label": "Printer"
+    },
+    {
+      "fileName": "emoji_u1f5d1_fe0f.tgs",
+      "unicode": "🗑️",
+      "codepoints": [
+        "U+1F5D1",
+        "U+FE0F"
+      ],
+      "shortcode": ":wastebasket:",
+      "label": "Wastebasket"
+    },
+    {
+      "fileName": "emoji_u1f5e3_fe0f.tgs",
+      "unicode": "🗣️",
+      "codepoints": [
+        "U+1F5E3",
+        "U+FE0F"
+      ],
+      "shortcode": ":speaking_head_1f5e3:",
+      "label": "Speaking Head"
+    },
+    {
+      "fileName": "emoji_u1f5ef_fe0f.tgs",
+      "unicode": "🗯️",
+      "codepoints": [
+        "U+1F5EF",
+        "U+FE0F"
+      ],
+      "shortcode": ":anger_bubble:",
+      "label": "Anger Bubble"
+    },
+    {
+      "fileName": "emoji_u1f5f3_fe0f.tgs",
+      "unicode": "🗳️",
+      "codepoints": [
+        "U+1F5F3",
+        "U+FE0F"
+      ],
+      "shortcode": ":ballot_box_1f5f3:",
+      "label": "Ballot Box"
+    },
+    {
+      "fileName": "emoji_u1f5ff.tgs",
+      "unicode": "🗿",
+      "codepoints": [
+        "U+1F5FF"
+      ],
+      "shortcode": ":moai:",
+      "label": "Moai"
+    },
+    {
+      "fileName": "emoji_u1f600.tgs",
+      "unicode": "😀",
+      "codepoints": [
+        "U+1F600"
+      ],
+      "shortcode": ":smile:",
+      "label": "Grinning Face"
+    },
+    {
+      "fileName": "emoji_u1f601.tgs",
+      "unicode": "😁",
+      "codepoints": [
+        "U+1F601"
+      ],
+      "shortcode": ":beaming_face:",
+      "label": "Beaming Face With Smiling Eyes"
+    },
+    {
+      "fileName": "emoji_u1f602.tgs",
+      "unicode": "😂",
+      "codepoints": [
+        "U+1F602"
+      ],
+      "shortcode": ":joy:",
+      "label": "Face With Tears of Joy"
+    },
+    {
+      "fileName": "emoji_u1f603.tgs",
+      "unicode": "😃",
+      "codepoints": [
+        "U+1F603"
+      ],
+      "shortcode": ":smiley:",
+      "label": "Grinning Face With Big Eyes"
+    },
+    {
+      "fileName": "emoji_u1f604.tgs",
+      "unicode": "😄",
+      "codepoints": [
+        "U+1F604"
+      ],
+      "shortcode": ":grin:",
+      "label": "Grinning Face With Smiling Eyes"
+    },
+    {
+      "fileName": "emoji_u1f605.tgs",
+      "unicode": "😅",
+      "codepoints": [
+        "U+1F605"
+      ],
+      "shortcode": ":sweat_smile:",
+      "label": "Grinning Face With Sweat"
+    },
+    {
+      "fileName": "emoji_u1f606.tgs",
+      "unicode": "😆",
+      "codepoints": [
+        "U+1F606"
+      ],
+      "shortcode": ":laughing:",
+      "label": "Grinning Squinting Face"
+    },
+    {
+      "fileName": "emoji_u1f607.tgs",
+      "unicode": "😇",
+      "codepoints": [
+        "U+1F607"
+      ],
+      "shortcode": ":halo:",
+      "label": "Halo"
+    },
+    {
+      "fileName": "emoji_u1f608.tgs",
+      "unicode": "😈",
+      "codepoints": [
+        "U+1F608"
+      ],
+      "shortcode": ":imp_smile:",
+      "label": "Imp Smile"
+    },
+    {
+      "fileName": "emoji_u1f609.tgs",
+      "unicode": "😉",
+      "codepoints": [
+        "U+1F609"
+      ],
+      "shortcode": ":wink:",
+      "label": "Winking Face"
+    },
+    {
+      "fileName": "emoji_u1f60a.tgs",
+      "unicode": "😊",
+      "codepoints": [
+        "U+1F60A"
+      ],
+      "shortcode": ":blush:",
+      "label": "Smiling Face With Smiling Eyes"
+    },
+    {
+      "fileName": "emoji_u1f60b.tgs",
+      "unicode": "😋",
+      "codepoints": [
+        "U+1F60B"
+      ],
+      "shortcode": ":yum:",
+      "label": "Face Savoring Food"
+    },
+    {
+      "fileName": "emoji_u1f60c.tgs",
+      "unicode": "😌",
+      "codepoints": [
+        "U+1F60C"
+      ],
+      "shortcode": ":relieved:",
+      "label": "Relieved"
+    },
+    {
+      "fileName": "emoji_u1f60d.tgs",
+      "unicode": "😍",
+      "codepoints": [
+        "U+1F60D"
+      ],
+      "shortcode": ":heart_eyes:",
+      "label": "Smiling Face With Heart-Eyes"
+    },
+    {
+      "fileName": "emoji_u1f60e.tgs",
+      "unicode": "😎",
+      "codepoints": [
+        "U+1F60E"
+      ],
+      "shortcode": ":sunglasses_face:",
+      "label": "Sunglasses Face"
+    },
+    {
+      "fileName": "emoji_u1f60f.tgs",
+      "unicode": "😏",
+      "codepoints": [
+        "U+1F60F"
+      ],
+      "shortcode": ":smirk:",
+      "label": "Smirk"
+    },
+    {
+      "fileName": "emoji_u1f610.tgs",
+      "unicode": "😐",
+      "codepoints": [
+        "U+1F610"
+      ],
+      "shortcode": ":neutral_face:",
+      "label": "Neutral Face"
+    },
+    {
+      "fileName": "emoji_u1f611.tgs",
+      "unicode": "😑",
+      "codepoints": [
+        "U+1F611"
+      ],
+      "shortcode": ":expressionless:",
+      "label": "Expressionless"
+    },
+    {
+      "fileName": "emoji_u1f612.tgs",
+      "unicode": "😒",
+      "codepoints": [
+        "U+1F612"
+      ],
+      "shortcode": ":unamused:",
+      "label": "Unamused"
+    },
+    {
+      "fileName": "emoji_u1f613.tgs",
+      "unicode": "😓",
+      "codepoints": [
+        "U+1F613"
+      ],
+      "shortcode": ":sweat:",
+      "label": "Sweat"
+    },
+    {
+      "fileName": "emoji_u1f614.tgs",
+      "unicode": "😔",
+      "codepoints": [
+        "U+1F614"
+      ],
+      "shortcode": ":pensive:",
+      "label": "Pensive"
+    },
+    {
+      "fileName": "emoji_u1f615.tgs",
+      "unicode": "😕",
+      "codepoints": [
+        "U+1F615"
+      ],
+      "shortcode": ":slightly_frowning:",
+      "label": "Slightly Frowning"
+    },
+    {
+      "fileName": "emoji_u1f616.tgs",
+      "unicode": "😖",
+      "codepoints": [
+        "U+1F616"
+      ],
+      "shortcode": ":scrunched_mouth:",
+      "label": "Scrunched Mouth"
+    },
+    {
+      "fileName": "emoji_u1f617.tgs",
+      "unicode": "😗",
+      "codepoints": [
+        "U+1F617"
+      ],
+      "shortcode": ":kissing:",
+      "label": "Kissing"
+    },
+    {
+      "fileName": "emoji_u1f618.tgs",
+      "unicode": "😘",
+      "codepoints": [
+        "U+1F618"
+      ],
+      "shortcode": ":kissing_heart:",
+      "label": "Face Blowing a Kiss"
+    },
+    {
+      "fileName": "emoji_u1f619.tgs",
+      "unicode": "😙",
+      "codepoints": [
+        "U+1F619"
+      ],
+      "shortcode": ":kissing_smiling_eyes:",
+      "label": "Kissing Smiling Eyes"
+    },
+    {
+      "fileName": "emoji_u1f61a.tgs",
+      "unicode": "😚",
+      "codepoints": [
+        "U+1F61A"
+      ],
+      "shortcode": ":kissing_closed_eyes:",
+      "label": "Kissing Closed Eyes"
+    },
+    {
+      "fileName": "emoji_u1f61b.tgs",
+      "unicode": "😛",
+      "codepoints": [
+        "U+1F61B"
+      ],
+      "shortcode": ":stuck_out_tongue:",
+      "label": "Stuck Out Tongue"
+    },
+    {
+      "fileName": "emoji_u1f61c.tgs",
+      "unicode": "😜",
+      "codepoints": [
+        "U+1F61C"
+      ],
+      "shortcode": ":stuck_out_tongue_wink:",
+      "label": "Winking Face With Tongue"
+    },
+    {
+      "fileName": "emoji_u1f61d.tgs",
+      "unicode": "😝",
+      "codepoints": [
+        "U+1F61D"
+      ],
+      "shortcode": ":squinting_tongue:",
+      "label": "Squinting Tongue"
+    },
+    {
+      "fileName": "emoji_u1f61e.tgs",
+      "unicode": "😞",
+      "codepoints": [
+        "U+1F61E"
+      ],
+      "shortcode": ":sad:",
+      "label": "Sad"
+    },
+    {
+      "fileName": "emoji_u1f61f.tgs",
+      "unicode": "😟",
+      "codepoints": [
+        "U+1F61F"
+      ],
+      "shortcode": ":worried:",
+      "label": "Worried"
+    },
+    {
+      "fileName": "emoji_u1f620.tgs",
+      "unicode": "😠",
+      "codepoints": [
+        "U+1F620"
+      ],
+      "shortcode": ":angry:",
+      "label": "Angry Face"
+    },
+    {
+      "fileName": "emoji_u1f621.tgs",
+      "unicode": "😡",
+      "codepoints": [
+        "U+1F621"
+      ],
+      "shortcode": ":rage:",
+      "label": "Enraged Face"
+    },
+    {
+      "fileName": "emoji_u1f622.tgs",
+      "unicode": "😢",
+      "codepoints": [
+        "U+1F622"
+      ],
+      "shortcode": ":cry:",
+      "label": "Crying Face"
+    },
+    {
+      "fileName": "emoji_u1f623.tgs",
+      "unicode": "😣",
+      "codepoints": [
+        "U+1F623"
+      ],
+      "shortcode": ":scrunched_eyes:",
+      "label": "Scrunched Eyes"
+    },
+    {
+      "fileName": "emoji_u1f624.tgs",
+      "unicode": "😤",
+      "codepoints": [
+        "U+1F624"
+      ],
+      "shortcode": ":triumph:",
+      "label": "Face With Steam From Nose"
+    },
+    {
+      "fileName": "emoji_u1f625.tgs",
+      "unicode": "😥",
+      "codepoints": [
+        "U+1F625"
+      ],
+      "shortcode": ":concerned:",
+      "label": "Concerned"
+    },
+    {
+      "fileName": "emoji_u1f626.tgs",
+      "unicode": "😦",
+      "codepoints": [
+        "U+1F626"
+      ],
+      "shortcode": ":gasp:",
+      "label": "Gasp"
+    },
+    {
+      "fileName": "emoji_u1f627.tgs",
+      "unicode": "😧",
+      "codepoints": [
+        "U+1F627"
+      ],
+      "shortcode": ":anguished:",
+      "label": "Anguished"
+    },
+    {
+      "fileName": "emoji_u1f628.tgs",
+      "unicode": "😨",
+      "codepoints": [
+        "U+1F628"
+      ],
+      "shortcode": ":scared:",
+      "label": "Scared"
+    },
+    {
+      "fileName": "emoji_u1f629.tgs",
+      "unicode": "😩",
+      "codepoints": [
+        "U+1F629"
+      ],
+      "shortcode": ":weary:",
+      "label": "Weary"
+    },
+    {
+      "fileName": "emoji_u1f62a.tgs",
+      "unicode": "😪",
+      "codepoints": [
+        "U+1F62A"
+      ],
+      "shortcode": ":sleepy:",
+      "label": "Sleepy"
+    },
+    {
+      "fileName": "emoji_u1f62b.tgs",
+      "unicode": "😫",
+      "codepoints": [
+        "U+1F62B"
+      ],
+      "shortcode": ":distraught:",
+      "label": "Distraught"
+    },
+    {
+      "fileName": "emoji_u1f62c.tgs",
+      "unicode": "😬",
+      "codepoints": [
+        "U+1F62C"
+      ],
+      "shortcode": ":grimacing:",
+      "label": "Grimacing Face"
+    },
+    {
+      "fileName": "emoji_u1f62d.tgs",
+      "unicode": "😭",
+      "codepoints": [
+        "U+1F62D"
+      ],
+      "shortcode": ":sob:",
+      "label": "Loudly Crying Face"
+    },
+    {
+      "fileName": "emoji_u1f62e.tgs",
+      "unicode": "😮",
+      "codepoints": [
+        "U+1F62E"
+      ],
+      "shortcode": ":mouth_open:",
+      "label": "Mouth Open"
+    },
+    {
+      "fileName": "emoji_u1f62e_200d_1f4a8.tgs",
+      "unicode": "😮‍💨",
+      "codepoints": [
+        "U+1F62E",
+        "U+200D",
+        "U+1F4A8"
+      ],
+      "shortcode": ":exhale:",
+      "label": "Exhale"
+    },
+    {
+      "fileName": "emoji_u1f62f.tgs",
+      "unicode": "😯",
+      "codepoints": [
+        "U+1F62F"
+      ],
+      "shortcode": ":surprised:",
+      "label": "Surprised"
+    },
+    {
+      "fileName": "emoji_u1f630.tgs",
+      "unicode": "😰",
+      "codepoints": [
+        "U+1F630"
+      ],
+      "shortcode": ":anxious_with_sweat:",
+      "label": "Anxious With Sweat"
+    },
+    {
+      "fileName": "emoji_u1f631.tgs",
+      "unicode": "😱",
+      "codepoints": [
+        "U+1F631"
+      ],
+      "shortcode": ":scream:",
+      "label": "Face Screaming in Fear"
+    },
+    {
+      "fileName": "emoji_u1f632.tgs",
+      "unicode": "😲",
+      "codepoints": [
+        "U+1F632"
+      ],
+      "shortcode": ":astonished:",
+      "label": "Astonished"
+    },
+    {
+      "fileName": "emoji_u1f633.tgs",
+      "unicode": "😳",
+      "codepoints": [
+        "U+1F633"
+      ],
+      "shortcode": ":flushed:",
+      "label": "Flushed"
+    },
+    {
+      "fileName": "emoji_u1f634.tgs",
+      "unicode": "😴",
+      "codepoints": [
+        "U+1F634"
+      ],
+      "shortcode": ":sleeping:",
+      "label": "Sleeping Face"
+    },
+    {
+      "fileName": "emoji_u1f635.tgs",
+      "unicode": "😵",
+      "codepoints": [
+        "U+1F635"
+      ],
+      "shortcode": ":x_eyes:",
+      "label": "X Eyes"
+    },
+    {
+      "fileName": "emoji_u1f635_200d_1f4ab.tgs",
+      "unicode": "😵‍💫",
+      "codepoints": [
+        "U+1F635",
+        "U+200D",
+        "U+1F4AB"
+      ],
+      "shortcode": ":dizzy_face:",
+      "label": "Dizzy Face"
+    },
+    {
+      "fileName": "emoji_u1f636.tgs",
+      "unicode": "😶",
+      "codepoints": [
+        "U+1F636"
+      ],
+      "shortcode": ":mouth_none:",
+      "label": "Mouth None"
+    },
+    {
+      "fileName": "emoji_u1f636_200d_1f32b_fe0f.tgs",
+      "unicode": "😶‍🌫️",
+      "codepoints": [
+        "U+1F636",
+        "U+200D",
+        "U+1F32B",
+        "U+FE0F"
+      ],
+      "shortcode": ":face_in_clouds:",
+      "label": "Face In Clouds"
+    },
+    {
+      "fileName": "emoji_u1f637.tgs",
+      "unicode": "😷",
+      "codepoints": [
+        "U+1F637"
+      ],
+      "shortcode": ":mask:",
+      "label": "Mask"
+    },
+    {
+      "fileName": "emoji_u1f638.tgs",
+      "unicode": "😸",
+      "codepoints": [
+        "U+1F638"
+      ],
+      "shortcode": ":smile_cat:",
+      "label": "Smile Cat"
+    },
+    {
+      "fileName": "emoji_u1f639.tgs",
+      "unicode": "😹",
+      "codepoints": [
+        "U+1F639"
+      ],
+      "shortcode": ":joy_cat:",
+      "label": "Cat With Tears of Joy"
+    },
+    {
+      "fileName": "emoji_u1f63a.tgs",
+      "unicode": "😺",
+      "codepoints": [
+        "U+1F63A"
+      ],
+      "shortcode": ":smiley_cat:",
+      "label": "Smiley Cat"
+    },
+    {
+      "fileName": "emoji_u1f63b.tgs",
+      "unicode": "😻",
+      "codepoints": [
+        "U+1F63B"
+      ],
+      "shortcode": ":heart_eyes_cat:",
+      "label": "Smiling Cat With Heart-Eyes"
+    },
+    {
+      "fileName": "emoji_u1f63c.tgs",
+      "unicode": "😼",
+      "codepoints": [
+        "U+1F63C"
+      ],
+      "shortcode": ":smirk_cat:",
+      "label": "Smirk Cat"
+    },
+    {
+      "fileName": "emoji_u1f63d.tgs",
+      "unicode": "😽",
+      "codepoints": [
+        "U+1F63D"
+      ],
+      "shortcode": ":kissing_cat:",
+      "label": "Kissing Cat"
+    },
+    {
+      "fileName": "emoji_u1f63e.tgs",
+      "unicode": "😾",
+      "codepoints": [
+        "U+1F63E"
+      ],
+      "shortcode": ":pouting_cat:",
+      "label": "Pouting Cat"
+    },
+    {
+      "fileName": "emoji_u1f63f.tgs",
+      "unicode": "😿",
+      "codepoints": [
+        "U+1F63F"
+      ],
+      "shortcode": ":crying_cat_face:",
+      "label": "Crying Cat Face"
+    },
+    {
+      "fileName": "emoji_u1f640.tgs",
+      "unicode": "🙀",
+      "codepoints": [
+        "U+1F640"
+      ],
+      "shortcode": ":scream_cat:",
+      "label": "Scream Cat"
+    },
+    {
+      "fileName": "emoji_u1f641.tgs",
+      "unicode": "🙁",
+      "codepoints": [
+        "U+1F641"
+      ],
+      "shortcode": ":frown:",
+      "label": "Frown"
+    },
+    {
+      "fileName": "emoji_u1f642.tgs",
+      "unicode": "🙂",
+      "codepoints": [
+        "U+1F642"
+      ],
+      "shortcode": ":slightly_smiling_face:",
+      "label": "Slightly Smiling Face"
+    },
+    {
+      "fileName": "emoji_u1f642_200d_2194_fe0f.tgs",
+      "unicode": "🙂‍↔️",
+      "codepoints": [
+        "U+1F642",
+        "U+200D",
+        "U+2194",
+        "U+FE0F"
+      ],
+      "shortcode": ":head_shake:",
+      "label": "Head Shake"
+    },
+    {
+      "fileName": "emoji_u1f642_200d_2195_fe0f.tgs",
+      "unicode": "🙂‍↕️",
+      "codepoints": [
+        "U+1F642",
+        "U+200D",
+        "U+2195",
+        "U+FE0F"
+      ],
+      "shortcode": ":head_nod:",
+      "label": "Head Nod"
+    },
+    {
+      "fileName": "emoji_u1f643.tgs",
+      "unicode": "🙃",
+      "codepoints": [
+        "U+1F643"
+      ],
+      "shortcode": ":upside_down_face:",
+      "label": "Upside-Down Face"
+    },
+    {
+      "fileName": "emoji_u1f644.tgs",
+      "unicode": "🙄",
+      "codepoints": [
+        "U+1F644"
+      ],
+      "shortcode": ":roll_eyes:",
+      "label": "Face With Rolling Eyes"
+    },
+    {
+      "fileName": "emoji_u1f648.tgs",
+      "unicode": "🙈",
+      "codepoints": [
+        "U+1F648"
+      ],
+      "shortcode": ":see_no_evil:",
+      "label": "See-No-Evil Monkey"
+    },
+    {
+      "fileName": "emoji_u1f649.tgs",
+      "unicode": "🙉",
+      "codepoints": [
+        "U+1F649"
+      ],
+      "shortcode": ":hear_no_evil_monkey:",
+      "label": "Hear No Evil Monkey"
+    },
+    {
+      "fileName": "emoji_u1f64a.tgs",
+      "unicode": "🙊",
+      "codepoints": [
+        "U+1F64A"
+      ],
+      "shortcode": ":speak_no_evil_monkey:",
+      "label": "Speak No Evil Monkey"
+    },
+    {
+      "fileName": "emoji_u1f64c.tgs",
+      "unicode": "🙌",
+      "codepoints": [
+        "U+1F64C"
+      ],
+      "shortcode": ":raised_hands:",
+      "label": "Raising Hands"
+    },
+    {
+      "fileName": "emoji_u1f64c_1f3fb.tgs",
+      "unicode": "🙌🏻",
+      "codepoints": [
+        "U+1F64C",
+        "U+1F3FB"
+      ],
+      "shortcode": ":raising_hands:",
+      "label": "Raising Hands"
+    },
+    {
+      "fileName": "emoji_u1f64c_1f3fc.tgs",
+      "unicode": "🙌🏼",
+      "codepoints": [
+        "U+1F64C",
+        "U+1F3FC"
+      ],
+      "shortcode": ":hooray:",
+      "label": "Hooray"
+    },
+    {
+      "fileName": "emoji_u1f64c_1f3fd.tgs",
+      "unicode": "🙌🏽",
+      "codepoints": [
+        "U+1F64C",
+        "U+1F3FD"
+      ],
+      "shortcode": ":raising_hands_1f64c:",
+      "label": "Raising Hands"
+    },
+    {
+      "fileName": "emoji_u1f64c_1f3fe.tgs",
+      "unicode": "🙌🏾",
+      "codepoints": [
+        "U+1F64C",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f64c_1f3fe:",
+      "label": "Raising Hands"
+    },
+    {
+      "fileName": "emoji_u1f64c_1f3ff.tgs",
+      "unicode": "🙌🏿",
+      "codepoints": [
+        "U+1F64C",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f64c_1f3ff:",
+      "label": "Raising Hands"
+    },
+    {
+      "fileName": "emoji_u1f64f.tgs",
+      "unicode": "🙏",
+      "codepoints": [
+        "U+1F64F"
+      ],
+      "shortcode": ":pray:",
+      "label": "Folded Hands"
+    },
+    {
+      "fileName": "emoji_u1f64f_1f3fb.tgs",
+      "unicode": "🙏🏻",
+      "codepoints": [
+        "U+1F64F",
+        "U+1F3FB"
+      ],
+      "shortcode": ":folded_hands:",
+      "label": "Folded Hands"
+    },
+    {
+      "fileName": "emoji_u1f64f_1f3fc.tgs",
+      "unicode": "🙏🏼",
+      "codepoints": [
+        "U+1F64F",
+        "U+1F3FC"
+      ],
+      "shortcode": ":please:",
+      "label": "Please"
+    },
+    {
+      "fileName": "emoji_u1f64f_1f3fd.tgs",
+      "unicode": "🙏🏽",
+      "codepoints": [
+        "U+1F64F",
+        "U+1F3FD"
+      ],
+      "shortcode": ":hope:",
+      "label": "Hope"
+    },
+    {
+      "fileName": "emoji_u1f64f_1f3fe.tgs",
+      "unicode": "🙏🏾",
+      "codepoints": [
+        "U+1F64F",
+        "U+1F3FE"
+      ],
+      "shortcode": ":wish:",
+      "label": "Wish"
+    },
+    {
+      "fileName": "emoji_u1f64f_1f3ff.tgs",
+      "unicode": "🙏🏿",
+      "codepoints": [
+        "U+1F64F",
+        "U+1F3FF"
+      ],
+      "shortcode": ":thank_you:",
+      "label": "Thank You"
+    },
+    {
+      "fileName": "emoji_u1f680.tgs",
+      "unicode": "🚀",
+      "codepoints": [
+        "U+1F680"
+      ],
+      "shortcode": ":rocket:",
+      "label": "Rocket"
+    },
+    {
+      "fileName": "emoji_u1f682.tgs",
+      "unicode": "🚂",
+      "codepoints": [
+        "U+1F682"
+      ],
+      "shortcode": ":locomotive:",
+      "label": "Locomotive"
+    },
+    {
+      "fileName": "emoji_u1f68c.tgs",
+      "unicode": "🚌",
+      "codepoints": [
+        "U+1F68C"
+      ],
+      "shortcode": ":bus:",
+      "label": "Bus"
+    },
+    {
+      "fileName": "emoji_u1f695.tgs",
+      "unicode": "🚕",
+      "codepoints": [
+        "U+1F695"
+      ],
+      "shortcode": ":taxi:",
+      "label": "Taxi"
+    },
+    {
+      "fileName": "emoji_u1f697.tgs",
+      "unicode": "🚗",
+      "codepoints": [
+        "U+1F697"
+      ],
+      "shortcode": ":automobile:",
+      "label": "Automobile"
+    },
+    {
+      "fileName": "emoji_u1f69a.tgs",
+      "unicode": "🚚",
+      "codepoints": [
+        "U+1F69A"
+      ],
+      "shortcode": ":delivery_truck:",
+      "label": "Delivery Truck"
+    },
+    {
+      "fileName": "emoji_u1f69c.tgs",
+      "unicode": "🚜",
+      "codepoints": [
+        "U+1F69C"
+      ],
+      "shortcode": ":tractor:",
+      "label": "Tractor"
+    },
+    {
+      "fileName": "emoji_u1f6a6.tgs",
+      "unicode": "🚦",
+      "codepoints": [
+        "U+1F6A6"
+      ],
+      "shortcode": ":vertical_traffic_light:",
+      "label": "Vertical Traffic Light"
+    },
+    {
+      "fileName": "emoji_u1f6a7.tgs",
+      "unicode": "🚧",
+      "codepoints": [
+        "U+1F6A7"
+      ],
+      "shortcode": ":construction:",
+      "label": "Construction"
+    },
+    {
+      "fileName": "emoji_u1f6a8.tgs",
+      "unicode": "🚨",
+      "codepoints": [
+        "U+1F6A8"
+      ],
+      "shortcode": ":police_car_light:",
+      "label": "Police Car Light"
+    },
+    {
+      "fileName": "emoji_u1f6a9.tgs",
+      "unicode": "🚩",
+      "codepoints": [
+        "U+1F6A9"
+      ],
+      "shortcode": ":triangular_flag:",
+      "label": "Triangular Flag"
+    },
+    {
+      "fileName": "emoji_u1f6ae.tgs",
+      "unicode": "🚮",
+      "codepoints": [
+        "U+1F6AE"
+      ],
+      "shortcode": ":litter:",
+      "label": "Litter"
+    },
+    {
+      "fileName": "emoji_u1f6b2.tgs",
+      "unicode": "🚲",
+      "codepoints": [
+        "U+1F6B2"
+      ],
+      "shortcode": ":bicycle:",
+      "label": "Bicycle"
+    },
+    {
+      "fileName": "emoji_u1f6ce_fe0f.tgs",
+      "unicode": "🛎️",
+      "codepoints": [
+        "U+1F6CE",
+        "U+FE0F"
+      ],
+      "shortcode": ":bellhop_bell:",
+      "label": "Bellhop Bell"
+    },
+    {
+      "fileName": "emoji_u1f6d1.tgs",
+      "unicode": "🛑",
+      "codepoints": [
+        "U+1F6D1"
+      ],
+      "shortcode": ":stop_sign:",
+      "label": "Stop Sign"
+    },
+    {
+      "fileName": "emoji_u1f6d2.tgs",
+      "unicode": "🛒",
+      "codepoints": [
+        "U+1F6D2"
+      ],
+      "shortcode": ":shopping_cart_1f6d2:",
+      "label": "Shopping Cart"
+    },
+    {
+      "fileName": "emoji_u1f6d8.tgs",
+      "unicode": "🛘",
+      "codepoints": [
+        "U+1F6D8"
+      ],
+      "shortcode": ":debris:",
+      "label": "Debris"
+    },
+    {
+      "fileName": "emoji_u1f6df.tgs",
+      "unicode": "🛟",
+      "codepoints": [
+        "U+1F6DF"
+      ],
+      "shortcode": ":ring_buoy:",
+      "label": "Ring Buoy"
+    },
+    {
+      "fileName": "emoji_u1f6e0_fe0f.tgs",
+      "unicode": "🛠️",
+      "codepoints": [
+        "U+1F6E0",
+        "U+FE0F"
+      ],
+      "shortcode": ":hammer_and_wrench:",
+      "label": "Hammer And Wrench"
+    },
+    {
+      "fileName": "emoji_u1f6eb.tgs",
+      "unicode": "🛫",
+      "codepoints": [
+        "U+1F6EB"
+      ],
+      "shortcode": ":airplane_departure:",
+      "label": "Airplane Departure"
+    },
+    {
+      "fileName": "emoji_u1f6ec.tgs",
+      "unicode": "🛬",
+      "codepoints": [
+        "U+1F6EC"
+      ],
+      "shortcode": ":airplane_arrival:",
+      "label": "Airplane Arrival"
+    },
+    {
+      "fileName": "emoji_u1f6f6.tgs",
+      "unicode": "🛶",
+      "codepoints": [
+        "U+1F6F6"
+      ],
+      "shortcode": ":canoe:",
+      "label": "Canoe"
+    },
+    {
+      "fileName": "emoji_u1f6f8.tgs",
+      "unicode": "🛸",
+      "codepoints": [
+        "U+1F6F8"
+      ],
+      "shortcode": ":flying_saucer:",
+      "label": "Flying Saucer"
+    },
+    {
+      "fileName": "emoji_u1f6f9.tgs",
+      "unicode": "🛹",
+      "codepoints": [
+        "U+1F6F9"
+      ],
+      "shortcode": ":skateboard:",
+      "label": "Skateboard"
+    },
+    {
+      "fileName": "emoji_u1f6fc.tgs",
+      "unicode": "🛼",
+      "codepoints": [
+        "U+1F6FC"
+      ],
+      "shortcode": ":roller_skates:",
+      "label": "Roller Skates"
+    },
+    {
+      "fileName": "emoji_u1f90c.tgs",
+      "unicode": "🤌",
+      "codepoints": [
+        "U+1F90C"
+      ],
+      "shortcode": ":pinched_fingers:",
+      "label": "Pinched Fingers"
+    },
+    {
+      "fileName": "emoji_u1f90c_1f3fb.tgs",
+      "unicode": "🤌🏻",
+      "codepoints": [
+        "U+1F90C",
+        "U+1F3FB"
+      ],
+      "shortcode": ":pinched_fingers_1f90c:",
+      "label": "Pinched Fingers"
+    },
+    {
+      "fileName": "emoji_u1f90c_1f3fc.tgs",
+      "unicode": "🤌🏼",
+      "codepoints": [
+        "U+1F90C",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f90c_1f3fc:",
+      "label": "Pinched Fingers"
+    },
+    {
+      "fileName": "emoji_u1f90c_1f3fd.tgs",
+      "unicode": "🤌🏽",
+      "codepoints": [
+        "U+1F90C",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f90c_1f3fd:",
+      "label": "Pinched Fingers"
+    },
+    {
+      "fileName": "emoji_u1f90c_1f3fe.tgs",
+      "unicode": "🤌🏾",
+      "codepoints": [
+        "U+1F90C",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f90c_1f3fe:",
+      "label": "Pinched Fingers"
+    },
+    {
+      "fileName": "emoji_u1f90c_1f3ff.tgs",
+      "unicode": "🤌🏿",
+      "codepoints": [
+        "U+1F90C",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f90c_1f3ff:",
+      "label": "Pinched Fingers"
+    },
+    {
+      "fileName": "emoji_u1f90d.tgs",
+      "unicode": "🤍",
+      "codepoints": [
+        "U+1F90D"
+      ],
+      "shortcode": ":white_heart:",
+      "label": "White Heart"
+    },
+    {
+      "fileName": "emoji_u1f90e.tgs",
+      "unicode": "🤎",
+      "codepoints": [
+        "U+1F90E"
+      ],
+      "shortcode": ":brown_heart:",
+      "label": "Brown Heart"
+    },
+    {
+      "fileName": "emoji_u1f90f.tgs",
+      "unicode": "🤏",
+      "codepoints": [
+        "U+1F90F"
+      ],
+      "shortcode": ":pinch:",
+      "label": "Pinch"
+    },
+    {
+      "fileName": "emoji_u1f90f_1f3fb.tgs",
+      "unicode": "🤏🏻",
+      "codepoints": [
+        "U+1F90F",
+        "U+1F3FB"
+      ],
+      "shortcode": ":pinch_1f90f:",
+      "label": "Pinch"
+    },
+    {
+      "fileName": "emoji_u1f90f_1f3fc.tgs",
+      "unicode": "🤏🏼",
+      "codepoints": [
+        "U+1F90F",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f90f_1f3fc:",
+      "label": "Pinch"
+    },
+    {
+      "fileName": "emoji_u1f90f_1f3fd.tgs",
+      "unicode": "🤏🏽",
+      "codepoints": [
+        "U+1F90F",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f90f_1f3fd:",
+      "label": "Pinch"
+    },
+    {
+      "fileName": "emoji_u1f90f_1f3fe.tgs",
+      "unicode": "🤏🏾",
+      "codepoints": [
+        "U+1F90F",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f90f_1f3fe:",
+      "label": "Pinch"
+    },
+    {
+      "fileName": "emoji_u1f90f_1f3ff.tgs",
+      "unicode": "🤏🏿",
+      "codepoints": [
+        "U+1F90F",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f90f_1f3ff:",
+      "label": "Pinch"
+    },
+    {
+      "fileName": "emoji_u1f910.tgs",
+      "unicode": "🤐",
+      "codepoints": [
+        "U+1F910"
+      ],
+      "shortcode": ":zipper_face:",
+      "label": "Zipper Face"
+    },
+    {
+      "fileName": "emoji_u1f911.tgs",
+      "unicode": "🤑",
+      "codepoints": [
+        "U+1F911"
+      ],
+      "shortcode": ":money_mouth:",
+      "label": "Money-Mouth Face"
+    },
+    {
+      "fileName": "emoji_u1f912.tgs",
+      "unicode": "🤒",
+      "codepoints": [
+        "U+1F912"
+      ],
+      "shortcode": ":thermometer_face:",
+      "label": "Thermometer Face"
+    },
+    {
+      "fileName": "emoji_u1f913.tgs",
+      "unicode": "🤓",
+      "codepoints": [
+        "U+1F913"
+      ],
+      "shortcode": ":nerd_face:",
+      "label": "Nerd Face"
+    },
+    {
+      "fileName": "emoji_u1f914.tgs",
+      "unicode": "🤔",
+      "codepoints": [
+        "U+1F914"
+      ],
+      "shortcode": ":thinking:",
+      "label": "Thinking Face"
+    },
+    {
+      "fileName": "emoji_u1f915.tgs",
+      "unicode": "🤕",
+      "codepoints": [
+        "U+1F915"
+      ],
+      "shortcode": ":bandage_face:",
+      "label": "Bandage Face"
+    },
+    {
+      "fileName": "emoji_u1f916.tgs",
+      "unicode": "🤖",
+      "codepoints": [
+        "U+1F916"
+      ],
+      "shortcode": ":robot_1f916:",
+      "label": "Robot"
+    },
+    {
+      "fileName": "emoji_u1f917.tgs",
+      "unicode": "🤗",
+      "codepoints": [
+        "U+1F917"
+      ],
+      "shortcode": ":hugs:",
+      "label": "Smiling Face With Open Hands"
+    },
+    {
+      "fileName": "emoji_u1f918.tgs",
+      "unicode": "🤘",
+      "codepoints": [
+        "U+1F918"
+      ],
+      "shortcode": ":metal:",
+      "label": "Metal"
+    },
+    {
+      "fileName": "emoji_u1f918_1f3fb.tgs",
+      "unicode": "🤘🏻",
+      "codepoints": [
+        "U+1F918",
+        "U+1F3FB"
+      ],
+      "shortcode": ":horns:",
+      "label": "Horns"
+    },
+    {
+      "fileName": "emoji_u1f918_1f3fc.tgs",
+      "unicode": "🤘🏼",
+      "codepoints": [
+        "U+1F918",
+        "U+1F3FC"
+      ],
+      "shortcode": ":metal_1f918:",
+      "label": "Metal"
+    },
+    {
+      "fileName": "emoji_u1f918_1f3fd.tgs",
+      "unicode": "🤘🏽",
+      "codepoints": [
+        "U+1F918",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f918_1f3fd:",
+      "label": "Metal"
+    },
+    {
+      "fileName": "emoji_u1f918_1f3fe.tgs",
+      "unicode": "🤘🏾",
+      "codepoints": [
+        "U+1F918",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f918_1f3fe:",
+      "label": "Metal"
+    },
+    {
+      "fileName": "emoji_u1f918_1f3ff.tgs",
+      "unicode": "🤘🏿",
+      "codepoints": [
+        "U+1F918",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f918_1f3ff:",
+      "label": "Metal"
+    },
+    {
+      "fileName": "emoji_u1f919.tgs",
+      "unicode": "🤙",
+      "codepoints": [
+        "U+1F919"
+      ],
+      "shortcode": ":call_me_hand:",
+      "label": "Call Me Hand"
+    },
+    {
+      "fileName": "emoji_u1f919_1f3fb.tgs",
+      "unicode": "🤙🏻",
+      "codepoints": [
+        "U+1F919",
+        "U+1F3FB"
+      ],
+      "shortcode": ":call_me_hand_1f919:",
+      "label": "Call Me Hand"
+    },
+    {
+      "fileName": "emoji_u1f919_1f3fc.tgs",
+      "unicode": "🤙🏼",
+      "codepoints": [
+        "U+1F919",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f919_1f3fc:",
+      "label": "Call Me Hand"
+    },
+    {
+      "fileName": "emoji_u1f919_1f3fd.tgs",
+      "unicode": "🤙🏽",
+      "codepoints": [
+        "U+1F919",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f919_1f3fd:",
+      "label": "Call Me Hand"
+    },
+    {
+      "fileName": "emoji_u1f919_1f3fe.tgs",
+      "unicode": "🤙🏾",
+      "codepoints": [
+        "U+1F919",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f919_1f3fe:",
+      "label": "Call Me Hand"
+    },
+    {
+      "fileName": "emoji_u1f919_1f3ff.tgs",
+      "unicode": "🤙🏿",
+      "codepoints": [
+        "U+1F919",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f919_1f3ff:",
+      "label": "Call Me Hand"
+    },
+    {
+      "fileName": "emoji_u1f91a.tgs",
+      "unicode": "🤚",
+      "codepoints": [
+        "U+1F91A"
+      ],
+      "shortcode": ":back_hand:",
+      "label": "Back Hand"
+    },
+    {
+      "fileName": "emoji_u1f91a_1f3fb.tgs",
+      "unicode": "🤚🏻",
+      "codepoints": [
+        "U+1F91A",
+        "U+1F3FB"
+      ],
+      "shortcode": ":back_hand_1f91a:",
+      "label": "Back Hand"
+    },
+    {
+      "fileName": "emoji_u1f91a_1f3fc.tgs",
+      "unicode": "🤚🏼",
+      "codepoints": [
+        "U+1F91A",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f91a_1f3fc:",
+      "label": "Back Hand"
+    },
+    {
+      "fileName": "emoji_u1f91a_1f3fd.tgs",
+      "unicode": "🤚🏽",
+      "codepoints": [
+        "U+1F91A",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f91a_1f3fd:",
+      "label": "Back Hand"
+    },
+    {
+      "fileName": "emoji_u1f91a_1f3fe.tgs",
+      "unicode": "🤚🏾",
+      "codepoints": [
+        "U+1F91A",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f91a_1f3fe:",
+      "label": "Back Hand"
+    },
+    {
+      "fileName": "emoji_u1f91a_1f3ff.tgs",
+      "unicode": "🤚🏿",
+      "codepoints": [
+        "U+1F91A",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f91a_1f3ff:",
+      "label": "Back Hand"
+    },
+    {
+      "fileName": "emoji_u1f91b.tgs",
+      "unicode": "🤛",
+      "codepoints": [
+        "U+1F91B"
+      ],
+      "shortcode": ":fist_leftwards:",
+      "label": "Fist Leftwards"
+    },
+    {
+      "fileName": "emoji_u1f91b_1f3fb.tgs",
+      "unicode": "🤛🏻",
+      "codepoints": [
+        "U+1F91B",
+        "U+1F3FB"
+      ],
+      "shortcode": ":fist_leftwards_1f91b:",
+      "label": "Fist Leftwards"
+    },
+    {
+      "fileName": "emoji_u1f91b_1f3fc.tgs",
+      "unicode": "🤛🏼",
+      "codepoints": [
+        "U+1F91B",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f91b_1f3fc:",
+      "label": "Fist Leftwards"
+    },
+    {
+      "fileName": "emoji_u1f91b_1f3fd.tgs",
+      "unicode": "🤛🏽",
+      "codepoints": [
+        "U+1F91B",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f91b_1f3fd:",
+      "label": "Fist Leftwards"
+    },
+    {
+      "fileName": "emoji_u1f91b_1f3fe.tgs",
+      "unicode": "🤛🏾",
+      "codepoints": [
+        "U+1F91B",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f91b_1f3fe:",
+      "label": "Fist Leftwards"
+    },
+    {
+      "fileName": "emoji_u1f91b_1f3ff.tgs",
+      "unicode": "🤛🏿",
+      "codepoints": [
+        "U+1F91B",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f91b_1f3ff:",
+      "label": "Fist Leftwards"
+    },
+    {
+      "fileName": "emoji_u1f91c.tgs",
+      "unicode": "🤜",
+      "codepoints": [
+        "U+1F91C"
+      ],
+      "shortcode": ":fist_rightwards:",
+      "label": "Fist Rightwards"
+    },
+    {
+      "fileName": "emoji_u1f91c_1f3fb.tgs",
+      "unicode": "🤜🏻",
+      "codepoints": [
+        "U+1F91C",
+        "U+1F3FB"
+      ],
+      "shortcode": ":fist_rightwards_1f91c:",
+      "label": "Fist Rightwards"
+    },
+    {
+      "fileName": "emoji_u1f91c_1f3fc.tgs",
+      "unicode": "🤜🏼",
+      "codepoints": [
+        "U+1F91C",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f91c_1f3fc:",
+      "label": "Fist Rightwards"
+    },
+    {
+      "fileName": "emoji_u1f91c_1f3fd.tgs",
+      "unicode": "🤜🏽",
+      "codepoints": [
+        "U+1F91C",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f91c_1f3fd:",
+      "label": "Fist Rightwards"
+    },
+    {
+      "fileName": "emoji_u1f91c_1f3fe.tgs",
+      "unicode": "🤜🏾",
+      "codepoints": [
+        "U+1F91C",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f91c_1f3fe:",
+      "label": "Fist Rightwards"
+    },
+    {
+      "fileName": "emoji_u1f91c_1f3ff.tgs",
+      "unicode": "🤜🏿",
+      "codepoints": [
+        "U+1F91C",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f91c_1f3ff:",
+      "label": "Fist Rightwards"
+    },
+    {
+      "fileName": "emoji_u1f91d.tgs",
+      "unicode": "🤝",
+      "codepoints": [
+        "U+1F91D"
+      ],
+      "shortcode": ":handshake:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1f91d_1f3fb.tgs",
+      "unicode": "🤝🏻",
+      "codepoints": [
+        "U+1F91D",
+        "U+1F3FB"
+      ],
+      "shortcode": ":handshake_1f91d:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1f91d_1f3fc.tgs",
+      "unicode": "🤝🏼",
+      "codepoints": [
+        "U+1F91D",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f91d_1f3fc:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1f91d_1f3fd.tgs",
+      "unicode": "🤝🏽",
+      "codepoints": [
+        "U+1F91D",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f91d_1f3fd:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1f91d_1f3fe.tgs",
+      "unicode": "🤝🏾",
+      "codepoints": [
+        "U+1F91D",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f91d_1f3fe:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1f91d_1f3ff.tgs",
+      "unicode": "🤝🏿",
+      "codepoints": [
+        "U+1F91D",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f91d_1f3ff:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1f91e.tgs",
+      "unicode": "🤞",
+      "codepoints": [
+        "U+1F91E"
+      ],
+      "shortcode": ":crossed_fingers:",
+      "label": "Crossed Fingers"
+    },
+    {
+      "fileName": "emoji_u1f91e_1f3fb.tgs",
+      "unicode": "🤞🏻",
+      "codepoints": [
+        "U+1F91E",
+        "U+1F3FB"
+      ],
+      "shortcode": ":crossed_fingers_1f91e:",
+      "label": "Crossed Fingers"
+    },
+    {
+      "fileName": "emoji_u1f91e_1f3fc.tgs",
+      "unicode": "🤞🏼",
+      "codepoints": [
+        "U+1F91E",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f91e_1f3fc:",
+      "label": "Crossed Fingers"
+    },
+    {
+      "fileName": "emoji_u1f91e_1f3fd.tgs",
+      "unicode": "🤞🏽",
+      "codepoints": [
+        "U+1F91E",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f91e_1f3fd:",
+      "label": "Crossed Fingers"
+    },
+    {
+      "fileName": "emoji_u1f91e_1f3fe.tgs",
+      "unicode": "🤞🏾",
+      "codepoints": [
+        "U+1F91E",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f91e_1f3fe:",
+      "label": "Crossed Fingers"
+    },
+    {
+      "fileName": "emoji_u1f91e_1f3ff.tgs",
+      "unicode": "🤞🏿",
+      "codepoints": [
+        "U+1F91E",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f91e_1f3ff:",
+      "label": "Crossed Fingers"
+    },
+    {
+      "fileName": "emoji_u1f91f.tgs",
+      "unicode": "🤟",
+      "codepoints": [
+        "U+1F91F"
+      ],
+      "shortcode": ":love_you_gesture:",
+      "label": "Love You Gesture"
+    },
+    {
+      "fileName": "emoji_u1f91f_1f3fb.tgs",
+      "unicode": "🤟🏻",
+      "codepoints": [
+        "U+1F91F",
+        "U+1F3FB"
+      ],
+      "shortcode": ":love_you_gesture_1f91f:",
+      "label": "Love You Gesture"
+    },
+    {
+      "fileName": "emoji_u1f91f_1f3fc.tgs",
+      "unicode": "🤟🏼",
+      "codepoints": [
+        "U+1F91F",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f91f_1f3fc:",
+      "label": "Love You Gesture"
+    },
+    {
+      "fileName": "emoji_u1f91f_1f3fd.tgs",
+      "unicode": "🤟🏽",
+      "codepoints": [
+        "U+1F91F",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f91f_1f3fd:",
+      "label": "Love You Gesture"
+    },
+    {
+      "fileName": "emoji_u1f91f_1f3fe.tgs",
+      "unicode": "🤟🏾",
+      "codepoints": [
+        "U+1F91F",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f91f_1f3fe:",
+      "label": "Love You Gesture"
+    },
+    {
+      "fileName": "emoji_u1f91f_1f3ff.tgs",
+      "unicode": "🤟🏿",
+      "codepoints": [
+        "U+1F91F",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f91f_1f3ff:",
+      "label": "Love You Gesture"
+    },
+    {
+      "fileName": "emoji_u1f920.tgs",
+      "unicode": "🤠",
+      "codepoints": [
+        "U+1F920"
+      ],
+      "shortcode": ":cowboy:",
+      "label": "Cowboy"
+    },
+    {
+      "fileName": "emoji_u1f921.tgs",
+      "unicode": "🤡",
+      "codepoints": [
+        "U+1F921"
+      ],
+      "shortcode": ":clown:",
+      "label": "Clown"
+    },
+    {
+      "fileName": "emoji_u1f922.tgs",
+      "unicode": "🤢",
+      "codepoints": [
+        "U+1F922"
+      ],
+      "shortcode": ":sick:",
+      "label": "Sick"
+    },
+    {
+      "fileName": "emoji_u1f923.tgs",
+      "unicode": "🤣",
+      "codepoints": [
+        "U+1F923"
+      ],
+      "shortcode": ":rofl:",
+      "label": "Rolling on the Floor Laughing"
+    },
+    {
+      "fileName": "emoji_u1f924.tgs",
+      "unicode": "🤤",
+      "codepoints": [
+        "U+1F924"
+      ],
+      "shortcode": ":drool:",
+      "label": "Drool"
+    },
+    {
+      "fileName": "emoji_u1f925.tgs",
+      "unicode": "🤥",
+      "codepoints": [
+        "U+1F925"
+      ],
+      "shortcode": ":liar:",
+      "label": "Liar"
+    },
+    {
+      "fileName": "emoji_u1f927.tgs",
+      "unicode": "🤧",
+      "codepoints": [
+        "U+1F927"
+      ],
+      "shortcode": ":sneeze:",
+      "label": "Sneeze"
+    },
+    {
+      "fileName": "emoji_u1f928.tgs",
+      "unicode": "🤨",
+      "codepoints": [
+        "U+1F928"
+      ],
+      "shortcode": ":raised_eyebrow:",
+      "label": "Face With Raised Eyebrow"
+    },
+    {
+      "fileName": "emoji_u1f929.tgs",
+      "unicode": "🤩",
+      "codepoints": [
+        "U+1F929"
+      ],
+      "shortcode": ":star_struck:",
+      "label": "Star-Struck"
+    },
+    {
+      "fileName": "emoji_u1f92a.tgs",
+      "unicode": "🤪",
+      "codepoints": [
+        "U+1F92A"
+      ],
+      "shortcode": ":zany_face:",
+      "label": "Zany Face"
+    },
+    {
+      "fileName": "emoji_u1f92b.tgs",
+      "unicode": "🤫",
+      "codepoints": [
+        "U+1F92B"
+      ],
+      "shortcode": ":shushing_face:",
+      "label": "Shushing Face"
+    },
+    {
+      "fileName": "emoji_u1f92c.tgs",
+      "unicode": "🤬",
+      "codepoints": [
+        "U+1F92C"
+      ],
+      "shortcode": ":cursing_face:",
+      "label": "Face With Symbols on Mouth"
+    },
+    {
+      "fileName": "emoji_u1f92d.tgs",
+      "unicode": "🤭",
+      "codepoints": [
+        "U+1F92D"
+      ],
+      "shortcode": ":hand_over_mouth:",
+      "label": "Face With Hand Over Mouth"
+    },
+    {
+      "fileName": "emoji_u1f92e.tgs",
+      "unicode": "🤮",
+      "codepoints": [
+        "U+1F92E"
+      ],
+      "shortcode": ":vomit:",
+      "label": "Vomit"
+    },
+    {
+      "fileName": "emoji_u1f92f.tgs",
+      "unicode": "🤯",
+      "codepoints": [
+        "U+1F92F"
+      ],
+      "shortcode": ":exploding_head:",
+      "label": "Exploding Head"
+    },
+    {
+      "fileName": "emoji_u1f932.tgs",
+      "unicode": "🤲",
+      "codepoints": [
+        "U+1F932"
+      ],
+      "shortcode": ":palms_up:",
+      "label": "Palms Up"
+    },
+    {
+      "fileName": "emoji_u1f932_1f3fb.tgs",
+      "unicode": "🤲🏻",
+      "codepoints": [
+        "U+1F932",
+        "U+1F3FB"
+      ],
+      "shortcode": ":palms_up_1f932:",
+      "label": "Palms Up"
+    },
+    {
+      "fileName": "emoji_u1f932_1f3fc.tgs",
+      "unicode": "🤲🏼",
+      "codepoints": [
+        "U+1F932",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f932_1f3fc:",
+      "label": "Palms Up"
+    },
+    {
+      "fileName": "emoji_u1f932_1f3fd.tgs",
+      "unicode": "🤲🏽",
+      "codepoints": [
+        "U+1F932",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f932_1f3fd:",
+      "label": "Palms Up"
+    },
+    {
+      "fileName": "emoji_u1f932_1f3fe.tgs",
+      "unicode": "🤲🏾",
+      "codepoints": [
+        "U+1F932",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f932_1f3fe:",
+      "label": "Palms Up"
+    },
+    {
+      "fileName": "emoji_u1f932_1f3ff.tgs",
+      "unicode": "🤲🏿",
+      "codepoints": [
+        "U+1F932",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f932_1f3ff:",
+      "label": "Palms Up"
+    },
+    {
+      "fileName": "emoji_u1f933.tgs",
+      "unicode": "🤳",
+      "codepoints": [
+        "U+1F933"
+      ],
+      "shortcode": ":selfie:",
+      "label": "Selfie"
+    },
+    {
+      "fileName": "emoji_u1f933_1f3fb.tgs",
+      "unicode": "🤳🏻",
+      "codepoints": [
+        "U+1F933",
+        "U+1F3FB"
+      ],
+      "shortcode": ":selfie_1f933:",
+      "label": "Selfie"
+    },
+    {
+      "fileName": "emoji_u1f933_1f3fc.tgs",
+      "unicode": "🤳🏼",
+      "codepoints": [
+        "U+1F933",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f933_1f3fc:",
+      "label": "Selfie"
+    },
+    {
+      "fileName": "emoji_u1f933_1f3fd.tgs",
+      "unicode": "🤳🏽",
+      "codepoints": [
+        "U+1F933",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f933_1f3fd:",
+      "label": "Selfie"
+    },
+    {
+      "fileName": "emoji_u1f933_1f3fe.tgs",
+      "unicode": "🤳🏾",
+      "codepoints": [
+        "U+1F933",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f933_1f3fe:",
+      "label": "Selfie"
+    },
+    {
+      "fileName": "emoji_u1f933_1f3ff.tgs",
+      "unicode": "🤳🏿",
+      "codepoints": [
+        "U+1F933",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f933_1f3ff:",
+      "label": "Selfie"
+    },
+    {
+      "fileName": "emoji_u1f940.tgs",
+      "unicode": "🥀",
+      "codepoints": [
+        "U+1F940"
+      ],
+      "shortcode": ":wilted_flower:",
+      "label": "Wilted Flower"
+    },
+    {
+      "fileName": "emoji_u1f941.tgs",
+      "unicode": "🥁",
+      "codepoints": [
+        "U+1F941"
+      ],
+      "shortcode": ":drum:",
+      "label": "Drum"
+    },
+    {
+      "fileName": "emoji_u1f942.tgs",
+      "unicode": "🥂",
+      "codepoints": [
+        "U+1F942"
+      ],
+      "shortcode": ":clinking_glasses:",
+      "label": "Clinking Glasses"
+    },
+    {
+      "fileName": "emoji_u1f947.tgs",
+      "unicode": "🥇",
+      "codepoints": [
+        "U+1F947"
+      ],
+      "shortcode": ":gold_medal:",
+      "label": "Gold Medal"
+    },
+    {
+      "fileName": "emoji_u1f948.tgs",
+      "unicode": "🥈",
+      "codepoints": [
+        "U+1F948"
+      ],
+      "shortcode": ":silver_medal:",
+      "label": "Silver Medal"
+    },
+    {
+      "fileName": "emoji_u1f949.tgs",
+      "unicode": "🥉",
+      "codepoints": [
+        "U+1F949"
+      ],
+      "shortcode": ":bronze_medal:",
+      "label": "Bronze Medal"
+    },
+    {
+      "fileName": "emoji_u1f94b.tgs",
+      "unicode": "🥋",
+      "codepoints": [
+        "U+1F94B"
+      ],
+      "shortcode": ":martial_arts_uniform:",
+      "label": "Martial Arts Uniform"
+    },
+    {
+      "fileName": "emoji_u1f94d.tgs",
+      "unicode": "🥍",
+      "codepoints": [
+        "U+1F94D"
+      ],
+      "shortcode": ":lacrosse:",
+      "label": "Lacrosse"
+    },
+    {
+      "fileName": "emoji_u1f94e.tgs",
+      "unicode": "🥎",
+      "codepoints": [
+        "U+1F94E"
+      ],
+      "shortcode": ":softball:",
+      "label": "Softball"
+    },
+    {
+      "fileName": "emoji_u1f94f.tgs",
+      "unicode": "🥏",
+      "codepoints": [
+        "U+1F94F"
+      ],
+      "shortcode": ":flying_disc:",
+      "label": "Flying Disc"
+    },
+    {
+      "fileName": "emoji_u1f951.tgs",
+      "unicode": "🥑",
+      "codepoints": [
+        "U+1F951"
+      ],
+      "shortcode": ":avocado:",
+      "label": "Avocado"
+    },
+    {
+      "fileName": "emoji_u1f952.tgs",
+      "unicode": "🥒",
+      "codepoints": [
+        "U+1F952"
+      ],
+      "shortcode": ":cucumber:",
+      "label": "Cucumber"
+    },
+    {
+      "fileName": "emoji_u1f953.tgs",
+      "unicode": "🥓",
+      "codepoints": [
+        "U+1F953"
+      ],
+      "shortcode": ":bacon:",
+      "label": "Bacon"
+    },
+    {
+      "fileName": "emoji_u1f954.tgs",
+      "unicode": "🥔",
+      "codepoints": [
+        "U+1F954"
+      ],
+      "shortcode": ":potato:",
+      "label": "Potato"
+    },
+    {
+      "fileName": "emoji_u1f955.tgs",
+      "unicode": "🥕",
+      "codepoints": [
+        "U+1F955"
+      ],
+      "shortcode": ":carrot:",
+      "label": "Carrot"
+    },
+    {
+      "fileName": "emoji_u1f957.tgs",
+      "unicode": "🥗",
+      "codepoints": [
+        "U+1F957"
+      ],
+      "shortcode": ":green_salad:",
+      "label": "Green Salad"
+    },
+    {
+      "fileName": "emoji_u1f95d.tgs",
+      "unicode": "🥝",
+      "codepoints": [
+        "U+1F95D"
+      ],
+      "shortcode": ":kiwi_fruit:",
+      "label": "Kiwi Fruit"
+    },
+    {
+      "fileName": "emoji_u1f95e.tgs",
+      "unicode": "🥞",
+      "codepoints": [
+        "U+1F95E"
+      ],
+      "shortcode": ":pancakes:",
+      "label": "Pancakes"
+    },
+    {
+      "fileName": "emoji_u1f962.tgs",
+      "unicode": "🥢",
+      "codepoints": [
+        "U+1F962"
+      ],
+      "shortcode": ":chopsticks:",
+      "label": "Chopsticks"
+    },
+    {
+      "fileName": "emoji_u1f966.tgs",
+      "unicode": "🥦",
+      "codepoints": [
+        "U+1F966"
+      ],
+      "shortcode": ":broccoli:",
+      "label": "Broccoli"
+    },
+    {
+      "fileName": "emoji_u1f967.tgs",
+      "unicode": "🥧",
+      "codepoints": [
+        "U+1F967"
+      ],
+      "shortcode": ":pie:",
+      "label": "Pie"
+    },
+    {
+      "fileName": "emoji_u1f968.tgs",
+      "unicode": "🥨",
+      "codepoints": [
+        "U+1F968"
+      ],
+      "shortcode": ":pretzel:",
+      "label": "Pretzel"
+    },
+    {
+      "fileName": "emoji_u1f96c.tgs",
+      "unicode": "🥬",
+      "codepoints": [
+        "U+1F96C"
+      ],
+      "shortcode": ":leafy_green:",
+      "label": "Leafy Green"
+    },
+    {
+      "fileName": "emoji_u1f96d.tgs",
+      "unicode": "🥭",
+      "codepoints": [
+        "U+1F96D"
+      ],
+      "shortcode": ":mango:",
+      "label": "Mango"
+    },
+    {
+      "fileName": "emoji_u1f970.tgs",
+      "unicode": "🥰",
+      "codepoints": [
+        "U+1F970"
+      ],
+      "shortcode": ":smiling_face_with_three_hearts:",
+      "label": "Smiling Face With Hearts"
+    },
+    {
+      "fileName": "emoji_u1f971.tgs",
+      "unicode": "🥱",
+      "codepoints": [
+        "U+1F971"
+      ],
+      "shortcode": ":yawn:",
+      "label": "Yawn"
+    },
+    {
+      "fileName": "emoji_u1f972.tgs",
+      "unicode": "🥲",
+      "codepoints": [
+        "U+1F972"
+      ],
+      "shortcode": ":happy_cry:",
+      "label": "Happy Cry"
+    },
+    {
+      "fileName": "emoji_u1f973.tgs",
+      "unicode": "🥳",
+      "codepoints": [
+        "U+1F973"
+      ],
+      "shortcode": ":partying_face:",
+      "label": "Partying Face"
+    },
+    {
+      "fileName": "emoji_u1f974.tgs",
+      "unicode": "🥴",
+      "codepoints": [
+        "U+1F974"
+      ],
+      "shortcode": ":woozy:",
+      "label": "Woozy"
+    },
+    {
+      "fileName": "emoji_u1f975.tgs",
+      "unicode": "🥵",
+      "codepoints": [
+        "U+1F975"
+      ],
+      "shortcode": ":hot_face:",
+      "label": "Hot Face"
+    },
+    {
+      "fileName": "emoji_u1f976.tgs",
+      "unicode": "🥶",
+      "codepoints": [
+        "U+1F976"
+      ],
+      "shortcode": ":cold_face:",
+      "label": "Cold Face"
+    },
+    {
+      "fileName": "emoji_u1f978.tgs",
+      "unicode": "🥸",
+      "codepoints": [
+        "U+1F978"
+      ],
+      "shortcode": ":disguise:",
+      "label": "Disguise"
+    },
+    {
+      "fileName": "emoji_u1f979.tgs",
+      "unicode": "🥹",
+      "codepoints": [
+        "U+1F979"
+      ],
+      "shortcode": ":holding_back_tears:",
+      "label": "Face Holding Back Tears"
+    },
+    {
+      "fileName": "emoji_u1f97a.tgs",
+      "unicode": "🥺",
+      "codepoints": [
+        "U+1F97A"
+      ],
+      "shortcode": ":pleading_face:",
+      "label": "Pleading Face"
+    },
+    {
+      "fileName": "emoji_u1f980.tgs",
+      "unicode": "🦀",
+      "codepoints": [
+        "U+1F980"
+      ],
+      "shortcode": ":crab:",
+      "label": "Crab"
+    },
+    {
+      "fileName": "emoji_u1f981.tgs",
+      "unicode": "🦁",
+      "codepoints": [
+        "U+1F981"
+      ],
+      "shortcode": ":lion_face:",
+      "label": "Lion Face"
+    },
+    {
+      "fileName": "emoji_u1f982.tgs",
+      "unicode": "🦂",
+      "codepoints": [
+        "U+1F982"
+      ],
+      "shortcode": ":scorpion:",
+      "label": "Scorpion"
+    },
+    {
+      "fileName": "emoji_u1f984.tgs",
+      "unicode": "🦄",
+      "codepoints": [
+        "U+1F984"
+      ],
+      "shortcode": ":unicorn_1f984:",
+      "label": "Unicorn"
+    },
+    {
+      "fileName": "emoji_u1f985.tgs",
+      "unicode": "🦅",
+      "codepoints": [
+        "U+1F985"
+      ],
+      "shortcode": ":eagle:",
+      "label": "Eagle"
+    },
+    {
+      "fileName": "emoji_u1f987.tgs",
+      "unicode": "🦇",
+      "codepoints": [
+        "U+1F987"
+      ],
+      "shortcode": ":bat:",
+      "label": "Bat"
+    },
+    {
+      "fileName": "emoji_u1f988.tgs",
+      "unicode": "🦈",
+      "codepoints": [
+        "U+1F988"
+      ],
+      "shortcode": ":shark:",
+      "label": "Shark"
+    },
+    {
+      "fileName": "emoji_u1f989.tgs",
+      "unicode": "🦉",
+      "codepoints": [
+        "U+1F989"
+      ],
+      "shortcode": ":owl:",
+      "label": "Owl"
+    },
+    {
+      "fileName": "emoji_u1f98a.tgs",
+      "unicode": "🦊",
+      "codepoints": [
+        "U+1F98A"
+      ],
+      "shortcode": ":fox_face:",
+      "label": "Fox Face"
+    },
+    {
+      "fileName": "emoji_u1f98b.tgs",
+      "unicode": "🦋",
+      "codepoints": [
+        "U+1F98B"
+      ],
+      "shortcode": ":butterfly:",
+      "label": "Butterfly"
+    },
+    {
+      "fileName": "emoji_u1f98d.tgs",
+      "unicode": "🦍",
+      "codepoints": [
+        "U+1F98D"
+      ],
+      "shortcode": ":gorilla:",
+      "label": "Gorilla"
+    },
+    {
+      "fileName": "emoji_u1f98e.tgs",
+      "unicode": "🦎",
+      "codepoints": [
+        "U+1F98E"
+      ],
+      "shortcode": ":lizard:",
+      "label": "Lizard"
+    },
+    {
+      "fileName": "emoji_u1f994.tgs",
+      "unicode": "🦔",
+      "codepoints": [
+        "U+1F994"
+      ],
+      "shortcode": ":hedgehog:",
+      "label": "Hedgehog"
+    },
+    {
+      "fileName": "emoji_u1f995.tgs",
+      "unicode": "🦕",
+      "codepoints": [
+        "U+1F995"
+      ],
+      "shortcode": ":dinosaur:",
+      "label": "Dinosaur"
+    },
+    {
+      "fileName": "emoji_u1f996.tgs",
+      "unicode": "🦖",
+      "codepoints": [
+        "U+1F996"
+      ],
+      "shortcode": ":t_rex:",
+      "label": "T Rex"
+    },
+    {
+      "fileName": "emoji_u1f997.tgs",
+      "unicode": "🦗",
+      "codepoints": [
+        "U+1F997"
+      ],
+      "shortcode": ":cricket:",
+      "label": "Cricket"
+    },
+    {
+      "fileName": "emoji_u1f998.tgs",
+      "unicode": "🦘",
+      "codepoints": [
+        "U+1F998"
+      ],
+      "shortcode": ":kangaroo:",
+      "label": "Kangaroo"
+    },
+    {
+      "fileName": "emoji_u1f99a.tgs",
+      "unicode": "🦚",
+      "codepoints": [
+        "U+1F99A"
+      ],
+      "shortcode": ":peacock:",
+      "label": "Peacock"
+    },
+    {
+      "fileName": "emoji_u1f99d.tgs",
+      "unicode": "🦝",
+      "codepoints": [
+        "U+1F99D"
+      ],
+      "shortcode": ":raccoon:",
+      "label": "Raccoon"
+    },
+    {
+      "fileName": "emoji_u1f99e.tgs",
+      "unicode": "🦞",
+      "codepoints": [
+        "U+1F99E"
+      ],
+      "shortcode": ":lobster:",
+      "label": "Lobster"
+    },
+    {
+      "fileName": "emoji_u1f99f.tgs",
+      "unicode": "🦟",
+      "codepoints": [
+        "U+1F99F"
+      ],
+      "shortcode": ":mosquito:",
+      "label": "Mosquito"
+    },
+    {
+      "fileName": "emoji_u1f9a0.tgs",
+      "unicode": "🦠",
+      "codepoints": [
+        "U+1F9A0"
+      ],
+      "shortcode": ":virus:",
+      "label": "Virus"
+    },
+    {
+      "fileName": "emoji_u1f9a5.tgs",
+      "unicode": "🦥",
+      "codepoints": [
+        "U+1F9A5"
+      ],
+      "shortcode": ":sloth:",
+      "label": "Sloth"
+    },
+    {
+      "fileName": "emoji_u1f9a6.tgs",
+      "unicode": "🦦",
+      "codepoints": [
+        "U+1F9A6"
+      ],
+      "shortcode": ":otter:",
+      "label": "Otter"
+    },
+    {
+      "fileName": "emoji_u1f9a7.tgs",
+      "unicode": "🦧",
+      "codepoints": [
+        "U+1F9A7"
+      ],
+      "shortcode": ":orangutan:",
+      "label": "Orangutan"
+    },
+    {
+      "fileName": "emoji_u1f9a9.tgs",
+      "unicode": "🦩",
+      "codepoints": [
+        "U+1F9A9"
+      ],
+      "shortcode": ":flamingo:",
+      "label": "Flamingo"
+    },
+    {
+      "fileName": "emoji_u1f9ad.tgs",
+      "unicode": "🦭",
+      "codepoints": [
+        "U+1F9AD"
+      ],
+      "shortcode": ":seal:",
+      "label": "Seal"
+    },
+    {
+      "fileName": "emoji_u1f9ae.tgs",
+      "unicode": "🦮",
+      "codepoints": [
+        "U+1F9AE"
+      ],
+      "shortcode": ":guide_dog_1f9ae:",
+      "label": "Guide Dog"
+    },
+    {
+      "fileName": "emoji_u1f9b4.tgs",
+      "unicode": "🦴",
+      "codepoints": [
+        "U+1F9B4"
+      ],
+      "shortcode": ":bone:",
+      "label": "Bone"
+    },
+    {
+      "fileName": "emoji_u1f9b5.tgs",
+      "unicode": "🦵",
+      "codepoints": [
+        "U+1F9B5"
+      ],
+      "shortcode": ":leg:",
+      "label": "Leg"
+    },
+    {
+      "fileName": "emoji_u1f9b5_1f3fb.tgs",
+      "unicode": "🦵🏻",
+      "codepoints": [
+        "U+1F9B5",
+        "U+1F3FB"
+      ],
+      "shortcode": ":leg_1f9b5:",
+      "label": "Leg"
+    },
+    {
+      "fileName": "emoji_u1f9b5_1f3fc.tgs",
+      "unicode": "🦵🏼",
+      "codepoints": [
+        "U+1F9B5",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f9b5_1f3fc:",
+      "label": "Leg"
+    },
+    {
+      "fileName": "emoji_u1f9b5_1f3fd.tgs",
+      "unicode": "🦵🏽",
+      "codepoints": [
+        "U+1F9B5",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f9b5_1f3fd:",
+      "label": "Leg"
+    },
+    {
+      "fileName": "emoji_u1f9b5_1f3fe.tgs",
+      "unicode": "🦵🏾",
+      "codepoints": [
+        "U+1F9B5",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f9b5_1f3fe:",
+      "label": "Leg"
+    },
+    {
+      "fileName": "emoji_u1f9b5_1f3ff.tgs",
+      "unicode": "🦵🏿",
+      "codepoints": [
+        "U+1F9B5",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f9b5_1f3ff:",
+      "label": "Leg"
+    },
+    {
+      "fileName": "emoji_u1f9b6.tgs",
+      "unicode": "🦶",
+      "codepoints": [
+        "U+1F9B6"
+      ],
+      "shortcode": ":foot:",
+      "label": "Foot"
+    },
+    {
+      "fileName": "emoji_u1f9b6_1f3fb.tgs",
+      "unicode": "🦶🏻",
+      "codepoints": [
+        "U+1F9B6",
+        "U+1F3FB"
+      ],
+      "shortcode": ":foot_1f9b6:",
+      "label": "Foot"
+    },
+    {
+      "fileName": "emoji_u1f9b6_1f3fc.tgs",
+      "unicode": "🦶🏼",
+      "codepoints": [
+        "U+1F9B6",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f9b6_1f3fc:",
+      "label": "Foot"
+    },
+    {
+      "fileName": "emoji_u1f9b6_1f3fd.tgs",
+      "unicode": "🦶🏽",
+      "codepoints": [
+        "U+1F9B6",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f9b6_1f3fd:",
+      "label": "Foot"
+    },
+    {
+      "fileName": "emoji_u1f9b6_1f3fe.tgs",
+      "unicode": "🦶🏾",
+      "codepoints": [
+        "U+1F9B6",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f9b6_1f3fe:",
+      "label": "Foot"
+    },
+    {
+      "fileName": "emoji_u1f9b6_1f3ff.tgs",
+      "unicode": "🦶🏿",
+      "codepoints": [
+        "U+1F9B6",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f9b6_1f3ff:",
+      "label": "Foot"
+    },
+    {
+      "fileName": "emoji_u1f9bb.tgs",
+      "unicode": "🦻",
+      "codepoints": [
+        "U+1F9BB"
+      ],
+      "shortcode": ":hearing_aid:",
+      "label": "Hearing Aid"
+    },
+    {
+      "fileName": "emoji_u1f9bb_1f3fb.tgs",
+      "unicode": "🦻🏻",
+      "codepoints": [
+        "U+1F9BB",
+        "U+1F3FB"
+      ],
+      "shortcode": ":hearing_aid_1f9bb:",
+      "label": "Hearing Aid"
+    },
+    {
+      "fileName": "emoji_u1f9bb_1f3fc.tgs",
+      "unicode": "🦻🏼",
+      "codepoints": [
+        "U+1F9BB",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1f9bb_1f3fc:",
+      "label": "Hearing Aid"
+    },
+    {
+      "fileName": "emoji_u1f9bb_1f3fd.tgs",
+      "unicode": "🦻🏽",
+      "codepoints": [
+        "U+1F9BB",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1f9bb_1f3fd:",
+      "label": "Hearing Aid"
+    },
+    {
+      "fileName": "emoji_u1f9bb_1f3fe.tgs",
+      "unicode": "🦻🏾",
+      "codepoints": [
+        "U+1F9BB",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1f9bb_1f3fe:",
+      "label": "Hearing Aid"
+    },
+    {
+      "fileName": "emoji_u1f9bb_1f3ff.tgs",
+      "unicode": "🦻🏿",
+      "codepoints": [
+        "U+1F9BB",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1f9bb_1f3ff:",
+      "label": "Hearing Aid"
+    },
+    {
+      "fileName": "emoji_u1f9be.tgs",
+      "unicode": "🦾",
+      "codepoints": [
+        "U+1F9BE"
+      ],
+      "shortcode": ":arm_mechanical:",
+      "label": "Arm Mechanical"
+    },
+    {
+      "fileName": "emoji_u1f9bf.tgs",
+      "unicode": "🦿",
+      "codepoints": [
+        "U+1F9BF"
+      ],
+      "shortcode": ":leg_mechanical:",
+      "label": "Leg Mechanical"
+    },
+    {
+      "fileName": "emoji_u1f9c0.tgs",
+      "unicode": "🧀",
+      "codepoints": [
+        "U+1F9C0"
+      ],
+      "shortcode": ":cheese_wedge:",
+      "label": "Cheese Wedge"
+    },
+    {
+      "fileName": "emoji_u1f9c2.tgs",
+      "unicode": "🧂",
+      "codepoints": [
+        "U+1F9C2"
+      ],
+      "shortcode": ":salt:",
+      "label": "Salt"
+    },
+    {
+      "fileName": "emoji_u1f9c3.tgs",
+      "unicode": "🧃",
+      "codepoints": [
+        "U+1F9C3"
+      ],
+      "shortcode": ":beverage_box:",
+      "label": "Beverage Box"
+    },
+    {
+      "fileName": "emoji_u1f9c4.tgs",
+      "unicode": "🧄",
+      "codepoints": [
+        "U+1F9C4"
+      ],
+      "shortcode": ":garlic:",
+      "label": "Garlic"
+    },
+    {
+      "fileName": "emoji_u1f9c5.tgs",
+      "unicode": "🧅",
+      "codepoints": [
+        "U+1F9C5"
+      ],
+      "shortcode": ":onion:",
+      "label": "Onion"
+    },
+    {
+      "fileName": "emoji_u1f9c9.tgs",
+      "unicode": "🧉",
+      "codepoints": [
+        "U+1F9C9"
+      ],
+      "shortcode": ":mate:",
+      "label": "Mate"
+    },
+    {
+      "fileName": "emoji_u1f9cb.tgs",
+      "unicode": "🧋",
+      "codepoints": [
+        "U+1F9CB"
+      ],
+      "shortcode": ":bubble_tea:",
+      "label": "Bubble Tea"
+    },
+    {
+      "fileName": "emoji_u1f9d0.tgs",
+      "unicode": "🧐",
+      "codepoints": [
+        "U+1F9D0"
+      ],
+      "shortcode": ":monocle:",
+      "label": "Monocle"
+    },
+    {
+      "fileName": "emoji_u1f9e0.tgs",
+      "unicode": "🧠",
+      "codepoints": [
+        "U+1F9E0"
+      ],
+      "shortcode": ":brain_1f9e0:",
+      "label": "Brain"
+    },
+    {
+      "fileName": "emoji_u1f9e1.tgs",
+      "unicode": "🧡",
+      "codepoints": [
+        "U+1F9E1"
+      ],
+      "shortcode": ":orange_heart:",
+      "label": "Orange Heart"
+    },
+    {
+      "fileName": "emoji_u1f9e6.tgs",
+      "unicode": "🧦",
+      "codepoints": [
+        "U+1F9E6"
+      ],
+      "shortcode": ":socks:",
+      "label": "Socks"
+    },
+    {
+      "fileName": "emoji_u1f9f9.tgs",
+      "unicode": "🧹",
+      "codepoints": [
+        "U+1F9F9"
+      ],
+      "shortcode": ":broom:",
+      "label": "Broom"
+    },
+    {
+      "fileName": "emoji_u1fa70.tgs",
+      "unicode": "🩰",
+      "codepoints": [
+        "U+1FA70"
+      ],
+      "shortcode": ":ballet_shoes:",
+      "label": "Ballet Shoes"
+    },
+    {
+      "fileName": "emoji_u1fa75.tgs",
+      "unicode": "🩵",
+      "codepoints": [
+        "U+1FA75"
+      ],
+      "shortcode": ":light_blue_heart:",
+      "label": "Light Blue Heart"
+    },
+    {
+      "fileName": "emoji_u1fa76.tgs",
+      "unicode": "🩶",
+      "codepoints": [
+        "U+1FA76"
+      ],
+      "shortcode": ":grey_heart:",
+      "label": "Grey Heart"
+    },
+    {
+      "fileName": "emoji_u1fa77.tgs",
+      "unicode": "🩷",
+      "codepoints": [
+        "U+1FA77"
+      ],
+      "shortcode": ":pink_heart:",
+      "label": "Pink Heart"
+    },
+    {
+      "fileName": "emoji_u1fa78.tgs",
+      "unicode": "🩸",
+      "codepoints": [
+        "U+1FA78"
+      ],
+      "shortcode": ":blood:",
+      "label": "Blood"
+    },
+    {
+      "fileName": "emoji_u1fa7a.tgs",
+      "unicode": "🩺",
+      "codepoints": [
+        "U+1FA7A"
+      ],
+      "shortcode": ":stethoscope_1fa7a:",
+      "label": "Stethoscope"
+    },
+    {
+      "fileName": "emoji_u1fa81.tgs",
+      "unicode": "🪁",
+      "codepoints": [
+        "U+1FA81"
+      ],
+      "shortcode": ":kite:",
+      "label": "Kite"
+    },
+    {
+      "fileName": "emoji_u1fa82.tgs",
+      "unicode": "🪂",
+      "codepoints": [
+        "U+1FA82"
+      ],
+      "shortcode": ":parachute:",
+      "label": "Parachute"
+    },
+    {
+      "fileName": "emoji_u1fa83.tgs",
+      "unicode": "🪃",
+      "codepoints": [
+        "U+1FA83"
+      ],
+      "shortcode": ":boomerang:",
+      "label": "Boomerang"
+    },
+    {
+      "fileName": "emoji_u1fa84.tgs",
+      "unicode": "🪄",
+      "codepoints": [
+        "U+1FA84"
+      ],
+      "shortcode": ":wand:",
+      "label": "Wand"
+    },
+    {
+      "fileName": "emoji_u1fa85.tgs",
+      "unicode": "🪅",
+      "codepoints": [
+        "U+1FA85"
+      ],
+      "shortcode": ":pi_ata:",
+      "label": "Pi Ata"
+    },
+    {
+      "fileName": "emoji_u1fa87.tgs",
+      "unicode": "🪇",
+      "codepoints": [
+        "U+1FA87"
+      ],
+      "shortcode": ":maracas:",
+      "label": "Maracas"
+    },
+    {
+      "fileName": "emoji_u1fa89.tgs",
+      "unicode": "🪉",
+      "codepoints": [
+        "U+1FA89"
+      ],
+      "shortcode": ":harp:",
+      "label": "Harp"
+    },
+    {
+      "fileName": "emoji_u1fa8a.tgs",
+      "unicode": "🪊",
+      "codepoints": [
+        "U+1FA8A"
+      ],
+      "shortcode": ":trombone:",
+      "label": "Trombone"
+    },
+    {
+      "fileName": "emoji_u1fa8e.tgs",
+      "unicode": "🪎",
+      "codepoints": [
+        "U+1FA8E"
+      ],
+      "shortcode": ":treasure:",
+      "label": "Treasure"
+    },
+    {
+      "fileName": "emoji_u1fa8f.tgs",
+      "unicode": "🪏",
+      "codepoints": [
+        "U+1FA8F"
+      ],
+      "shortcode": ":shovel:",
+      "label": "Shovel"
+    },
+    {
+      "fileName": "emoji_u1fa90.tgs",
+      "unicode": "🪐",
+      "codepoints": [
+        "U+1FA90"
+      ],
+      "shortcode": ":ringed_planet:",
+      "label": "Ringed Planet"
+    },
+    {
+      "fileName": "emoji_u1fa94.tgs",
+      "unicode": "🪔",
+      "codepoints": [
+        "U+1FA94"
+      ],
+      "shortcode": ":diya_lamp:",
+      "label": "Diya Lamp"
+    },
+    {
+      "fileName": "emoji_u1fa95.tgs",
+      "unicode": "🪕",
+      "codepoints": [
+        "U+1FA95"
+      ],
+      "shortcode": ":banjo:",
+      "label": "Banjo"
+    },
+    {
+      "fileName": "emoji_u1fa99.tgs",
+      "unicode": "🪙",
+      "codepoints": [
+        "U+1FA99"
+      ],
+      "shortcode": ":coin_1fa99:",
+      "label": "Coin"
+    },
+    {
+      "fileName": "emoji_u1faa4.tgs",
+      "unicode": "🪤",
+      "codepoints": [
+        "U+1FAA4"
+      ],
+      "shortcode": ":mouse_trap:",
+      "label": "Mouse Trap"
+    },
+    {
+      "fileName": "emoji_u1faa8.tgs",
+      "unicode": "🪨",
+      "codepoints": [
+        "U+1FAA8"
+      ],
+      "shortcode": ":rock:",
+      "label": "Rock"
+    },
+    {
+      "fileName": "emoji_u1faa9.tgs",
+      "unicode": "🪩",
+      "codepoints": [
+        "U+1FAA9"
+      ],
+      "shortcode": ":disco_ball:",
+      "label": "Disco Ball"
+    },
+    {
+      "fileName": "emoji_u1faab.tgs",
+      "unicode": "🪫",
+      "codepoints": [
+        "U+1FAAB"
+      ],
+      "shortcode": ":battery_low:",
+      "label": "Battery Low"
+    },
+    {
+      "fileName": "emoji_u1faad.tgs",
+      "unicode": "🪭",
+      "codepoints": [
+        "U+1FAAD"
+      ],
+      "shortcode": ":fan:",
+      "label": "Fan"
+    },
+    {
+      "fileName": "emoji_u1fab0.tgs",
+      "unicode": "🪰",
+      "codepoints": [
+        "U+1FAB0"
+      ],
+      "shortcode": ":fly:",
+      "label": "Fly"
+    },
+    {
+      "fileName": "emoji_u1fab1.tgs",
+      "unicode": "🪱",
+      "codepoints": [
+        "U+1FAB1"
+      ],
+      "shortcode": ":worm:",
+      "label": "Worm"
+    },
+    {
+      "fileName": "emoji_u1fab3.tgs",
+      "unicode": "🪳",
+      "codepoints": [
+        "U+1FAB3"
+      ],
+      "shortcode": ":cockroach:",
+      "label": "Cockroach"
+    },
+    {
+      "fileName": "emoji_u1fab7.tgs",
+      "unicode": "🪷",
+      "codepoints": [
+        "U+1FAB7"
+      ],
+      "shortcode": ":lotus:",
+      "label": "Lotus"
+    },
+    {
+      "fileName": "emoji_u1fabb.tgs",
+      "unicode": "🪻",
+      "codepoints": [
+        "U+1FABB"
+      ],
+      "shortcode": ":hyacinth:",
+      "label": "Hyacinth"
+    },
+    {
+      "fileName": "emoji_u1fabc.tgs",
+      "unicode": "🪼",
+      "codepoints": [
+        "U+1FABC"
+      ],
+      "shortcode": ":jellyfish:",
+      "label": "Jellyfish"
+    },
+    {
+      "fileName": "emoji_u1fabe.tgs",
+      "unicode": "🪾",
+      "codepoints": [
+        "U+1FABE"
+      ],
+      "shortcode": ":leafless_tree:",
+      "label": "Leafless Tree"
+    },
+    {
+      "fileName": "emoji_u1fabf.tgs",
+      "unicode": "🪿",
+      "codepoints": [
+        "U+1FABF"
+      ],
+      "shortcode": ":goose:",
+      "label": "Goose"
+    },
+    {
+      "fileName": "emoji_u1fac0.tgs",
+      "unicode": "🫀",
+      "codepoints": [
+        "U+1FAC0"
+      ],
+      "shortcode": ":anatomical_heart:",
+      "label": "Anatomical Heart"
+    },
+    {
+      "fileName": "emoji_u1fac2.tgs",
+      "unicode": "🫂",
+      "codepoints": [
+        "U+1FAC2"
+      ],
+      "shortcode": ":hugging:",
+      "label": "Hugging"
+    },
+    {
+      "fileName": "emoji_u1fac6.tgs",
+      "unicode": "🫆",
+      "codepoints": [
+        "U+1FAC6"
+      ],
+      "shortcode": ":fingerprint:",
+      "label": "Fingerprint"
+    },
+    {
+      "fileName": "emoji_u1fac8.tgs",
+      "unicode": "🫈",
+      "codepoints": [
+        "U+1FAC8"
+      ],
+      "shortcode": ":hairy_creature:",
+      "label": "Hairy Creature"
+    },
+    {
+      "fileName": "emoji_u1facd.tgs",
+      "unicode": "🫍",
+      "codepoints": [
+        "U+1FACD"
+      ],
+      "shortcode": ":orca:",
+      "label": "Orca"
+    },
+    {
+      "fileName": "emoji_u1facf.tgs",
+      "unicode": "🫏",
+      "codepoints": [
+        "U+1FACF"
+      ],
+      "shortcode": ":donkey:",
+      "label": "Donkey"
+    },
+    {
+      "fileName": "emoji_u1fad0.tgs",
+      "unicode": "🫐",
+      "codepoints": [
+        "U+1FAD0"
+      ],
+      "shortcode": ":blueberries:",
+      "label": "Blueberries"
+    },
+    {
+      "fileName": "emoji_u1fad1.tgs",
+      "unicode": "🫑",
+      "codepoints": [
+        "U+1FAD1"
+      ],
+      "shortcode": ":bell_pepper:",
+      "label": "Bell Pepper"
+    },
+    {
+      "fileName": "emoji_u1fad6.tgs",
+      "unicode": "🫖",
+      "codepoints": [
+        "U+1FAD6"
+      ],
+      "shortcode": ":teapot:",
+      "label": "Teapot"
+    },
+    {
+      "fileName": "emoji_u1fad7.tgs",
+      "unicode": "🫗",
+      "codepoints": [
+        "U+1FAD7"
+      ],
+      "shortcode": ":pour:",
+      "label": "Pour"
+    },
+    {
+      "fileName": "emoji_u1fad8.tgs",
+      "unicode": "🫘",
+      "codepoints": [
+        "U+1FAD8"
+      ],
+      "shortcode": ":beans:",
+      "label": "Beans"
+    },
+    {
+      "fileName": "emoji_u1fada.tgs",
+      "unicode": "🫚",
+      "codepoints": [
+        "U+1FADA"
+      ],
+      "shortcode": ":ginger:",
+      "label": "Ginger"
+    },
+    {
+      "fileName": "emoji_u1fadb.tgs",
+      "unicode": "🫛",
+      "codepoints": [
+        "U+1FADB"
+      ],
+      "shortcode": ":pea_pod:",
+      "label": "Pea Pod"
+    },
+    {
+      "fileName": "emoji_u1fadc.tgs",
+      "unicode": "🫜",
+      "codepoints": [
+        "U+1FADC"
+      ],
+      "shortcode": ":root_vegetable:",
+      "label": "Root Vegetable"
+    },
+    {
+      "fileName": "emoji_u1fadf.tgs",
+      "unicode": "🫟",
+      "codepoints": [
+        "U+1FADF"
+      ],
+      "shortcode": ":splatter:",
+      "label": "Splatter"
+    },
+    {
+      "fileName": "emoji_u1fae0.tgs",
+      "unicode": "🫠",
+      "codepoints": [
+        "U+1FAE0"
+      ],
+      "shortcode": ":melting_face:",
+      "label": "Melting Face"
+    },
+    {
+      "fileName": "emoji_u1fae1.tgs",
+      "unicode": "🫡",
+      "codepoints": [
+        "U+1FAE1"
+      ],
+      "shortcode": ":salute:",
+      "label": "Salute"
+    },
+    {
+      "fileName": "emoji_u1fae2.tgs",
+      "unicode": "🫢",
+      "codepoints": [
+        "U+1FAE2"
+      ],
+      "shortcode": ":hand_over_mouth_1fae2:",
+      "label": "Hand Over Mouth"
+    },
+    {
+      "fileName": "emoji_u1fae3.tgs",
+      "unicode": "🫣",
+      "codepoints": [
+        "U+1FAE3"
+      ],
+      "shortcode": ":peeking:",
+      "label": "Peeking"
+    },
+    {
+      "fileName": "emoji_u1fae4.tgs",
+      "unicode": "🫤",
+      "codepoints": [
+        "U+1FAE4"
+      ],
+      "shortcode": ":diagonal_mouth:",
+      "label": "Diagonal Mouth"
+    },
+    {
+      "fileName": "emoji_u1fae5.tgs",
+      "unicode": "🫥",
+      "codepoints": [
+        "U+1FAE5"
+      ],
+      "shortcode": ":dotted_line_face:",
+      "label": "Dotted Line Face"
+    },
+    {
+      "fileName": "emoji_u1fae6.tgs",
+      "unicode": "🫦",
+      "codepoints": [
+        "U+1FAE6"
+      ],
+      "shortcode": ":biting_lip:",
+      "label": "Biting Lip"
+    },
+    {
+      "fileName": "emoji_u1fae7.tgs",
+      "unicode": "🫧",
+      "codepoints": [
+        "U+1FAE7"
+      ],
+      "shortcode": ":bubbles:",
+      "label": "Bubbles"
+    },
+    {
+      "fileName": "emoji_u1fae8.tgs",
+      "unicode": "🫨",
+      "codepoints": [
+        "U+1FAE8"
+      ],
+      "shortcode": ":shaking_face:",
+      "label": "Shaking Face"
+    },
+    {
+      "fileName": "emoji_u1fae9.tgs",
+      "unicode": "🫩",
+      "codepoints": [
+        "U+1FAE9"
+      ],
+      "shortcode": ":tired:",
+      "label": "Tired"
+    },
+    {
+      "fileName": "emoji_u1faea.tgs",
+      "unicode": "🫪",
+      "codepoints": [
+        "U+1FAEA"
+      ],
+      "shortcode": ":distorted_face:",
+      "label": "Distorted Face"
+    },
+    {
+      "fileName": "emoji_u1faef.tgs",
+      "unicode": "🫯",
+      "codepoints": [
+        "U+1FAEF"
+      ],
+      "shortcode": ":fight:",
+      "label": "Fight"
+    },
+    {
+      "fileName": "emoji_u1faf0.tgs",
+      "unicode": "🫰",
+      "codepoints": [
+        "U+1FAF0"
+      ],
+      "shortcode": ":hand_with_index_finger_and_thumb_crossed:",
+      "label": "Hand With Index Finger And Thumb Crossed"
+    },
+    {
+      "fileName": "emoji_u1faf0_1f3fb.tgs",
+      "unicode": "🫰🏻",
+      "codepoints": [
+        "U+1FAF0",
+        "U+1F3FB"
+      ],
+      "shortcode": ":snap:",
+      "label": "Snap"
+    },
+    {
+      "fileName": "emoji_u1faf0_1f3fc.tgs",
+      "unicode": "🫰🏼",
+      "codepoints": [
+        "U+1FAF0",
+        "U+1F3FC"
+      ],
+      "shortcode": ":finger_heart:",
+      "label": "Finger Heart"
+    },
+    {
+      "fileName": "emoji_u1faf0_1f3fd.tgs",
+      "unicode": "🫰🏽",
+      "codepoints": [
+        "U+1FAF0",
+        "U+1F3FD"
+      ],
+      "shortcode": ":hand_with_index_finger_and_thumb_crossed_1faf0:",
+      "label": "Hand With Index Finger And Thumb Crossed"
+    },
+    {
+      "fileName": "emoji_u1faf0_1f3fe.tgs",
+      "unicode": "🫰🏾",
+      "codepoints": [
+        "U+1FAF0",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf0_1f3fe:",
+      "label": "Hand With Index Finger And Thumb Crossed"
+    },
+    {
+      "fileName": "emoji_u1faf0_1f3ff.tgs",
+      "unicode": "🫰🏿",
+      "codepoints": [
+        "U+1FAF0",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf0_1f3ff:",
+      "label": "Hand With Index Finger And Thumb Crossed"
+    },
+    {
+      "fileName": "emoji_u1faf1.tgs",
+      "unicode": "🫱",
+      "codepoints": [
+        "U+1FAF1"
+      ],
+      "shortcode": ":rightwards_hand:",
+      "label": "Rightwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fb.tgs",
+      "unicode": "🫱🏻",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FB"
+      ],
+      "shortcode": ":rightwards_hand_1faf1:",
+      "label": "Rightwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fb_200d_1faf2_1f3fc.tgs",
+      "unicode": "🫱🏻‍🫲🏼",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FB",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FC"
+      ],
+      "shortcode": ":handshake_1faf1:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fb_200d_1faf2_1f3fd.tgs",
+      "unicode": "🫱🏻‍🫲🏽",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FB",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf1_1f3fb_200d_1faf2_1f3fd:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fb_200d_1faf2_1f3fe.tgs",
+      "unicode": "🫱🏻‍🫲🏾",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FB",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf1_1f3fb_200d_1faf2_1f3fe:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fb_200d_1faf2_1f3ff.tgs",
+      "unicode": "🫱🏻‍🫲🏿",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FB",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf1_1f3fb_200d_1faf2_1f3ff:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fc.tgs",
+      "unicode": "🫱🏼",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1faf1_1f3fc:",
+      "label": "Rightwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fc_200d_1faf2_1f3fb.tgs",
+      "unicode": "🫱🏼‍🫲🏻",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FC",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FB"
+      ],
+      "shortcode": ":noto_1faf1_1f3fc_200d_1faf2_1f3fb:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fc_200d_1faf2_1f3fd.tgs",
+      "unicode": "🫱🏼‍🫲🏽",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FC",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf1_1f3fc_200d_1faf2_1f3fd:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fc_200d_1faf2_1f3fe.tgs",
+      "unicode": "🫱🏼‍🫲🏾",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FC",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf1_1f3fc_200d_1faf2_1f3fe:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fc_200d_1faf2_1f3ff.tgs",
+      "unicode": "🫱🏼‍🫲🏿",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FC",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf1_1f3fc_200d_1faf2_1f3ff:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fd.tgs",
+      "unicode": "🫱🏽",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf1_1f3fd:",
+      "label": "Rightwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fd_200d_1faf2_1f3fb.tgs",
+      "unicode": "🫱🏽‍🫲🏻",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FD",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FB"
+      ],
+      "shortcode": ":noto_1faf1_1f3fd_200d_1faf2_1f3fb:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fd_200d_1faf2_1f3fc.tgs",
+      "unicode": "🫱🏽‍🫲🏼",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FD",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1faf1_1f3fd_200d_1faf2_1f3fc:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fd_200d_1faf2_1f3fe.tgs",
+      "unicode": "🫱🏽‍🫲🏾",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FD",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf1_1f3fd_200d_1faf2_1f3fe:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fd_200d_1faf2_1f3ff.tgs",
+      "unicode": "🫱🏽‍🫲🏿",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FD",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf1_1f3fd_200d_1faf2_1f3ff:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fe.tgs",
+      "unicode": "🫱🏾",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf1_1f3fe:",
+      "label": "Rightwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fe_200d_1faf2_1f3fb.tgs",
+      "unicode": "🫱🏾‍🫲🏻",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FE",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FB"
+      ],
+      "shortcode": ":noto_1faf1_1f3fe_200d_1faf2_1f3fb:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fe_200d_1faf2_1f3fc.tgs",
+      "unicode": "🫱🏾‍🫲🏼",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FE",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1faf1_1f3fe_200d_1faf2_1f3fc:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fe_200d_1faf2_1f3fd.tgs",
+      "unicode": "🫱🏾‍🫲🏽",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FE",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf1_1f3fe_200d_1faf2_1f3fd:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3fe_200d_1faf2_1f3ff.tgs",
+      "unicode": "🫱🏾‍🫲🏿",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FE",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf1_1f3fe_200d_1faf2_1f3ff:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3ff.tgs",
+      "unicode": "🫱🏿",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf1_1f3ff:",
+      "label": "Rightwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3ff_200d_1faf2_1f3fb.tgs",
+      "unicode": "🫱🏿‍🫲🏻",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FF",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FB"
+      ],
+      "shortcode": ":noto_1faf1_1f3ff_200d_1faf2_1f3fb:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3ff_200d_1faf2_1f3fc.tgs",
+      "unicode": "🫱🏿‍🫲🏼",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FF",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1faf1_1f3ff_200d_1faf2_1f3fc:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3ff_200d_1faf2_1f3fd.tgs",
+      "unicode": "🫱🏿‍🫲🏽",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FF",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf1_1f3ff_200d_1faf2_1f3fd:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf1_1f3ff_200d_1faf2_1f3fe.tgs",
+      "unicode": "🫱🏿‍🫲🏾",
+      "codepoints": [
+        "U+1FAF1",
+        "U+1F3FF",
+        "U+200D",
+        "U+1FAF2",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf1_1f3ff_200d_1faf2_1f3fe:",
+      "label": "Handshake"
+    },
+    {
+      "fileName": "emoji_u1faf2.tgs",
+      "unicode": "🫲",
+      "codepoints": [
+        "U+1FAF2"
+      ],
+      "shortcode": ":leftwards_hand:",
+      "label": "Leftwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf2_1f3fb.tgs",
+      "unicode": "🫲🏻",
+      "codepoints": [
+        "U+1FAF2",
+        "U+1F3FB"
+      ],
+      "shortcode": ":leftwards_hand_1faf2:",
+      "label": "Leftwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf2_1f3fc.tgs",
+      "unicode": "🫲🏼",
+      "codepoints": [
+        "U+1FAF2",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1faf2_1f3fc:",
+      "label": "Leftwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf2_1f3fd.tgs",
+      "unicode": "🫲🏽",
+      "codepoints": [
+        "U+1FAF2",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf2_1f3fd:",
+      "label": "Leftwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf2_1f3fe.tgs",
+      "unicode": "🫲🏾",
+      "codepoints": [
+        "U+1FAF2",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf2_1f3fe:",
+      "label": "Leftwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf2_1f3ff.tgs",
+      "unicode": "🫲🏿",
+      "codepoints": [
+        "U+1FAF2",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf2_1f3ff:",
+      "label": "Leftwards Hand"
+    },
+    {
+      "fileName": "emoji_u1faf3.tgs",
+      "unicode": "🫳",
+      "codepoints": [
+        "U+1FAF3"
+      ],
+      "shortcode": ":palm_down:",
+      "label": "Palm Down"
+    },
+    {
+      "fileName": "emoji_u1faf3_1f3fb.tgs",
+      "unicode": "🫳🏻",
+      "codepoints": [
+        "U+1FAF3",
+        "U+1F3FB"
+      ],
+      "shortcode": ":drop:",
+      "label": "Drop"
+    },
+    {
+      "fileName": "emoji_u1faf3_1f3fc.tgs",
+      "unicode": "🫳🏼",
+      "codepoints": [
+        "U+1FAF3",
+        "U+1F3FC"
+      ],
+      "shortcode": ":palm_down_1faf3:",
+      "label": "Palm Down"
+    },
+    {
+      "fileName": "emoji_u1faf3_1f3fd.tgs",
+      "unicode": "🫳🏽",
+      "codepoints": [
+        "U+1FAF3",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf3_1f3fd:",
+      "label": "Palm Down"
+    },
+    {
+      "fileName": "emoji_u1faf3_1f3fe.tgs",
+      "unicode": "🫳🏾",
+      "codepoints": [
+        "U+1FAF3",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf3_1f3fe:",
+      "label": "Palm Down"
+    },
+    {
+      "fileName": "emoji_u1faf3_1f3ff.tgs",
+      "unicode": "🫳🏿",
+      "codepoints": [
+        "U+1FAF3",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf3_1f3ff:",
+      "label": "Palm Down"
+    },
+    {
+      "fileName": "emoji_u1faf4.tgs",
+      "unicode": "🫴",
+      "codepoints": [
+        "U+1FAF4"
+      ],
+      "shortcode": ":palm_up:",
+      "label": "Palm Up"
+    },
+    {
+      "fileName": "emoji_u1faf4_1f3fb.tgs",
+      "unicode": "🫴🏻",
+      "codepoints": [
+        "U+1FAF4",
+        "U+1F3FB"
+      ],
+      "shortcode": ":throw:",
+      "label": "Throw"
+    },
+    {
+      "fileName": "emoji_u1faf4_1f3fc.tgs",
+      "unicode": "🫴🏼",
+      "codepoints": [
+        "U+1FAF4",
+        "U+1F3FC"
+      ],
+      "shortcode": ":palm_up_1faf4:",
+      "label": "Palm Up"
+    },
+    {
+      "fileName": "emoji_u1faf4_1f3fd.tgs",
+      "unicode": "🫴🏽",
+      "codepoints": [
+        "U+1FAF4",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf4_1f3fd:",
+      "label": "Palm Up"
+    },
+    {
+      "fileName": "emoji_u1faf4_1f3fe.tgs",
+      "unicode": "🫴🏾",
+      "codepoints": [
+        "U+1FAF4",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf4_1f3fe:",
+      "label": "Palm Up"
+    },
+    {
+      "fileName": "emoji_u1faf4_1f3ff.tgs",
+      "unicode": "🫴🏿",
+      "codepoints": [
+        "U+1FAF4",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf4_1f3ff:",
+      "label": "Palm Up"
+    },
+    {
+      "fileName": "emoji_u1faf5.tgs",
+      "unicode": "🫵",
+      "codepoints": [
+        "U+1FAF5"
+      ],
+      "shortcode": ":pointing:",
+      "label": "Pointing"
+    },
+    {
+      "fileName": "emoji_u1faf5_1f3fb.tgs",
+      "unicode": "🫵🏻",
+      "codepoints": [
+        "U+1FAF5",
+        "U+1F3FB"
+      ],
+      "shortcode": ":pointing_1faf5:",
+      "label": "Pointing"
+    },
+    {
+      "fileName": "emoji_u1faf5_1f3fc.tgs",
+      "unicode": "🫵🏼",
+      "codepoints": [
+        "U+1FAF5",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1faf5_1f3fc:",
+      "label": "Pointing"
+    },
+    {
+      "fileName": "emoji_u1faf5_1f3fd.tgs",
+      "unicode": "🫵🏽",
+      "codepoints": [
+        "U+1FAF5",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf5_1f3fd:",
+      "label": "Pointing"
+    },
+    {
+      "fileName": "emoji_u1faf5_1f3fe.tgs",
+      "unicode": "🫵🏾",
+      "codepoints": [
+        "U+1FAF5",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf5_1f3fe:",
+      "label": "Pointing"
+    },
+    {
+      "fileName": "emoji_u1faf5_1f3ff.tgs",
+      "unicode": "🫵🏿",
+      "codepoints": [
+        "U+1FAF5",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf5_1f3ff:",
+      "label": "Pointing"
+    },
+    {
+      "fileName": "emoji_u1faf6.tgs",
+      "unicode": "🫶",
+      "codepoints": [
+        "U+1FAF6"
+      ],
+      "shortcode": ":heart_hands:",
+      "label": "Heart Hands"
+    },
+    {
+      "fileName": "emoji_u1faf6_1f3fb.tgs",
+      "unicode": "🫶🏻",
+      "codepoints": [
+        "U+1FAF6",
+        "U+1F3FB"
+      ],
+      "shortcode": ":heart_hands_1faf6:",
+      "label": "Heart Hands"
+    },
+    {
+      "fileName": "emoji_u1faf6_1f3fc.tgs",
+      "unicode": "🫶🏼",
+      "codepoints": [
+        "U+1FAF6",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1faf6_1f3fc:",
+      "label": "Heart Hands"
+    },
+    {
+      "fileName": "emoji_u1faf6_1f3fd.tgs",
+      "unicode": "🫶🏽",
+      "codepoints": [
+        "U+1FAF6",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf6_1f3fd:",
+      "label": "Heart Hands"
+    },
+    {
+      "fileName": "emoji_u1faf6_1f3fe.tgs",
+      "unicode": "🫶🏾",
+      "codepoints": [
+        "U+1FAF6",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf6_1f3fe:",
+      "label": "Heart Hands"
+    },
+    {
+      "fileName": "emoji_u1faf6_1f3ff.tgs",
+      "unicode": "🫶🏿",
+      "codepoints": [
+        "U+1FAF6",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf6_1f3ff:",
+      "label": "Heart Hands"
+    },
+    {
+      "fileName": "emoji_u1faf7.tgs",
+      "unicode": "🫷",
+      "codepoints": [
+        "U+1FAF7"
+      ],
+      "shortcode": ":push_leftwards:",
+      "label": "Push Leftwards"
+    },
+    {
+      "fileName": "emoji_u1faf7_1f3fb.tgs",
+      "unicode": "🫷🏻",
+      "codepoints": [
+        "U+1FAF7",
+        "U+1F3FB"
+      ],
+      "shortcode": ":push_leftwards_1faf7:",
+      "label": "Push Leftwards"
+    },
+    {
+      "fileName": "emoji_u1faf7_1f3fc.tgs",
+      "unicode": "🫷🏼",
+      "codepoints": [
+        "U+1FAF7",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1faf7_1f3fc:",
+      "label": "Push Leftwards"
+    },
+    {
+      "fileName": "emoji_u1faf7_1f3fd.tgs",
+      "unicode": "🫷🏽",
+      "codepoints": [
+        "U+1FAF7",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf7_1f3fd:",
+      "label": "Push Leftwards"
+    },
+    {
+      "fileName": "emoji_u1faf7_1f3fe.tgs",
+      "unicode": "🫷🏾",
+      "codepoints": [
+        "U+1FAF7",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf7_1f3fe:",
+      "label": "Push Leftwards"
+    },
+    {
+      "fileName": "emoji_u1faf7_1f3ff.tgs",
+      "unicode": "🫷🏿",
+      "codepoints": [
+        "U+1FAF7",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf7_1f3ff:",
+      "label": "Push Leftwards"
+    },
+    {
+      "fileName": "emoji_u1faf8.tgs",
+      "unicode": "🫸",
+      "codepoints": [
+        "U+1FAF8"
+      ],
+      "shortcode": ":push_rightwards:",
+      "label": "Push Rightwards"
+    },
+    {
+      "fileName": "emoji_u1faf8_1f3fb.tgs",
+      "unicode": "🫸🏻",
+      "codepoints": [
+        "U+1FAF8",
+        "U+1F3FB"
+      ],
+      "shortcode": ":push_rightwards_1faf8:",
+      "label": "Push Rightwards"
+    },
+    {
+      "fileName": "emoji_u1faf8_1f3fc.tgs",
+      "unicode": "🫸🏼",
+      "codepoints": [
+        "U+1FAF8",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_1faf8_1f3fc:",
+      "label": "Push Rightwards"
+    },
+    {
+      "fileName": "emoji_u1faf8_1f3fd.tgs",
+      "unicode": "🫸🏽",
+      "codepoints": [
+        "U+1FAF8",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_1faf8_1f3fd:",
+      "label": "Push Rightwards"
+    },
+    {
+      "fileName": "emoji_u1faf8_1f3fe.tgs",
+      "unicode": "🫸🏾",
+      "codepoints": [
+        "U+1FAF8",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_1faf8_1f3fe:",
+      "label": "Push Rightwards"
+    },
+    {
+      "fileName": "emoji_u1faf8_1f3ff.tgs",
+      "unicode": "🫸🏿",
+      "codepoints": [
+        "U+1FAF8",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_1faf8_1f3ff:",
+      "label": "Push Rightwards"
+    },
+    {
+      "fileName": "emoji_u203c_fe0f.tgs",
+      "unicode": "‼️",
+      "codepoints": [
+        "U+203C",
+        "U+FE0F"
+      ],
+      "shortcode": ":exclamation_double:",
+      "label": "Exclamation Double"
+    },
+    {
+      "fileName": "emoji_u2049_fe0f.tgs",
+      "unicode": "⁉️",
+      "codepoints": [
+        "U+2049",
+        "U+FE0F"
+      ],
+      "shortcode": ":exclamation_question_mark:",
+      "label": "Exclamation Question Mark"
+    },
+    {
+      "fileName": "emoji_u2122_fe0f.tgs",
+      "unicode": "™️",
+      "codepoints": [
+        "U+2122",
+        "U+FE0F"
+      ],
+      "shortcode": ":trade_mark:",
+      "label": "Trade Mark"
+    },
+    {
+      "fileName": "emoji_u231b.tgs",
+      "unicode": "⌛",
+      "codepoints": [
+        "U+231B"
+      ],
+      "shortcode": ":hourglass_done:",
+      "label": "Hourglass Done"
+    },
+    {
+      "fileName": "emoji_u23f0.tgs",
+      "unicode": "⏰",
+      "codepoints": [
+        "U+23F0"
+      ],
+      "shortcode": ":alarm_clock:",
+      "label": "Alarm Clock"
+    },
+    {
+      "fileName": "emoji_u23f3.tgs",
+      "unicode": "⏳",
+      "codepoints": [
+        "U+23F3"
+      ],
+      "shortcode": ":hourglass_not_done:",
+      "label": "Hourglass Not Done"
+    },
+    {
+      "fileName": "emoji_u2601_fe0f.tgs",
+      "unicode": "☁️",
+      "codepoints": [
+        "U+2601",
+        "U+FE0F"
+      ],
+      "shortcode": ":cloud:",
+      "label": "Cloud"
+    },
+    {
+      "fileName": "emoji_u2602_fe0f.tgs",
+      "unicode": "☂️",
+      "codepoints": [
+        "U+2602",
+        "U+FE0F"
+      ],
+      "shortcode": ":umbrella:",
+      "label": "Umbrella"
+    },
+    {
+      "fileName": "emoji_u2603_fe0f.tgs",
+      "unicode": "☃️",
+      "codepoints": [
+        "U+2603",
+        "U+FE0F"
+      ],
+      "shortcode": ":snowman_with_snow:",
+      "label": "Snowman With Snow"
+    },
+    {
+      "fileName": "emoji_u2604_fe0f.tgs",
+      "unicode": "☄️",
+      "codepoints": [
+        "U+2604",
+        "U+FE0F"
+      ],
+      "shortcode": ":comet:",
+      "label": "Comet"
+    },
+    {
+      "fileName": "emoji_u2615.tgs",
+      "unicode": "☕",
+      "codepoints": [
+        "U+2615"
+      ],
+      "shortcode": ":hot_beverage:",
+      "label": "Hot Beverage"
+    },
+    {
+      "fileName": "emoji_u261d_1f3fb.tgs",
+      "unicode": "☝🏻",
+      "codepoints": [
+        "U+261D",
+        "U+1F3FB"
+      ],
+      "shortcode": ":index_finger:",
+      "label": "Index Finger"
+    },
+    {
+      "fileName": "emoji_u261d_1f3fc.tgs",
+      "unicode": "☝🏼",
+      "codepoints": [
+        "U+261D",
+        "U+1F3FC"
+      ],
+      "shortcode": ":index_finger_261d:",
+      "label": "Index Finger"
+    },
+    {
+      "fileName": "emoji_u261d_1f3fd.tgs",
+      "unicode": "☝🏽",
+      "codepoints": [
+        "U+261D",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_261d_1f3fd:",
+      "label": "Index Finger"
+    },
+    {
+      "fileName": "emoji_u261d_1f3fe.tgs",
+      "unicode": "☝🏾",
+      "codepoints": [
+        "U+261D",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_261d_1f3fe:",
+      "label": "Index Finger"
+    },
+    {
+      "fileName": "emoji_u261d_1f3ff.tgs",
+      "unicode": "☝🏿",
+      "codepoints": [
+        "U+261D",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_261d_1f3ff:",
+      "label": "Index Finger"
+    },
+    {
+      "fileName": "emoji_u261d_fe0f.tgs",
+      "unicode": "☝️",
+      "codepoints": [
+        "U+261D",
+        "U+FE0F"
+      ],
+      "shortcode": ":noto_261d_fe0f:",
+      "label": "Index Finger"
+    },
+    {
+      "fileName": "emoji_u2622_fe0f.tgs",
+      "unicode": "☢️",
+      "codepoints": [
+        "U+2622",
+        "U+FE0F"
+      ],
+      "shortcode": ":radioactive:",
+      "label": "Radioactive"
+    },
+    {
+      "fileName": "emoji_u2623_fe0f.tgs",
+      "unicode": "☣️",
+      "codepoints": [
+        "U+2623",
+        "U+FE0F"
+      ],
+      "shortcode": ":biohazard:",
+      "label": "Biohazard"
+    },
+    {
+      "fileName": "emoji_u262e_fe0f.tgs",
+      "unicode": "☮️",
+      "codepoints": [
+        "U+262E",
+        "U+FE0F"
+      ],
+      "shortcode": ":peace_symbol:",
+      "label": "Peace Symbol"
+    },
+    {
+      "fileName": "emoji_u262f_fe0f.tgs",
+      "unicode": "☯️",
+      "codepoints": [
+        "U+262F",
+        "U+FE0F"
+      ],
+      "shortcode": ":yin_yang:",
+      "label": "Yin Yang"
+    },
+    {
+      "fileName": "emoji_u2639_fe0f.tgs",
+      "unicode": "☹️",
+      "codepoints": [
+        "U+2639",
+        "U+FE0F"
+      ],
+      "shortcode": ":big_frown:",
+      "label": "Big Frown"
+    },
+    {
+      "fileName": "emoji_u263a_fe0f.tgs",
+      "unicode": "☺️",
+      "codepoints": [
+        "U+263A",
+        "U+FE0F"
+      ],
+      "shortcode": ":warm_smile:",
+      "label": "Warm Smile"
+    },
+    {
+      "fileName": "emoji_u2648.tgs",
+      "unicode": "♈",
+      "codepoints": [
+        "U+2648"
+      ],
+      "shortcode": ":aries:",
+      "label": "Aries"
+    },
+    {
+      "fileName": "emoji_u2649.tgs",
+      "unicode": "♉",
+      "codepoints": [
+        "U+2649"
+      ],
+      "shortcode": ":taurus:",
+      "label": "Taurus"
+    },
+    {
+      "fileName": "emoji_u264a.tgs",
+      "unicode": "♊",
+      "codepoints": [
+        "U+264A"
+      ],
+      "shortcode": ":gemini:",
+      "label": "Gemini"
+    },
+    {
+      "fileName": "emoji_u264b.tgs",
+      "unicode": "♋",
+      "codepoints": [
+        "U+264B"
+      ],
+      "shortcode": ":cancer:",
+      "label": "Cancer"
+    },
+    {
+      "fileName": "emoji_u264c.tgs",
+      "unicode": "♌",
+      "codepoints": [
+        "U+264C"
+      ],
+      "shortcode": ":leo:",
+      "label": "Leo"
+    },
+    {
+      "fileName": "emoji_u264d.tgs",
+      "unicode": "♍",
+      "codepoints": [
+        "U+264D"
+      ],
+      "shortcode": ":virgo:",
+      "label": "Virgo"
+    },
+    {
+      "fileName": "emoji_u264e.tgs",
+      "unicode": "♎",
+      "codepoints": [
+        "U+264E"
+      ],
+      "shortcode": ":libra:",
+      "label": "Libra"
+    },
+    {
+      "fileName": "emoji_u264f.tgs",
+      "unicode": "♏",
+      "codepoints": [
+        "U+264F"
+      ],
+      "shortcode": ":scorpio:",
+      "label": "Scorpio"
+    },
+    {
+      "fileName": "emoji_u2650.tgs",
+      "unicode": "♐",
+      "codepoints": [
+        "U+2650"
+      ],
+      "shortcode": ":sagittarius:",
+      "label": "Sagittarius"
+    },
+    {
+      "fileName": "emoji_u2651.tgs",
+      "unicode": "♑",
+      "codepoints": [
+        "U+2651"
+      ],
+      "shortcode": ":capricorn:",
+      "label": "Capricorn"
+    },
+    {
+      "fileName": "emoji_u2652.tgs",
+      "unicode": "♒",
+      "codepoints": [
+        "U+2652"
+      ],
+      "shortcode": ":aquarius:",
+      "label": "Aquarius"
+    },
+    {
+      "fileName": "emoji_u2653.tgs",
+      "unicode": "♓",
+      "codepoints": [
+        "U+2653"
+      ],
+      "shortcode": ":pisces:",
+      "label": "Pisces"
+    },
+    {
+      "fileName": "emoji_u265f_fe0f.tgs",
+      "unicode": "♟️",
+      "codepoints": [
+        "U+265F",
+        "U+FE0F"
+      ],
+      "shortcode": ":chess_pawn:",
+      "label": "Chess Pawn"
+    },
+    {
+      "fileName": "emoji_u2660_fe0f.tgs",
+      "unicode": "♠️",
+      "codepoints": [
+        "U+2660",
+        "U+FE0F"
+      ],
+      "shortcode": ":spade:",
+      "label": "Spade"
+    },
+    {
+      "fileName": "emoji_u2665_fe0f.tgs",
+      "unicode": "♥️",
+      "codepoints": [
+        "U+2665",
+        "U+FE0F"
+      ],
+      "shortcode": ":heart_2665:",
+      "label": "Heart"
+    },
+    {
+      "fileName": "emoji_u2668_fe0f.tgs",
+      "unicode": "♨️",
+      "codepoints": [
+        "U+2668",
+        "U+FE0F"
+      ],
+      "shortcode": ":hot_springs:",
+      "label": "Hot Springs"
+    },
+    {
+      "fileName": "emoji_u267e_fe0f.tgs",
+      "unicode": "♾️",
+      "codepoints": [
+        "U+267E",
+        "U+FE0F"
+      ],
+      "shortcode": ":infinity:",
+      "label": "Infinity"
+    },
+    {
+      "fileName": "emoji_u2693.tgs",
+      "unicode": "⚓",
+      "codepoints": [
+        "U+2693"
+      ],
+      "shortcode": ":anchor:",
+      "label": "Anchor"
+    },
+    {
+      "fileName": "emoji_u2696_fe0f.tgs",
+      "unicode": "⚖️",
+      "codepoints": [
+        "U+2696",
+        "U+FE0F"
+      ],
+      "shortcode": ":balance_scale:",
+      "label": "Balance Scale"
+    },
+    {
+      "fileName": "emoji_u2699_fe0f.tgs",
+      "unicode": "⚙️",
+      "codepoints": [
+        "U+2699",
+        "U+FE0F"
+      ],
+      "shortcode": ":gear:",
+      "label": "Gear"
+    },
+    {
+      "fileName": "emoji_u26a0_fe0f.tgs",
+      "unicode": "⚠️",
+      "codepoints": [
+        "U+26A0",
+        "U+FE0F"
+      ],
+      "shortcode": ":warning:",
+      "label": "Warning"
+    },
+    {
+      "fileName": "emoji_u26a1.tgs",
+      "unicode": "⚡",
+      "codepoints": [
+        "U+26A1"
+      ],
+      "shortcode": ":electricity:",
+      "label": "Electricity"
+    },
+    {
+      "fileName": "emoji_u26bd.tgs",
+      "unicode": "⚽",
+      "codepoints": [
+        "U+26BD"
+      ],
+      "shortcode": ":soccer_ball:",
+      "label": "Soccer Ball"
+    },
+    {
+      "fileName": "emoji_u26be.tgs",
+      "unicode": "⚾",
+      "codepoints": [
+        "U+26BE"
+      ],
+      "shortcode": ":baseball:",
+      "label": "Baseball"
+    },
+    {
+      "fileName": "emoji_u26c4.tgs",
+      "unicode": "⛄",
+      "codepoints": [
+        "U+26C4"
+      ],
+      "shortcode": ":snowman:",
+      "label": "Snowman"
+    },
+    {
+      "fileName": "emoji_u26c5.tgs",
+      "unicode": "⛅",
+      "codepoints": [
+        "U+26C5"
+      ],
+      "shortcode": ":partly_sunny_26c5:",
+      "label": "Partly Sunny"
+    },
+    {
+      "fileName": "emoji_u26ce.tgs",
+      "unicode": "⛎",
+      "codepoints": [
+        "U+26CE"
+      ],
+      "shortcode": ":ophiuchus:",
+      "label": "Ophiuchus"
+    },
+    {
+      "fileName": "emoji_u26d3_fe0f.tgs",
+      "unicode": "⛓️",
+      "codepoints": [
+        "U+26D3",
+        "U+FE0F"
+      ],
+      "shortcode": ":chains:",
+      "label": "Chains"
+    },
+    {
+      "fileName": "emoji_u26d3_fe0f_200d_1f4a5.tgs",
+      "unicode": "⛓️‍💥",
+      "codepoints": [
+        "U+26D3",
+        "U+FE0F",
+        "U+200D",
+        "U+1F4A5"
+      ],
+      "shortcode": ":broken_chain:",
+      "label": "Broken Chain"
+    },
+    {
+      "fileName": "emoji_u26f3.tgs",
+      "unicode": "⛳",
+      "codepoints": [
+        "U+26F3"
+      ],
+      "shortcode": ":flag_in_hole:",
+      "label": "Flag In Hole"
+    },
+    {
+      "fileName": "emoji_u26f5.tgs",
+      "unicode": "⛵",
+      "codepoints": [
+        "U+26F5"
+      ],
+      "shortcode": ":sailboat:",
+      "label": "Sailboat"
+    },
+    {
+      "fileName": "emoji_u26f8_fe0f.tgs",
+      "unicode": "⛸️",
+      "codepoints": [
+        "U+26F8",
+        "U+FE0F"
+      ],
+      "shortcode": ":ice_skate:",
+      "label": "Ice Skate"
+    },
+    {
+      "fileName": "emoji_u26fd.tgs",
+      "unicode": "⛽",
+      "codepoints": [
+        "U+26FD"
+      ],
+      "shortcode": ":fuel_pump:",
+      "label": "Fuel Pump"
+    },
+    {
+      "fileName": "emoji_u2702_fe0f.tgs",
+      "unicode": "✂️",
+      "codepoints": [
+        "U+2702",
+        "U+FE0F"
+      ],
+      "shortcode": ":scissors:",
+      "label": "Scissors"
+    },
+    {
+      "fileName": "emoji_u2705.tgs",
+      "unicode": "✅",
+      "codepoints": [
+        "U+2705"
+      ],
+      "shortcode": ":check_mark:",
+      "label": "Check Mark"
+    },
+    {
+      "fileName": "emoji_u2708_fe0f.tgs",
+      "unicode": "✈️",
+      "codepoints": [
+        "U+2708",
+        "U+FE0F"
+      ],
+      "shortcode": ":airplane_2708:",
+      "label": "Airplane"
+    },
+    {
+      "fileName": "emoji_u270a.tgs",
+      "unicode": "✊",
+      "codepoints": [
+        "U+270A"
+      ],
+      "shortcode": ":raised_fist:",
+      "label": "Raised Fist"
+    },
+    {
+      "fileName": "emoji_u270a_1f3fb.tgs",
+      "unicode": "✊🏻",
+      "codepoints": [
+        "U+270A",
+        "U+1F3FB"
+      ],
+      "shortcode": ":raised_fist_270a:",
+      "label": "Raised Fist"
+    },
+    {
+      "fileName": "emoji_u270a_1f3fc.tgs",
+      "unicode": "✊🏼",
+      "codepoints": [
+        "U+270A",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_270a_1f3fc:",
+      "label": "Raised Fist"
+    },
+    {
+      "fileName": "emoji_u270a_1f3fd.tgs",
+      "unicode": "✊🏽",
+      "codepoints": [
+        "U+270A",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_270a_1f3fd:",
+      "label": "Raised Fist"
+    },
+    {
+      "fileName": "emoji_u270a_1f3fe.tgs",
+      "unicode": "✊🏾",
+      "codepoints": [
+        "U+270A",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_270a_1f3fe:",
+      "label": "Raised Fist"
+    },
+    {
+      "fileName": "emoji_u270a_1f3ff.tgs",
+      "unicode": "✊🏿",
+      "codepoints": [
+        "U+270A",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_270a_1f3ff:",
+      "label": "Raised Fist"
+    },
+    {
+      "fileName": "emoji_u270b.tgs",
+      "unicode": "✋",
+      "codepoints": [
+        "U+270B"
+      ],
+      "shortcode": ":raised_hand:",
+      "label": "Raised Hand"
+    },
+    {
+      "fileName": "emoji_u270b_1f3fb.tgs",
+      "unicode": "✋🏻",
+      "codepoints": [
+        "U+270B",
+        "U+1F3FB"
+      ],
+      "shortcode": ":raised_hand_270b:",
+      "label": "Raised Hand"
+    },
+    {
+      "fileName": "emoji_u270b_1f3fc.tgs",
+      "unicode": "✋🏼",
+      "codepoints": [
+        "U+270B",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_270b_1f3fc:",
+      "label": "Raised Hand"
+    },
+    {
+      "fileName": "emoji_u270b_1f3fd.tgs",
+      "unicode": "✋🏽",
+      "codepoints": [
+        "U+270B",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_270b_1f3fd:",
+      "label": "Raised Hand"
+    },
+    {
+      "fileName": "emoji_u270b_1f3fe.tgs",
+      "unicode": "✋🏾",
+      "codepoints": [
+        "U+270B",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_270b_1f3fe:",
+      "label": "Raised Hand"
+    },
+    {
+      "fileName": "emoji_u270b_1f3ff.tgs",
+      "unicode": "✋🏿",
+      "codepoints": [
+        "U+270B",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_270b_1f3ff:",
+      "label": "Raised Hand"
+    },
+    {
+      "fileName": "emoji_u270c_1f3fb.tgs",
+      "unicode": "✌🏻",
+      "codepoints": [
+        "U+270C",
+        "U+1F3FB"
+      ],
+      "shortcode": ":victory:",
+      "label": "Victory"
+    },
+    {
+      "fileName": "emoji_u270c_1f3fc.tgs",
+      "unicode": "✌🏼",
+      "codepoints": [
+        "U+270C",
+        "U+1F3FC"
+      ],
+      "shortcode": ":v:",
+      "label": "V"
+    },
+    {
+      "fileName": "emoji_u270c_1f3fd.tgs",
+      "unicode": "✌🏽",
+      "codepoints": [
+        "U+270C",
+        "U+1F3FD"
+      ],
+      "shortcode": ":peace_hand:",
+      "label": "Peace Hand"
+    },
+    {
+      "fileName": "emoji_u270c_1f3fe.tgs",
+      "unicode": "✌🏾",
+      "codepoints": [
+        "U+270C",
+        "U+1F3FE"
+      ],
+      "shortcode": ":victory_270c:",
+      "label": "Victory"
+    },
+    {
+      "fileName": "emoji_u270c_1f3ff.tgs",
+      "unicode": "✌🏿",
+      "codepoints": [
+        "U+270C",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_270c_1f3ff:",
+      "label": "Victory"
+    },
+    {
+      "fileName": "emoji_u270c_fe0f.tgs",
+      "unicode": "✌️",
+      "codepoints": [
+        "U+270C",
+        "U+FE0F"
+      ],
+      "shortcode": ":noto_270c_fe0f:",
+      "label": "Victory"
+    },
+    {
+      "fileName": "emoji_u270d_1f3fb.tgs",
+      "unicode": "✍🏻",
+      "codepoints": [
+        "U+270D",
+        "U+1F3FB"
+      ],
+      "shortcode": ":writing_hand_270d:",
+      "label": "Writing Hand"
+    },
+    {
+      "fileName": "emoji_u270d_1f3fc.tgs",
+      "unicode": "✍🏼",
+      "codepoints": [
+        "U+270D",
+        "U+1F3FC"
+      ],
+      "shortcode": ":noto_270d_1f3fc:",
+      "label": "Writing Hand"
+    },
+    {
+      "fileName": "emoji_u270d_1f3fd.tgs",
+      "unicode": "✍🏽",
+      "codepoints": [
+        "U+270D",
+        "U+1F3FD"
+      ],
+      "shortcode": ":noto_270d_1f3fd:",
+      "label": "Writing Hand"
+    },
+    {
+      "fileName": "emoji_u270d_1f3fe.tgs",
+      "unicode": "✍🏾",
+      "codepoints": [
+        "U+270D",
+        "U+1F3FE"
+      ],
+      "shortcode": ":noto_270d_1f3fe:",
+      "label": "Writing Hand"
+    },
+    {
+      "fileName": "emoji_u270d_1f3ff.tgs",
+      "unicode": "✍🏿",
+      "codepoints": [
+        "U+270D",
+        "U+1F3FF"
+      ],
+      "shortcode": ":noto_270d_1f3ff:",
+      "label": "Writing Hand"
+    },
+    {
+      "fileName": "emoji_u270d_fe0f.tgs",
+      "unicode": "✍️",
+      "codepoints": [
+        "U+270D",
+        "U+FE0F"
+      ],
+      "shortcode": ":noto_270d_fe0f:",
+      "label": "Writing Hand"
+    },
+    {
+      "fileName": "emoji_u270f_fe0f.tgs",
+      "unicode": "✏️",
+      "codepoints": [
+        "U+270F",
+        "U+FE0F"
+      ],
+      "shortcode": ":pencil:",
+      "label": "Pencil"
+    },
+    {
+      "fileName": "emoji_u2728.tgs",
+      "unicode": "✨",
+      "codepoints": [
+        "U+2728"
+      ],
+      "shortcode": ":sparkles:",
+      "label": "Sparkles"
+    },
+    {
+      "fileName": "emoji_u2744_fe0f.tgs",
+      "unicode": "❄️",
+      "codepoints": [
+        "U+2744",
+        "U+FE0F"
+      ],
+      "shortcode": ":snowflake:",
+      "label": "Snowflake"
+    },
+    {
+      "fileName": "emoji_u274c.tgs",
+      "unicode": "❌",
+      "codepoints": [
+        "U+274C"
+      ],
+      "shortcode": ":cross_mark:",
+      "label": "Cross Mark"
+    },
+    {
+      "fileName": "emoji_u2753.tgs",
+      "unicode": "❓",
+      "codepoints": [
+        "U+2753"
+      ],
+      "shortcode": ":question_mark:",
+      "label": "Question Mark"
+    },
+    {
+      "fileName": "emoji_u2757.tgs",
+      "unicode": "❗",
+      "codepoints": [
+        "U+2757"
+      ],
+      "shortcode": ":exclamation_mark:",
+      "label": "Exclamation Mark"
+    },
+    {
+      "fileName": "emoji_u2763_fe0f.tgs",
+      "unicode": "❣️",
+      "codepoints": [
+        "U+2763",
+        "U+FE0F"
+      ],
+      "shortcode": ":heart_exclamation_point:",
+      "label": "Heart Exclamation Point"
+    },
+    {
+      "fileName": "emoji_u2764_fe0f.tgs",
+      "unicode": "❤️",
+      "codepoints": [
+        "U+2764",
+        "U+FE0F"
+      ],
+      "shortcode": ":red_heart:",
+      "label": "Red Heart"
+    },
+    {
+      "fileName": "emoji_u2764_fe0f_200d_1f525.tgs",
+      "unicode": "❤️‍🔥",
+      "codepoints": [
+        "U+2764",
+        "U+FE0F",
+        "U+200D",
+        "U+1F525"
+      ],
+      "shortcode": ":heart_on_fire:",
+      "label": "Heart on Fire"
+    },
+    {
+      "fileName": "emoji_u2764_fe0f_200d_1fa79.tgs",
+      "unicode": "❤️‍🩹",
+      "codepoints": [
+        "U+2764",
+        "U+FE0F",
+        "U+200D",
+        "U+1FA79"
+      ],
+      "shortcode": ":bandaged_heart:",
+      "label": "Bandaged Heart"
+    },
+    {
+      "fileName": "emoji_u2795.tgs",
+      "unicode": "➕",
+      "codepoints": [
+        "U+2795"
+      ],
+      "shortcode": ":plus_sign:",
+      "label": "Plus Sign"
+    },
+    {
+      "fileName": "emoji_u2b50.tgs",
+      "unicode": "⭐",
+      "codepoints": [
+        "U+2B50"
+      ],
+      "shortcode": ":star_2b50:",
+      "label": "Star"
+    },
+    {
+      "fileName": "emoji_ua9_fe0f.tgs",
+      "unicode": "©️",
+      "codepoints": [
+        "U+00A9",
+        "U+FE0F"
+      ],
+      "shortcode": ":copyright:",
+      "label": "Copyright"
+    },
+    {
+      "fileName": "emoji_uae_fe0f.tgs",
+      "unicode": "®️",
+      "codepoints": [
+        "U+00AE",
+        "U+FE0F"
+      ],
+      "shortcode": ":registered:",
+      "label": "Registered"
+    }
+  ]
+}

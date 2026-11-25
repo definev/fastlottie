@@ -113,6 +113,56 @@ class ChatMessage {
       : this;
 }
 
+/// Visual artwork inside Noto TGS emojis occupies ~86% of the square canvas
+/// (`512x512` / `1024x1024` with margins), so static OS emoji glyphs are scaled
+/// by this factor to match animated emoji size visually.
+const double _notoVisualFillRatio = 0.86;
+
+double _normalizedStaticEmojiFontSize(double boxSize) =>
+    boxSize * _notoVisualFillRatio;
+
+double _telegramEmojiBoxSize({
+  required int emojiOnlyCount,
+  required double inlineSize,
+  required double textScaleFactor,
+}) => switch (emojiOnlyCount) {
+  1 => 48.0 * textScaleFactor,
+  2 => 42.0 * textScaleFactor,
+  3 => 36.0 * textScaleFactor,
+  _ => inlineSize,
+};
+
+List<InlineSpan> _buildStaticEmojiTextSpans(
+  String text,
+  TextStyle? baseStyle,
+  double emojiBoxSize,
+) {
+  if (text.isEmpty) return const [];
+  final matches = unicodeEmojiRegex.allMatches(text);
+  if (matches.isEmpty) {
+    return [TextSpan(text: text, style: baseStyle)];
+  }
+  final emojiStyle = (baseStyle ?? const TextStyle()).copyWith(
+    fontSize: _normalizedStaticEmojiFontSize(emojiBoxSize),
+    height: 1.0,
+  );
+  final spans = <InlineSpan>[];
+  var cursor = 0;
+  for (final match in matches) {
+    if (match.start > cursor) {
+      spans.add(
+        TextSpan(text: text.substring(cursor, match.start), style: baseStyle),
+      );
+    }
+    spans.add(TextSpan(text: match.group(0)!, style: emojiStyle));
+    cursor = match.end;
+  }
+  if (cursor < text.length) {
+    spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
+  }
+  return spans;
+}
+
 /// A Cupertino-ready [TextEditingController] that displays animated TGS emojis
 /// inline inside [CupertinoTextField] using single-character UTF-16 BMP tokens
 /// (`U+E000 + emojiIndex`) paired with [WidgetSpan].
@@ -226,17 +276,29 @@ class EmojiComposerController extends TextEditingController {
         st == null ||
         cat.emojis.isEmpty) {
       if (!hasComposing) {
-        return TextSpan(style: style, text: rawText);
+        return TextSpan(
+          style: style,
+          children: _buildStaticEmojiTextSpans(rawText, style, emojiSize),
+        );
       }
       return TextSpan(
         style: style,
         children: [
-          TextSpan(text: value.composing.textBefore(rawText)),
-          TextSpan(
-            style: composingStyle,
-            text: value.composing.textInside(rawText),
+          ..._buildStaticEmojiTextSpans(
+            value.composing.textBefore(rawText),
+            style,
+            emojiSize,
           ),
-          TextSpan(text: value.composing.textAfter(rawText)),
+          ..._buildStaticEmojiTextSpans(
+            value.composing.textInside(rawText),
+            composingStyle,
+            emojiSize,
+          ),
+          ..._buildStaticEmojiTextSpans(
+            value.composing.textAfter(rawText),
+            style,
+            emojiSize,
+          ),
         ],
       );
     }
@@ -251,7 +313,9 @@ class EmojiComposerController extends TextEditingController {
 
       void flushText() {
         if (textBuf.isNotEmpty) {
-          spans.add(TextSpan(text: textBuf.toString(), style: segStyle));
+          spans.addAll(
+            _buildStaticEmojiTextSpans(textBuf.toString(), segStyle, emojiSize),
+          );
           textBuf.clear();
         }
       }
@@ -841,28 +905,28 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     final earlierSamples = <(bool outgoing, String text)>[
       (
         false,
-        '${sc(':tada:', 0)} Welcome to the TGS chat demo! ${sc(':partying_face:', 0)}',
+        '${sc(':party_popper:', 0)} Welcome to the TGS chat demo! ${sc(':partying_face:', 0)}',
       ),
       (
         true,
-        'This catalog has ${catalog.stickers.length} stickers and ${catalog.emojis.length} animated emoji. Try ${sc(':smile:', 0)} or ${sc(':fire:', 2)} in a message.',
+        'This catalog has ${catalog.stickers.length} stickers and ${catalog.emojis.length} animated emoji. Try ${sc(':smile:', 0)} or ${sc(':burn:', 2)} in a message.',
       ),
       (
         false,
-        'When you scroll quickly through the sticker tray, the HTTP queue (up to 6 concurrent requests) aborts sockets for stickers that leave the screen ${sc(':iphone:', 7)} while vector decoding stays isolated on a separate isolate ${sc(':exploding_head:', 0)}.',
+        'When you scroll quickly through the sticker tray, the HTTP queue (up to 6 concurrent requests) aborts sockets for stickers that leave the screen ${sc(':rocket:', 7)} while vector decoding stays isolated on a separate isolate ${sc(':exploding_head:', 0)}.',
       ),
       (
         true,
-        'Grid thumbnails and inline emoji ${sc(':bulb:', 4)} ${sc(':heart_on_fire:', 0)} ${sc(':sparkles:', 0)} use double-buffered strip rasterization + LZ4 `.flcache` at 30 FPS.',
+        'Grid thumbnails and inline emoji ${sc(':light_bulb:', 4)} ${sc(':heart_on_fire:', 0)} ${sc(':sparkles:', 0)} use double-buffered strip rasterization + LZ4 `.flcache` at 30 FPS.',
       ),
       (
         false,
-        'Stickers sent directly to the chat skip the queue and render as vectors with Impeller, preserving sharpness and frame rate ${sc(':trophy:', 12)} ${sc(':thumbs_up:', 0)}',
+        'Stickers sent directly to the chat skip the queue and render as vectors with Impeller, preserving sharpness and frame rate ${sc(':trophy_1f3c6:', 12)} ${sc(':thumbs_up:', 0)}',
       ),
     ];
 
     // Older messages above so the user can scroll up cleanly through chat history.
-    const fillerTopics = <String>[
+    const fillerMessages = <String>[
       'Open the picker to browse sticker packs and animated emoji.',
       'ETag, Cache-Control, and the `.tgsbin` disk cache make repeat visits network-free.',
       'Use the menu in the top-right corner to simulate 80 ms or 220 ms network latency and see the loading placeholders.',
@@ -871,15 +935,15 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       'The entire interface is built with Cupertino (`package:flutter/cupertino.dart`).',
     ];
 
-    final topicCount = math.max(1, catalog.emojis.length);
+    final emojiCount = math.max(1, catalog.emojis.length);
     for (var i = 0; i < 16; i++) {
       final t = now.subtract(Duration(minutes: 30 - i));
-      final emojiA = byIdx((i * 5) % topicCount);
-      final emojiB = byIdx((40 + i * 3) % topicCount);
+      final emojiA = byIdx((i * 5) % emojiCount);
+      final emojiB = byIdx((40 + i * 3) % emojiCount);
       _messages.add(
         ChatMessage.text(
           id: 'seed_${_messageSeq++}',
-          text: '$emojiA ${fillerTopics[i % fillerTopics.length]} $emojiB',
+          text: '$emojiA ${fillerMessages[i % fillerMessages.length]} $emojiB',
           isOutgoing: i.isOdd,
           timestamp: t,
           senderName: i.isEven ? 'FastLottie Bot' : null,
@@ -920,7 +984,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
       ChatMessage.text(
         id: 'seed_welcome_${_messageSeq++}',
         text:
-            '${sc(':studio_microphone:', 0)} Try typing or pasting real emoji (${sc(':smile:', 0)} 😀 ${sc(':heart_eyes:', 0)} 😍 ${sc(':partying_face:', 0)} 🥳 ${sc(':heart_on_fire:', 0)} ❤️‍🔥 ${sc(':thumbs_up:', 0)} 👍) or shortcodes (${sc(':strawberry:', 40)} ${sc(':pizza:', 70)} ${sc(':cat2:', 87)}), or tap the smiley button below to open the picker! ${sc(':sparkles:', 3)}',
+            '${sc(':musical_notes:', 0)} Try typing or pasting real emoji (${sc(':smile:', 0)} 😀 ${sc(':heart_eyes:', 0)} 😍 ${sc(':partying_face:', 0)} 🥳 ${sc(':heart_on_fire:', 0)} ❤️‍🔥 ${sc(':thumbs_up:', 0)} 👍) or shortcodes (${sc(':strawberry_1f353:', 40)} ${sc(':pizza_1f355:', 70)} ${sc(':smile_cat:', 87)}), or tap the smiley button below to open the picker! ${sc(':sparkles:', 3)}',
         isOutgoing: true,
         timestamp: now.subtract(const Duration(minutes: 1)),
       ),
@@ -2554,15 +2618,86 @@ class _ChatMessageRow extends StatelessWidget {
 
     final text = message.text ?? '';
     final maxWidth = MediaQuery.sizeOf(context).width * 0.78;
-    final emojiScale = MediaQuery.textScalerOf(context).scale(16);
-    final spans = _parseRichSpans(
+    final textScaleFactor = MediaQuery.textScalerOf(context).scale(16) / 16.0;
+    final inlineEmojiSize = 16.0 * textScaleFactor * 1.45;
+    final (:spans, :isJumboEmojiOnly) = _parseRichSpans(
       text,
       catalog,
-      emojiScale * 1.45,
+      inlineEmojiSize,
+      textScaleFactor,
       message.isOutgoing
           ? CupertinoColors.white.withValues(alpha: 0.25)
           : palette.tilePlaceholder,
     );
+
+    if (isJumboEmojiOnly) {
+      return Align(
+        alignment: align,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPress: onMessageLongPress != null
+                ? () => onMessageLongPress!(message)
+                : null,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: message.isOutgoing
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  if (!message.isOutgoing && message.senderName != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 4),
+                      child: Text(
+                        message.senderName!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: palette.accent,
+                        ),
+                      ),
+                    ),
+                  Text.rich(TextSpan(children: spans)),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x88000000),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _formatTime(message.timestamp),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: CupertinoColors.white,
+                          ),
+                        ),
+                        if (message.isOutgoing) ...[
+                          const SizedBox(width: 3),
+                          const Icon(
+                            CupertinoIcons.checkmark_alt,
+                            size: 12,
+                            color: CupertinoColors.white,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     final bubbleRadius = BorderRadius.only(
       topLeft: const Radius.circular(18),
@@ -2656,54 +2791,130 @@ class _ChatMessageRow extends StatelessWidget {
     );
   }
 
-  List<InlineSpan> _parseRichSpans(
+  ({List<InlineSpan> spans, bool isJumboEmojiOnly}) _parseRichSpans(
     String text,
     TgsRemoteCatalog catalog,
     double emojiSize,
+    double textScaleFactor,
     Color placeholderColor,
   ) {
     final references = message.resolveInlineItems(catalog);
-    var cursor = 0;
-    var stickerOnly = references.isNotEmpty;
-    for (final MapEntry(key: start, value: (length, _)) in references.entries) {
-      if (text.substring(cursor, start).trim().isNotEmpty) stickerOnly = false;
-      cursor = start + length;
+    final tokens =
+        <({TgsRemoteItem? item, String? text, String? staticEmoji})>[];
+    var emojiOnly = true;
+    var emojiCount = 0;
+
+    void appendTextGap(String gap) {
+      if (gap.isEmpty) return;
+      var gapCursor = 0;
+      for (final match in unicodeEmojiRegex.allMatches(gap)) {
+        if (match.start > gapCursor) {
+          final plain = gap.substring(gapCursor, match.start);
+          if (plain.trim().isNotEmpty) emojiOnly = false;
+          tokens.add((item: null, text: plain, staticEmoji: null));
+        }
+        tokens.add((item: null, text: null, staticEmoji: match.group(0)!));
+        emojiCount++;
+        gapCursor = match.end;
+      }
+      if (gapCursor < gap.length) {
+        final tail = gap.substring(gapCursor);
+        if (tail.trim().isNotEmpty) emojiOnly = false;
+        tokens.add((item: null, text: tail, staticEmoji: null));
+      }
     }
-    if (text.substring(cursor).trim().isNotEmpty) stickerOnly = false;
-    final stickerSize = stickerOnly ? 40.0 : emojiSize;
-    final spans = <InlineSpan>[];
-    cursor = 0;
+
+    var cursor = 0;
     for (final MapEntry(key: start, value: (length, item))
         in references.entries) {
       if (start > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, start)));
+        appendTextGap(text.substring(cursor, start));
       }
-      spans.add(
-        WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: InlineNetworkSticker(
-            item: item,
-            sheet: emojiSheet,
-            clock: clock,
-            store: store,
-            renderer: renderer,
-            still: still,
-            size: stickerSize,
-            placeholderColor: placeholderColor,
-            deferRasterNearFlingExit: true,
-          ),
-        ),
-      );
+      tokens.add((item: item, text: null, staticEmoji: null));
+      emojiCount++;
       cursor = start + length;
     }
     if (cursor < text.length) {
-      spans.add(TextSpan(text: text.substring(cursor)));
+      appendTextGap(text.substring(cursor));
+    }
+
+    final isJumboEmojiOnly = emojiOnly && emojiCount >= 1 && emojiCount <= 3;
+    final targetSize = isJumboEmojiOnly
+        ? _telegramEmojiBoxSize(
+            emojiOnlyCount: emojiCount,
+            inlineSize: emojiSize,
+            textScaleFactor: textScaleFactor,
+          )
+        : emojiSize;
+    final horizontalPad = isJumboEmojiOnly ? 2.0 : 1.5;
+
+    final spans = <InlineSpan>[];
+    for (final token in tokens) {
+      if (token.item case final item?) {
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: horizontalPad),
+              child: InlineNetworkSticker(
+                item: item,
+                sheet: emojiSheet,
+                clock: clock,
+                store: store,
+                renderer: renderer,
+                still: still,
+                size: targetSize,
+                placeholderColor: placeholderColor,
+                deferRasterNearFlingExit: true,
+              ),
+            ),
+          ),
+        );
+      } else if (token.staticEmoji case final emoji?) {
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: horizontalPad),
+              child: _InlineStaticEmoji(emoji: emoji, size: targetSize),
+            ),
+          ),
+        );
+      } else if (token.text case final plain?) {
+        if (!isJumboEmojiOnly || plain.trim().isNotEmpty) {
+          spans.add(TextSpan(text: plain));
+        }
+      }
     }
     if (spans.isEmpty) {
       spans.add(TextSpan(text: text));
     }
-    return spans;
+    return (spans: spans, isJumboEmojiOnly: isJumboEmojiOnly);
   }
+}
+
+/// Renders a static OS emoji inside a square box matching [InlineNetworkSticker]
+/// so animated and static fallback emojis align and scale identically.
+class _InlineStaticEmoji extends StatelessWidget {
+  const _InlineStaticEmoji({required this.emoji, required this.size});
+
+  final String emoji;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => SizedBox.square(
+    dimension: size,
+    child: Center(
+      child: Text(
+        emoji,
+        textScaler: TextScaler.noScaling,
+        style: TextStyle(
+          fontSize: _normalizedStaticEmojiFontSize(size),
+          height: 1.0,
+        ),
+      ),
+    ),
+  );
 }
 
 /// Inline emoji and sticker-grid thumbnail backed by [StickerSheet] +

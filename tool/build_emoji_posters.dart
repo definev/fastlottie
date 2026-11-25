@@ -185,9 +185,9 @@ void main() {
       final archived = File('$_sourceArchive/${tgs.split('/').last}');
       if (!archived.existsSync()) archived.writeAsBytesSync(source);
       objects[tgs] = {'asset': asset, 'length': source.length};
-      final meta =
-          topicEmojiMetadataByFile[fileName] ??
-          notoEmojiMetadataByFile[fileName];
+      final meta = kind == TgsItemKind.emoji
+          ? notoEmojiMetadataByFile[fileName]
+          : null;
       final title = friendlyPackTitle(packId);
       final shortcode = kind == TgsItemKind.emoji
           ? meta?.shortcode ?? ':emoji_${items.length + 1}:'

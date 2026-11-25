@@ -31,8 +31,7 @@ Future<TgsRemoteCatalog> loadBundledTgsCatalog({AssetBundle? bundle}) async {
 
   final packs = <TgsRemotePack>[];
   final stickerPackLists = <List<TgsRemoteItem>>[];
-  final topicEmojis = <TgsRemoteItem>[];
-  final otherEmojis = <TgsRemoteItem>[];
+  final emojis = <TgsRemoteItem>[];
   for (final packId in grouped.keys.toList()..sort()) {
     final pathsInPack = grouped[packId]!;
     final isEmoji = isEmojiPackId(packId);
@@ -41,10 +40,7 @@ Future<TgsRemoteCatalog> loadBundledTgsCatalog({AssetBundle? bundle}) async {
     for (var i = 0; i < pathsInPack.length; i++) {
       final path = pathsInPack[i];
       final fileName = path.split('/').last;
-      final meta = isEmoji
-          ? topicEmojiMetadataByFile[fileName] ??
-                notoEmojiMetadataByFile[fileName]
-          : null;
+      final meta = isEmoji ? notoEmojiMetadataByFile[fileName] : null;
       final shortcode = isEmoji
           ? (meta?.shortcode ?? ':emoji_${i + 1}:')
           : null;
@@ -75,11 +71,7 @@ Future<TgsRemoteCatalog> loadBundledTgsCatalog({AssetBundle? bundle}) async {
       ),
     );
     if (isEmoji) {
-      if (packId.startsWith('Topics-')) {
-        topicEmojis.addAll(items);
-      } else {
-        otherEmojis.addAll(items);
-      }
+      emojis.addAll(items);
     } else {
       stickerPackLists.add(items);
     }
@@ -101,7 +93,7 @@ Future<TgsRemoteCatalog> loadBundledTgsCatalog({AssetBundle? bundle}) async {
     baseUri: Uri(scheme: 'asset', host: 'bundle'),
     packs: packs,
     stickers: stickers,
-    emojis: <TgsRemoteItem>[...topicEmojis, ...otherEmojis],
+    emojis: emojis,
   );
 }
 

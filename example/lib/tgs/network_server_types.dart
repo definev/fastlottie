@@ -1,5 +1,9 @@
 import 'package:meta/meta.dart';
 
+import 'noto_emoji_mapping.dart';
+
+export 'noto_emoji_mapping.dart';
+
 enum TgsItemKind { sticker, emoji }
 
 typedef PackPoster = ({Uri uri, double progress});
@@ -260,8 +264,6 @@ topicEmojiMetadataByFile = <String, ({String shortcode, String label})>{
 };
 
 final List<String> defaultEmojiShortcodes = List<String>.unmodifiable([
-  for (final name in bundledTopicEmojiFileNames)
-    topicEmojiMetadataByFile[name]!.shortcode,
   for (final name in bundledNotoEmojiFileNames)
     notoEmojiMetadataByFile[name]!.shortcode,
 ]);
@@ -1152,7 +1154,7 @@ const List<String> bundledNotoEmojiFileNames = <String>[
   'emoji_uae_fe0f.tgs',
 ];
 
-/// Shortcode & display label for all 60 bundled Google Animated Noto Emoji files.
+/// Shortcode & display label for all 881 bundled Google Animated Noto Emoji files.
 const Map<String, ({String shortcode, String label})>
 notoEmojiMetadataByFile = <String, ({String shortcode, String label})>{
   'emoji_u1f192.tgs': (shortcode: ':cool_1f192:', label: 'Cool'),
@@ -2869,8 +2871,7 @@ notoEmojiMetadataByFile = <String, ({String shortcode, String label})>{
   'emoji_uae_fe0f.tgs': (shortcode: ':registered:', label: 'Registered'),
 };
 
-bool isEmojiPackId(String packId) =>
-    packId.startsWith('Topics-') || packId.startsWith('NotoEmoji');
+bool isEmojiPackId(String packId) => packId.startsWith('NotoEmoji');
 
 String friendlyPackTitle(String packId) {
   switch (packId) {
@@ -2883,7 +2884,7 @@ String friendlyPackTitle(String packId) {
     case 'ViAndCaitlyn-1794222798837':
       return 'Vi & Caitlyn';
     case 'Topics-1794247486249':
-      return 'Topics Emoji';
+      return 'Topics';
     case 'NotoEmoji':
       return 'Noto Emoji';
   }
@@ -2952,6 +2953,8 @@ class TgsRemoteItem {
   /// Returns the corresponding Unicode emoji character or sequence for this item
   /// if it is a bundled Noto Emoji (`emoji_u<codepoints>.tgs`), or `null` otherwise.
   String? get unicode {
+    final mapped = notoEmojiUnicodeByFile[fileName];
+    if (mapped != null) return mapped;
     if (!fileName.startsWith('emoji_u') || !fileName.endsWith('.tgs')) {
       return null;
     }
@@ -3040,12 +3043,7 @@ class TgsRemoteCatalog {
           for (final items in stickers)
             if (row < items.length) items[row],
       ],
-      emojis: [
-        for (final pack in emojiPacks)
-          if (pack.id.startsWith('Topics-')) ...pack.items,
-        for (final pack in emojiPacks)
-          if (!pack.id.startsWith('Topics-')) ...pack.items,
-      ],
+      emojis: [for (final pack in emojiPacks) ...pack.items],
     );
   }
 
@@ -3134,9 +3132,12 @@ class TgsRemoteCatalog {
       ..sort((a, b) => b.length.compareTo(a.length));
     final escapedEmojis = emojiPatterns.map(RegExp.escape).join('|');
     if (escapedEmojis.isEmpty) {
-      return RegExp(r':[a-z0-9_]+:');
+      return RegExp(r':[a-z0-9_]+:', unicode: true);
     }
-    return RegExp(':[a-z0-9_]+:|$escapedEmojis');
+    return RegExp(
+      ':[a-z0-9_]+:|${unicodeEmojiRegex.pattern}|$escapedEmojis',
+      unicode: true,
+    );
   }
 
   RegExp _buildRichMessageRegex() {
@@ -3144,9 +3145,12 @@ class TgsRemoteCatalog {
       ..sort((a, b) => b.length.compareTo(a.length));
     final escapedEmojis = emojiPatterns.map(RegExp.escape).join('|');
     if (escapedEmojis.isEmpty) {
-      return RegExp(r':[a-z0-9_]+:|[\uE000-\uF8FF]');
+      return RegExp(r':[a-z0-9_]+:|[\uE000-\uF8FF]', unicode: true);
     }
-    return RegExp(':[a-z0-9_]+:|[\uE000-\uF8FF]|$escapedEmojis');
+    return RegExp(
+      ':[a-z0-9_]+:|[\uE000-\uF8FF]|${unicodeEmojiRegex.pattern}|$escapedEmojis',
+      unicode: true,
+    );
   }
 
   /// Finds a matching [TgsRemoteItem] by shortcode (`:smile:`), PUA token (`\uE000`),
