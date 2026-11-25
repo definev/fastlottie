@@ -1,7 +1,7 @@
 import 'package:fastlottie/fastlottie.dart';
 // Keep compatible with Flutter versions before the cupertino_ui split.
-// ignore: deprecated_member_use
-import 'package:flutter/cupertino.dart';
+
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
 
 import 'tgs/cupertino_chat.dart';
@@ -24,8 +24,9 @@ class FastLottieCupertinoApp extends StatefulWidget {
 class _FastLottieCupertinoAppState extends State<FastLottieCupertinoApp> {
   bool _isDark = true;
 
-  static final _noScrollbarBehavior = const CupertinoScrollBehavior()
-      .copyWith(scrollbars: false);
+  static final _noScrollbarBehavior = const CupertinoScrollBehavior().copyWith(
+    scrollbars: false,
+  );
 
   static final _webQuery = kIsWeb
       ? Uri.base.queryParameters

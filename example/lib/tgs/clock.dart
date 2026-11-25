@@ -142,13 +142,10 @@ class _GalleryTicker extends Ticker {
       // Wake up with headroom before the next target vsync so OS timer latency
       // doesn't slip past the frame boundary on high-refresh displays (90/120Hz).
       final delayUs = math.max(1, ((intervals - 0.4) * vsyncUs).round());
-      _timer = Timer(
-        Duration(microseconds: delayUs),
-        () {
-          _timer = null;
-          if (shouldScheduleTick) super.scheduleTick();
-        },
-      );
+      _timer = Timer(Duration(microseconds: delayUs), () {
+        _timer = null;
+        if (shouldScheduleTick) super.scheduleTick();
+      });
     }
   }
 

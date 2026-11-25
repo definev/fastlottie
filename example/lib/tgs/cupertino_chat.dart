@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fastlottie/fastlottie.dart';
+import 'package:fastlottie_example/tgs/fast_scroll_physics.dart';
 // Keep compatible with Flutter versions before the cupertino_ui split.
-// ignore: deprecated_member_use
-import 'package:flutter/cupertino.dart';
+
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:flutter/scheduler.dart';
@@ -14,7 +15,6 @@ import 'package:lottie/lottie.dart';
 import 'cache_dir.dart';
 import 'clock.dart';
 import 'emoji_posters.dart';
-import 'fast_scroll_physics.dart';
 import 'network_server.dart';
 import 'network_store.dart';
 import 'pack_assets.dart';
@@ -642,6 +642,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     onDetach: (position) {
       position.isScrollingNotifier.removeListener(_syncMessageScrollWork);
       _rasterCache.inFlightLimit = null;
+      _fastFling.value = false;
     },
   );
   final ScrollController _pickerScroll = ScrollController();
@@ -655,6 +656,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
   );
   final ValueNotifier<bool> _showScrollBottom = ValueNotifier<bool>(false);
   final ValueNotifier<bool> _hasDraft = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> _fastFling = ValueNotifier<bool>(false);
 
   LocalTgsServer? _embeddedServer;
   TgsRemoteCatalog? _catalog;
@@ -1045,9 +1047,29 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     if (show != _showScrollBottom.value) {
       _showScrollBottom.value = show;
     }
+    _syncFastFling();
+  }
+
+  void _syncFastFling() {
+    var active = false;
+    for (final position in _messageScroll.positions) {
+      if (!position.isScrollingNotifier.value) continue;
+      // ScrollPosition exposes the activity to ScrollPosition subclasses.
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+      final activity = position.activity;
+      if (activity is BallisticScrollActivity &&
+          (_fastFling.value || activity.velocity.abs() >= 600)) {
+        active = true;
+        break;
+      }
+    }
+    if (active != _fastFling.value) {
+      _fastFling.value = active;
+    }
   }
 
   void _syncMessageScrollWork() {
+    _syncFastFling();
     if (_rasterWorkerCount <= 1) return;
     final scrolling = _messageScroll.positions.any(
       (position) => position.isScrollingNotifier.value,
@@ -1751,6 +1773,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     _composerFocus.dispose();
     _showScrollBottom.dispose();
     _hasDraft.dispose();
+    _fastFling.dispose();
     _pressure.dispose();
     for (final sheet in _sheets) {
       sheet.dispose();
@@ -1889,11 +1912,13 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                               key: const ValueKey('cupertino-message-list'),
                               controller: _messageScroll,
                               reverse: true,
-                              physics: const FastBouncingScrollPhysics(
+                              physics: const BouncingScrollPhysics(
+                                decelerationRate: .fast,
                                 parent: AlwaysScrollableScrollPhysics(),
                               ),
-                              scrollCacheExtent:
-                                  const ScrollCacheExtent.pixels(0),
+                              scrollCacheExtent: const ScrollCacheExtent.pixels(
+                                0,
+                              ),
                               addAutomaticKeepAlives: false,
                               padding: const EdgeInsets.fromLTRB(
                                 12,
@@ -1907,9 +1932,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                     _messages.length - 1 - visualIndex;
                                 final msg = _messages[index];
                                 return _ChatMessageRow(
-                                  key: ValueKey(
-                                    '${msg.id}_${msg.reloadEpoch}',
-                                  ),
+                                  key: ValueKey('${msg.id}_${msg.reloadEpoch}'),
                                   message: msg,
                                   catalog: catalog,
                                   emojiSheet: _emojiSheet!,
@@ -1921,6 +1944,7 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
                                   renderer: _renderer,
                                   still: _reduced || _pressure.constrained,
                                   animateHero: !_reduced,
+                                  fastFling: _fastFling,
                                   palette: palette,
                                   onStickerLongPress: _showStickerPreview,
                                   onMessageLongPress: _showMessageOptions,
@@ -2426,6 +2450,7 @@ class _StickerPickerDrawer extends StatelessWidget {
                   key: const ValueKey('sticker-picker-grid'),
                   controller: scrollController,
                   physics: const FastBouncingScrollPhysics(
+                    decelerationRate: .fast,
                     parent: AlwaysScrollableScrollPhysics(),
                   ),
                   padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
@@ -2433,12 +2458,11 @@ class _StickerPickerDrawer extends StatelessWidget {
                   addAutomaticKeepAlives: false,
                   addRepaintBoundaries: false,
                   itemCount: items.length,
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 5,
-                        crossAxisSpacing: 6,
-                        mainAxisSpacing: 6,
-                      ),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 5,
+                    crossAxisSpacing: 6,
+                    mainAxisSpacing: 6,
+                  ),
                   itemBuilder: (context, index) {
                     final item = items[index];
                     return Semantics(
@@ -2453,9 +2477,8 @@ class _StickerPickerDrawer extends StatelessWidget {
                               : 'send-sticker-$index',
                         ),
                         behavior: HitTestBehavior.opaque,
-                        onTap: () => isEmojiTab
-                            ? onEmojiTap(item)
-                            : onStickerTap(item),
+                        onTap: () =>
+                            isEmojiTab ? onEmojiTap(item) : onStickerTap(item),
                         onLongPress: () => onItemLongPress(item),
                         child: Padding(
                           padding: const EdgeInsets.all(4),
@@ -2498,6 +2521,7 @@ class _ChatMessageRow extends StatelessWidget {
     required this.renderer,
     required this.still,
     required this.animateHero,
+    this.fastFling,
     required this.palette,
     required this.onStickerLongPress,
     this.onMessageLongPress,
@@ -2512,6 +2536,7 @@ class _ChatMessageRow extends StatelessWidget {
   final ChatRendererMode renderer;
   final bool still;
   final bool animateHero;
+  final ValueListenable<bool>? fastFling;
   final _Palette palette;
   final ValueChanged<TgsRemoteItem> onStickerLongPress;
   final ValueChanged<ChatMessage>? onMessageLongPress;
@@ -2562,6 +2587,7 @@ class _ChatMessageRow extends StatelessWidget {
                       store: store,
                       renderer: renderer,
                       animate: animateHero,
+                      fastFling: fastFling,
                       size: 160,
                       placeholderColor: palette.tilePlaceholder,
                       borderColor: palette.incomingBorder,
@@ -2861,6 +2887,7 @@ class _ChatMessageRow extends StatelessWidget {
                 size: targetSize,
                 placeholderColor: placeholderColor,
                 deferRasterNearFlingExit: true,
+                fastFling: fastFling,
               ),
             ),
           ),
@@ -2927,6 +2954,7 @@ class InlineNetworkSticker extends StatefulWidget {
     this.placeholderColor = const Color(0xff232636),
     this.repaintBoundary = true,
     this.deferRasterNearFlingExit = false,
+    this.fastFling,
   });
 
   final TgsRemoteItem item;
@@ -2942,6 +2970,9 @@ class InlineNetworkSticker extends StatefulWidget {
   /// Reuses the current image when a vertical fling is about to carry this
   /// emoji out of its viewport.
   final bool deferRasterNearFlingExit;
+
+  /// Defers uncached TGS model acquisition while a fast ballistic fling is active.
+  final ValueListenable<bool>? fastFling;
 
   @override
   State<InlineNetworkSticker> createState() => _InlineNetworkStickerState();
@@ -2964,6 +2995,11 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
         ? Scrollable.maybeOf(context, axis: Axis.vertical)?.position
         : null;
     _viewport = null;
+  }
+
+  void _onFastFlingChanged() {
+    if (!mounted) return;
+    _syncPin();
   }
 
   bool _shouldDeferRaster(Size size) {
@@ -2996,8 +3032,14 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
         !widget.item.animated &&
         widget.sheet.posterCache != null &&
         widget.item.poster != null;
-    final shouldPin =
+    var shouldPin =
         widget.renderer == ChatRendererMode.fastlottie && !staticPoster;
+    if (shouldPin &&
+        !_pinned &&
+        widget.fastFling?.value == true &&
+        widget.sheet.playerFor(widget.item.urlString) == null) {
+      shouldPin = false;
+    }
     if (shouldPin == _pinned) return;
     if (shouldPin) {
       widget.sheet.acquirePin(widget.item.urlString);
@@ -3032,6 +3074,7 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
   @override
   void initState() {
     super.initState();
+    widget.fastFling?.addListener(_onFastFlingChanged);
     _syncPoster();
     _syncPin();
   }
@@ -3039,6 +3082,10 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
   @override
   void didUpdateWidget(InlineNetworkSticker oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.fastFling != widget.fastFling) {
+      oldWidget.fastFling?.removeListener(_onFastFlingChanged);
+      widget.fastFling?.addListener(_onFastFlingChanged);
+    }
     if (oldWidget.deferRasterNearFlingExit != widget.deferRasterNearFlingExit) {
       _syncScrollPosition();
     }
@@ -3059,6 +3106,7 @@ class _InlineNetworkStickerState extends State<InlineNetworkSticker> {
 
   @override
   void dispose() {
+    widget.fastFling?.removeListener(_onFastFlingChanged);
     _poster?.release();
     if (_pinned) {
       widget.sheet.releasePin(widget.item.urlString);
@@ -3346,6 +3394,7 @@ class HeroNetworkSticker extends StatefulWidget {
     required this.secondaryTextColor,
     this.posters,
     this.animate = true,
+    this.fastFling,
     this.size = 220,
   });
 
@@ -3358,6 +3407,10 @@ class HeroNetworkSticker extends StatefulWidget {
   final Color secondaryTextColor;
   final PackPosterCache? posters;
   final bool animate;
+
+  /// Defers uncached acquisition and pauses Tier C vector recording while a
+  /// fast ballistic fling is active.
+  final ValueListenable<bool>? fastFling;
   final double size;
 
   @override
@@ -3370,6 +3423,7 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
   EmojiPosterLease? _poster;
   late final AnimationController _timeline = AnimationController(vsync: this);
   bool _hasTimeline = false;
+  bool _hasShownVector = false;
   int _replayTick = 0;
 
   void _acquire() {
@@ -3378,11 +3432,26 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
         widget.item.poster != null) {
       return;
     }
+    if (widget.fastFling?.value == true) {
+      return;
+    }
     _lease = widget.store.acquire(
       widget.item.urlString,
       reference: widget.renderer == ChatRendererMode.lottie,
       priority: true,
     );
+  }
+
+  void _onFastFlingChanged() {
+    if (!mounted) return;
+    final paused = widget.fastFling?.value ?? false;
+    if (!paused && _lease == null) {
+      setState(_acquire);
+      return;
+    }
+    if (_hasShownVector || _hasTimeline) {
+      setState(() {});
+    }
   }
 
   void _retry() {
@@ -3393,6 +3462,7 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
   @override
   void initState() {
     super.initState();
+    widget.fastFling?.addListener(_onFastFlingChanged);
     _acquirePoster();
     _acquire();
   }
@@ -3405,6 +3475,10 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
   @override
   void didUpdateWidget(HeroNetworkSticker oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.fastFling != widget.fastFling) {
+      oldWidget.fastFling?.removeListener(_onFastFlingChanged);
+      widget.fastFling?.addListener(_onFastFlingChanged);
+    }
     if (oldWidget.posters != widget.posters ||
         oldWidget.item.poster != widget.item.poster ||
         oldWidget.item.largePoster != widget.item.largePoster) {
@@ -3418,16 +3492,20 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
         oldWidget.item.animated != widget.item.animated) {
       _lease?.release();
       _lease = null;
+      _hasShownVector = false;
       if (_hasTimeline) {
         _timeline.stop();
         _timeline.duration = null;
       }
+      _acquire();
+    } else if (_lease == null && widget.fastFling?.value != true) {
       _acquire();
     }
   }
 
   @override
   void dispose() {
+    widget.fastFling?.removeListener(_onFastFlingChanged);
     if (_hasTimeline) _timeline.dispose();
     _poster?.release();
     _lease?.release();
@@ -3444,8 +3522,10 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
         final model = _lease?.ready;
         final effectiveAnimate =
             widget.animate && !MediaQuery.disableAnimationsOf(context);
+        final flingPaused = widget.fastFling?.value ?? false;
+        final playVector = effectiveAnimate && !flingPaused;
         final poster = _poster;
-        if (_hasTimeline && !effectiveAnimate && _timeline.isAnimating) {
+        if (_hasTimeline && !playVector && _timeline.isAnimating) {
           _timeline.stop();
         }
         Widget render() {
@@ -3511,6 +3591,7 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
 
           if (widget.renderer == ChatRendererMode.fastlottie &&
               model.fast != null) {
+            _hasShownVector = true;
             final progress =
                 (widget.item.largePoster ?? widget.item.poster)?.progress;
             Animation<double>? controller;
@@ -3520,7 +3601,7 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
                 _timeline.duration = model.fast!.duration;
                 _timeline.value = progress;
               }
-              if (!_timeline.isAnimating && effectiveAnimate) {
+              if (!_timeline.isAnimating && playVector) {
                 _timeline.repeat();
               }
               controller = _timeline;
@@ -3538,7 +3619,7 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
                 controller: controller,
                 width: widget.size,
                 height: widget.size,
-                animate: effectiveAnimate,
+                animate: playVector,
                 repeat: true,
                 useFrameRate: true,
                 usePipeline: false,
@@ -3555,9 +3636,10 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
 
           if (widget.renderer == ChatRendererMode.lottie &&
               model.reference != null) {
+            _hasShownVector = true;
             return Lottie(
               composition: model.reference!,
-              animate: effectiveAnimate,
+              animate: playVector,
               repeat: true,
               frameRate: FrameRate.composition,
               fit: BoxFit.contain,
@@ -3567,7 +3649,9 @@ class _HeroNetworkStickerState extends State<HeroNetworkSticker>
           return const SizedBox.shrink();
         }
 
-        if (poster == null || (model != null && effectiveAnimate)) {
+        if (poster == null ||
+            (model != null &&
+                (playVector || (_hasShownVector && effectiveAnimate)))) {
           return render();
         }
         return ValueListenableBuilder(

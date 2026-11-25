@@ -692,81 +692,84 @@ void main() {
     },
   );
 
-  test('contentKey distinguishes trimmed geometries, time stretch, and parenting', () {
-    Map<String, dynamic> trimmedShape(Map<String, dynamic> shape) => {
-      'v': '5.7.4',
-      'fr': 60,
-      'ip': 0,
-      'op': 30,
-      'w': 64,
-      'h': 64,
-      'layers': [
-        {
-          'ty': 4,
-          'ind': 1,
-          'ip': 0,
-          'op': 30,
-          'ks': <String, dynamic>{},
-          'shapes': [
-            shape,
-            {
-              'ty': 'tm',
-              's': {'a': 0, 'k': 0},
-              'e': {'a': 0, 'k': 50},
-              'o': {'a': 0, 'k': 0},
-              'm': 1,
-            },
-            {
-              'ty': 'st',
-              'c': {
-                'a': 0,
-                'k': [1, 0, 0, 1],
+  test(
+    'contentKey distinguishes trimmed geometries, time stretch, and parenting',
+    () {
+      Map<String, dynamic> trimmedShape(Map<String, dynamic> shape) => {
+        'v': '5.7.4',
+        'fr': 60,
+        'ip': 0,
+        'op': 30,
+        'w': 64,
+        'h': 64,
+        'layers': [
+          {
+            'ty': 4,
+            'ind': 1,
+            'ip': 0,
+            'op': 30,
+            'ks': <String, dynamic>{},
+            'shapes': [
+              shape,
+              {
+                'ty': 'tm',
+                's': {'a': 0, 'k': 0},
+                'e': {'a': 0, 'k': 50},
+                'o': {'a': 0, 'k': 0},
+                'm': 1,
               },
-              'o': {'a': 0, 'k': 100},
-              'w': {'a': 0, 'k': 4},
-            },
-          ],
-        },
-      ],
-    };
+              {
+                'ty': 'st',
+                'c': {
+                  'a': 0,
+                  'k': [1, 0, 0, 1],
+                },
+                'o': {'a': 0, 'k': 100},
+                'w': {'a': 0, 'k': 4},
+              },
+            ],
+          },
+        ],
+      };
 
-    final rectComp = FastLottieComposition.fromJson(
-      trimmedShape({
-        'ty': 'rc',
-        'p': {
-          'a': 0,
-          'k': [32, 32],
-        },
-        's': {
-          'a': 0,
-          'k': [40, 40],
-        },
-        'r': {'a': 0, 'k': 0},
-      }),
-    );
-    final ellipseComp = FastLottieComposition.fromJson(
-      trimmedShape({
-        'ty': 'el',
-        'p': {
-          'a': 0,
-          'k': [32, 32],
-        },
-        's': {
-          'a': 0,
-          'k': [40, 40],
-        },
-      }),
-    );
-    expect(rectComp.contentKey, isNot(ellipseComp.contentKey));
+      final rectComp = FastLottieComposition.fromJson(
+        trimmedShape({
+          'ty': 'rc',
+          'p': {
+            'a': 0,
+            'k': [32, 32],
+          },
+          's': {
+            'a': 0,
+            'k': [40, 40],
+          },
+          'r': {'a': 0, 'k': 0},
+        }),
+      );
+      final ellipseComp = FastLottieComposition.fromJson(
+        trimmedShape({
+          'ty': 'el',
+          'p': {
+            'a': 0,
+            'k': [32, 32],
+          },
+          's': {
+            'a': 0,
+            'k': [40, 40],
+          },
+        }),
+      );
+      expect(rectComp.contentKey, isNot(ellipseComp.contentKey));
 
-    final baseJson = fixture('static');
-    final stretchedJson = fixture('static');
-    stretchedJson['layers'][0]['sr'] = 2;
-    expect(
-      FastLottieComposition.fromJson(baseJson).contentKey,
-      isNot(FastLottieComposition.fromJson(stretchedJson).contentKey),
-    );
-  });
+      final baseJson = fixture('static');
+      final stretchedJson = fixture('static');
+      stretchedJson['layers'][0]['sr'] = 2;
+      expect(
+        FastLottieComposition.fromJson(baseJson).contentKey,
+        isNot(FastLottieComposition.fromJson(stretchedJson).contentKey),
+      );
+    },
+  );
 
   testWidgets(
     'memory-only worker registers scenes proactively and clear() resets lastError',

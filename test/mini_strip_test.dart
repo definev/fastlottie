@@ -4,7 +4,8 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:fastlottie/fastlottie.dart';
-import 'package:fastlottie/src/flutter/composition.dart' show CompositionPlayback;
+import 'package:fastlottie/src/flutter/composition.dart'
+    show CompositionPlayback;
 import 'package:fastlottie/src/worker/worker_pool.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -816,97 +817,91 @@ void main() {
     },
   );
 
-  test(
-    'worker strips clear only gutter rows without stale leaks and emit 64-bit fingerprints',
-    () async {
-      final comp = FastLottieComposition.fromJson(fixture('icon'));
-      const w = 32, h = 24, stripCount = 4;
-      final stripH = h * stripCount + (stripCount - 1);
-      final frameBytes = w * h * 4;
-      final rowBytes = w * 4;
+  test('worker strips clear only gutter rows without stale leaks and emit 64-bit fingerprints', () async {
+    final comp = FastLottieComposition.fromJson(fixture('icon'));
+    const w = 32, h = 24, stripCount = 4;
+    final stripH = h * stripCount + (stripCount - 1);
+    final frameBytes = w * h * 4;
+    final rowBytes = w * 4;
 
-      Future<({Uint8List bytes, int fpHi, int fpLo})> runStrip(
-        RasterWorkerPool<Completer<({Uint8List bytes, int fpHi, int fpLo})>>
-        pool,
-        String entryKey,
-        int count,
-        int width,
-        int height,
-      ) {
-        final done = Completer<({Uint8List bytes, int fpHi, int fpLo})>();
-        pool.dispatchStrip(
-          context: done,
-          shard: pool.shardForKey(entryKey),
-          dispatchedGen: 0,
-          scene: comp.sceneTemplate,
-          sourceBytes: null,
-          contentKey: comp.contentKey,
-          entryKey: entryKey,
-          stripStart: 0,
-          stripCount: count,
-          startFrame: comp.startFrame,
-          frameStep: 1.0,
-          width: width,
-          height: height,
-          totalFrames: comp.frameCount,
-          poster: false,
-        );
-        return done.future;
-      }
-
-      final listener = _StripTestListener();
-      final pool = RasterWorkerPool<
-        Completer<({Uint8List bytes, int fpHi, int fpLo})>
-      >(
-        listener: listener,
-        workerCount: 1,
-        maximumCompressedMemoryBytes: 4 * 1024 * 1024,
-        maximumDiskBytes: 0,
-        deduplicateImageUploads: true,
+    Future<({Uint8List bytes, int fpHi, int fpLo})> runStrip(
+      RasterWorkerPool<Completer<({Uint8List bytes, int fpHi, int fpLo})>> pool,
+      String entryKey,
+      int count,
+      int width,
+      int height,
+    ) {
+      final done = Completer<({Uint8List bytes, int fpHi, int fpLo})>();
+      pool.dispatchStrip(
+        context: done,
+        shard: pool.shardForKey(entryKey),
+        dispatchedGen: 0,
+        scene: comp.sceneTemplate,
+        sourceBytes: null,
+        contentKey: comp.contentKey,
+        entryKey: entryKey,
+        stripStart: 0,
+        stripCount: count,
+        startFrame: comp.startFrame,
+        frameStep: 1.0,
+        width: width,
+        height: height,
+        totalFrames: comp.frameCount,
+        poster: false,
       );
-      addTearDown(pool.dispose);
+      return done.future;
+    }
 
-      // Dirty the worker's persistent pixel buffer with a larger opaque frame first.
-      final dirty = await runStrip(pool, 'dirty_entry', 1, w, stripH);
-      expect(dirty.bytes.any((b) => b != 0), isTrue);
-
-      // Render a 4-frame strip cold, then warm from RAM cache.
-      final cold = await runStrip(pool, 'strip_entry', stripCount, w, h);
-      final warm = await runStrip(pool, 'strip_entry', stripCount, w, h);
-      expect(cold.bytes.length, rowBytes * stripH);
-      expect(cold.bytes, orderedEquals(warm.bytes));
-      expect(cold.fpHi != 0 || cold.fpLo != 0, isTrue);
-      expect((warm.fpHi, warm.fpLo), (cold.fpHi, cold.fpLo));
-
-      // Verify every 1px gutter row between slots is strictly transparent.
-      for (var j = 1; j < stripCount; j++) {
-        final padStart = (j * (h + 1) - 1) * rowBytes;
-        expect(
-          cold.bytes.sublist(padStart, padStart + rowBytes),
-          everyElement(0),
+    final listener = _StripTestListener();
+    final pool =
+        RasterWorkerPool<Completer<({Uint8List bytes, int fpHi, int fpLo})>>(
+          listener: listener,
+          workerCount: 1,
+          maximumCompressedMemoryBytes: 4 * 1024 * 1024,
+          maximumDiskBytes: 0,
+          deduplicateImageUploads: true,
         );
-      }
+    addTearDown(pool.dispose);
 
-      // Verify slot 0 matches a single-frame render byte-for-byte.
-      final single = await runStrip(pool, 'strip_entry', 1, w, h);
-      expect(cold.bytes.sublist(0, frameBytes), orderedEquals(single.bytes));
+    // Dirty the worker's persistent pixel buffer with a larger opaque frame first.
+    final dirty = await runStrip(pool, 'dirty_entry', 1, w, stripH);
+    expect(dirty.bytes.any((b) => b != 0), isTrue);
 
-      // Disabling upload deduplication suppresses worker fingerprints completely.
-      final disabledPool = RasterWorkerPool<
-        Completer<({Uint8List bytes, int fpHi, int fpLo})>
-      >(
-        listener: listener,
-        workerCount: 1,
-        maximumCompressedMemoryBytes: 4 * 1024 * 1024,
-        maximumDiskBytes: 0,
-        deduplicateImageUploads: false,
+    // Render a 4-frame strip cold, then warm from RAM cache.
+    final cold = await runStrip(pool, 'strip_entry', stripCount, w, h);
+    final warm = await runStrip(pool, 'strip_entry', stripCount, w, h);
+    expect(cold.bytes.length, rowBytes * stripH);
+    expect(cold.bytes, orderedEquals(warm.bytes));
+    expect(cold.fpHi != 0 || cold.fpLo != 0, isTrue);
+    expect((warm.fpHi, warm.fpLo), (cold.fpHi, cold.fpLo));
+
+    // Verify every 1px gutter row between slots is strictly transparent.
+    for (var j = 1; j < stripCount; j++) {
+      final padStart = (j * (h + 1) - 1) * rowBytes;
+      expect(
+        cold.bytes.sublist(padStart, padStart + rowBytes),
+        everyElement(0),
       );
-      addTearDown(disabledPool.dispose);
-      final noFp = await runStrip(disabledPool, 'no_fp', stripCount, w, h);
-      expect((noFp.fpHi, noFp.fpLo), (0, 0));
-      expect(noFp.bytes, orderedEquals(cold.bytes));
-    },
-  );
+    }
+
+    // Verify slot 0 matches a single-frame render byte-for-byte.
+    final single = await runStrip(pool, 'strip_entry', 1, w, h);
+    expect(cold.bytes.sublist(0, frameBytes), orderedEquals(single.bytes));
+
+    // Disabling upload deduplication suppresses worker fingerprints completely.
+    final disabledPool =
+        RasterWorkerPool<Completer<({Uint8List bytes, int fpHi, int fpLo})>>(
+          listener: listener,
+          workerCount: 1,
+          maximumCompressedMemoryBytes: 4 * 1024 * 1024,
+          maximumDiskBytes: 0,
+          deduplicateImageUploads: false,
+        );
+    addTearDown(disabledPool.dispose);
+    final noFp = await runStrip(disabledPool, 'no_fp', stripCount, w, h);
+    expect((noFp.fpHi, noFp.fpLo), (0, 0));
+    expect(noFp.bytes, orderedEquals(cold.bytes));
+  });
 }
 
 final class _StripTestListener

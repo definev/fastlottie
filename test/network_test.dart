@@ -281,4 +281,73 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  test('async source cache recreates deleted cache dir and ignores oversized entries', () async {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _PassthroughHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previous);
+
+    final tgsBytes = File(
+      'example/assets/tgs/Topics-1794247486249/file_4798662.tgs',
+    ).readAsBytesSync();
+    var httpHits = 0;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      httpHits++;
+      request.response.contentLength = tgsBytes.length;
+      request.response.add(tgsBytes);
+      await request.response.close();
+    });
+
+    final tempDir = Directory.systemTemp.createTempSync('fastlottie_net_io_');
+    addTearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+    final cachePath = '${tempDir.path}/nested_cache';
+    final uri = Uri.parse(
+      'http://${server.address.address}:${server.port}/recreate.tgs',
+    );
+
+    final first = await FastLottieComposition.fetchNetworkBytes(
+      uri,
+      sourceCacheDirectory: cachePath,
+    );
+    expect(first.fromDiskCache, isFalse);
+    expect(httpHits, 1);
+
+    final second = await FastLottieComposition.fetchNetworkBytes(
+      uri,
+      sourceCacheDirectory: cachePath,
+    );
+    expect(second.fromDiskCache, isTrue);
+    expect(second.bytes, tgsBytes);
+    expect(httpHits, 1);
+
+    // Externally deleting the cache directory must not break subsequent writes.
+    Directory(cachePath).deleteSync(recursive: true);
+    final third = await FastLottieComposition.fetchNetworkBytes(
+      uri,
+      sourceCacheDirectory: cachePath,
+    );
+    expect(third.fromDiskCache, isFalse);
+    expect(httpHits, 2);
+    expect(
+      (await FastLottieComposition.fetchNetworkBytes(
+        uri,
+        sourceCacheDirectory: cachePath,
+      )).fromDiskCache,
+      isTrue,
+    );
+
+    // An oversized cached file falls back to network and fails maximumBytes check.
+    await expectLater(
+      FastLottieComposition.fetchNetworkBytes(
+        uri,
+        sourceCacheDirectory: cachePath,
+        maximumBytes: tgsBytes.length - 1,
+      ),
+      throwsA(isA<FastLottieNetworkException>()),
+    );
+  });
 }

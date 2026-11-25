@@ -210,10 +210,8 @@ class _FastLottieState extends State<FastLottie>
   FastLottiePlayer? _playerInstance;
   FastLottiePlayer get _player => _playerInstance!;
   AnimationController? _controllerInstance;
-  AnimationController get _controller => _controllerInstance ??= AnimationController(
-    vsync: this,
-    duration: widget.composition.duration,
-  );
+  AnimationController get _controller => _controllerInstance ??=
+      AnimationController(vsync: this, duration: widget.composition.duration);
   late final _FrameRepaint _repaint;
   bool _reducedMotion = false;
   FastLottiePlayback _playback = FastLottiePlayback.active;
@@ -382,7 +380,8 @@ class _FastLottieState extends State<FastLottie>
       if (wasUsingDefault && !_usesDefaultPipeline) {
         DefaultRasterCacheScope.release();
       }
-      if (oldWidget.composition != widget.composition && _controllerInstance != null) {
+      if (oldWidget.composition != widget.composition &&
+          _controllerInstance != null) {
         _controllerInstance!.stop();
         _controllerInstance!.duration = widget.composition.duration;
         _controllerInstance!.value = 0;

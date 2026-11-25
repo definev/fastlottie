@@ -9,6 +9,7 @@ bool get isNetworkFetchSupported => true;
 
 HttpClient? _sharedHttpClient;
 int _tmpSeq = 0;
+final _createdCacheDirs = <String>{};
 
 HttpClient _borrowHttpClient() {
   if (HttpOverrides.current == null) {
@@ -77,16 +78,19 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
   if (cachePath != null) {
     try {
       final cachedFile = File(cachePath);
-      if (cachedFile.existsSync()) {
-        final len = cachedFile.lengthSync();
-        if (len > 0 && len <= maximumBytes) {
-          final bytes = await cachedFile.readAsBytes();
-          if (cancelToken?.isCancelled ?? false) {
-            throw const FastLottieNetworkCancelledException();
-          }
-          if (bytes.isNotEmpty && bytes.length <= maximumBytes) {
-            return FastLottieNetworkFetchResult(bytes, fromDiskCache: true);
-          }
+      final stat = await cachedFile.stat();
+      if (cancelToken?.isCancelled ?? false) {
+        throw const FastLottieNetworkCancelledException();
+      }
+      if (stat.type == FileSystemEntityType.file &&
+          stat.size > 0 &&
+          stat.size <= maximumBytes) {
+        final bytes = await cachedFile.readAsBytes();
+        if (cancelToken?.isCancelled ?? false) {
+          throw const FastLottieNetworkCancelledException();
+        }
+        if (bytes.isNotEmpty && bytes.length <= maximumBytes) {
+          return FastLottieNetworkFetchResult(bytes, fromDiskCache: true);
         }
       }
     } on FileSystemException {
@@ -202,22 +206,30 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
 
     final bytes = await done.future;
     if (cachePath != null && bytes.isNotEmpty) {
+      final dirPath = sourceCacheDirectory!;
+      final tmpPath = '$cachePath.tmp.$pid.${++_tmpSeq}';
+      final tmpFile = File(tmpPath);
       try {
-        final dir = Directory(sourceCacheDirectory!);
-        if (!dir.existsSync()) dir.createSync(recursive: true);
-        final tmpPath = '$cachePath.tmp.$pid.${++_tmpSeq}';
-        final tmpFile = File(tmpPath);
-        await tmpFile.writeAsBytes(bytes, flush: false);
+        if (_createdCacheDirs.add(dirPath)) {
+          await Directory(dirPath).create(recursive: true);
+        }
         try {
-          tmpFile.renameSync(cachePath);
+          await tmpFile.writeAsBytes(bytes, flush: false);
+        } on PathNotFoundException {
+          await Directory(dirPath).create(recursive: true);
+          await tmpFile.writeAsBytes(bytes, flush: false);
+        }
+        try {
+          await tmpFile.rename(cachePath);
         } on FileSystemException {
-          if (tmpFile.existsSync()) {
-            try {
-              tmpFile.deleteSync();
-            } catch (_) {}
+          try {
+            await tmpFile.delete();
+          } on FileSystemException {
+            // Ignore non-fatal temp file cleanup errors.
           }
         }
       } on FileSystemException {
+        _createdCacheDirs.remove(dirPath);
         // Ignore non-fatal cache write errors.
       }
     }
@@ -241,15 +253,18 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
 
 Future<void> platformClearNetworkCacheDirectory(String directoryPath) async {
   if (directoryPath.isEmpty) return;
+  _createdCacheDirs.remove(directoryPath);
   try {
     final dir = Directory(directoryPath);
-    if (!dir.existsSync()) return;
-    for (final entity in dir.listSync(followLinks: false)) {
+    if (!await dir.exists()) return;
+    await for (final entity in dir.list(followLinks: false)) {
       if (entity is File &&
           (entity.path.endsWith('.tgsbin') || entity.path.contains('.tmp.'))) {
         try {
-          entity.deleteSync();
-        } catch (_) {}
+          await entity.delete();
+        } on FileSystemException {
+          // Ignore files already deleted concurrently.
+        }
       }
     }
   } on FileSystemException {

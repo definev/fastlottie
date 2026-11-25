@@ -563,8 +563,9 @@ class _Layer {
         // Using worldBounds here applies those transforms a second time.
         final base =
             combined ??
-            (Path()
-              ..addRect(localBounds ??= _localContentBounds(frame) ?? Rect.largest));
+            (Path()..addRect(
+              localBounds ??= _localContentBounds(frame) ?? Rect.largest,
+            ));
         combined = Path.combine(PathOperation.difference, base, p);
       } else if (m.mode == 'i' && !m.inverted) {
         combined = combined == null

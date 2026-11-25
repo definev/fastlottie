@@ -183,7 +183,12 @@ void main() {
     });
     final frames = makeFrames(sparse: false);
     final scratch = Lz4Scratch();
-    final key = formatBitstreamEntryKey('shared_key', width, height, totalFrames);
+    final key = formatBitstreamEntryKey(
+      'shared_key',
+      width,
+      height,
+      totalFrames,
+    );
 
     final store1 = BitstreamStore(diskCacheDirectory: tempDir.path);
     store1.storeFrame(
@@ -217,17 +222,20 @@ void main() {
     expect(store2.recoveredCorruptions, 0);
   });
 
-  test('BitstreamStore retries tile promotion after partial page completes', () {
-    final store = BitstreamStore(maximumRamBytes: 512 * 1024);
-    addTearDown(store.dispose);
-    final denseFrames = makeFrames(sparse: false);
-    final sparseFrames = makeFrames(sparse: true);
-    // Store two incompatible frames first so partial page build returns null,
-    // then replace with a complete sparse 4-frame window.
-    storeFrames(store, [denseFrames[0], denseFrames[1]], [0, 1]);
-    expect(prepare(store, 0), isFalse);
+  test(
+    'BitstreamStore retries tile promotion after partial page completes',
+    () {
+      final store = BitstreamStore(maximumRamBytes: 512 * 1024);
+      addTearDown(store.dispose);
+      final denseFrames = makeFrames(sparse: false);
+      final sparseFrames = makeFrames(sparse: true);
+      // Store two incompatible frames first so partial page build returns null,
+      // then replace with a complete sparse 4-frame window.
+      storeFrames(store, [denseFrames[0], denseFrames[1]], [0, 1]);
+      expect(prepare(store, 0), isFalse);
 
-    storeFrames(store, sparseFrames, [0, 1, 2, 3]);
-    expect(prepare(store, 0), isTrue);
-  });
+      storeFrames(store, sparseFrames, [0, 1, 2, 3]);
+      expect(prepare(store, 0), isTrue);
+    },
+  );
 }

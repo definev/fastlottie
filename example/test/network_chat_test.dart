@@ -14,8 +14,8 @@ import 'package:fastlottie_example/tgs/pack_assets.dart';
 import 'package:fastlottie_example/tgs/sheet.dart';
 import 'package:fastlottie_example/tgs/store.dart';
 // Keep compatible with Flutter versions before the cupertino_ui split.
-// ignore: deprecated_member_use
-import 'package:flutter/cupertino.dart';
+
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/services.dart';
@@ -1945,6 +1945,141 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 50)),
       );
       await tester.pump();
+    },
+  );
+
+  testWidgets(
+    'InlineNetworkSticker and HeroNetworkSticker defer uncached loads and pause hero animation during fastFling',
+    (tester) async {
+      var fetchCount = 0;
+      final store = NetworkTgsStore(
+        framePaced: false,
+        fetcher: (uri, {cancelToken, sourceCacheDirectory}) async {
+          fetchCount++;
+          return FastLottieNetworkFetchResult(
+            Uint8List(4),
+            fromDiskCache: true,
+          );
+        },
+        decoder: (_, _) async => _dummyModel(),
+      );
+      final rasterCache = FastLottieRasterCache(
+        framesPerStrip: 1,
+        maximumBytes: 1 << 20,
+      );
+      final emojiItem = TgsRemoteItem(
+        id: 'NotoEmoji/fling_emoji.tgs',
+        packId: 'NotoEmoji',
+        packTitle: 'Noto Emoji',
+        fileName: 'fling_emoji.tgs',
+        kind: TgsItemKind.emoji,
+        relativePath: '/tgs/NotoEmoji/fling_emoji.tgs',
+        uri: Uri.parse('http://localhost/tgs/NotoEmoji/fling_emoji.tgs'),
+        bytes: 16,
+        label: 'Fling Emoji',
+      );
+      final heroItem = TgsRemoteItem(
+        id: 'Pack/fling_hero.tgs',
+        packId: 'Pack',
+        packTitle: 'Pack',
+        fileName: 'fling_hero.tgs',
+        kind: TgsItemKind.sticker,
+        relativePath: '/tgs/Pack/fling_hero.tgs',
+        uri: Uri.parse('http://localhost/tgs/Pack/fling_hero.tgs'),
+        bytes: 32,
+        label: 'Fling Hero',
+      );
+      final sheet = StickerSheet(
+        assets: [emojiItem.urlString],
+        pixelSize: 64,
+        store: store,
+        rasterCache: rasterCache,
+        frameRate: 30,
+      );
+      final clock = StickerClock()
+        ..configure(playing: true, reducedMotion: false, maximumFrameRate: 30);
+      final fastFling = ValueNotifier<bool>(true);
+      addTearDown(() {
+        fastFling.dispose();
+        clock.dispose();
+        sheet.dispose();
+        rasterCache.dispose();
+        store.dispose();
+      });
+
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: Column(
+            children: [
+              InlineNetworkSticker(
+                item: emojiItem,
+                sheet: sheet,
+                clock: clock,
+                store: store,
+                renderer: ChatRendererMode.fastlottie,
+                still: false,
+                fastFling: fastFling,
+              ),
+              HeroNetworkSticker(
+                item: heroItem,
+                store: store,
+                renderer: ChatRendererMode.fastlottie,
+                placeholderColor: CupertinoColors.systemGrey,
+                borderColor: CupertinoColors.systemGrey2,
+                accentColor: CupertinoColors.activeBlue,
+                secondaryTextColor: CupertinoColors.secondaryLabel,
+                fastFling: fastFling,
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // While fastFling is active, newly entering uncached items do not start store fetches.
+      expect(fetchCount, 0);
+      expect(sheet.playerFor(emojiItem.urlString), isNull);
+      expect(find.byType(FastLottie), findsNothing);
+
+      // Settling the fling immediately triggers pin + hero load.
+      fastFling.value = false;
+      await tester.pump();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+
+      expect(fetchCount, 2);
+      expect(sheet.playerFor(emojiItem.urlString), isNotNull);
+      expect(find.byType(FastLottie), findsOneWidget);
+      expect(
+        tester.widget<FastLottie>(find.byType(FastLottie)).animate,
+        isTrue,
+      );
+
+      // Starting another fast fling keeps existing pins and mounted FastLottie intact,
+      // pausing Hero animation without unmounting it.
+      fastFling.value = true;
+      await tester.pump();
+
+      expect(sheet.playerFor(emojiItem.urlString), isNotNull);
+      expect(find.byType(FastLottie), findsOneWidget);
+      expect(
+        tester.widget<FastLottie>(find.byType(FastLottie)).animate,
+        isFalse,
+      );
+
+      // Settling again resumes Hero playback.
+      fastFling.value = false;
+      await tester.pump();
+
+      expect(find.byType(FastLottie), findsOneWidget);
+      expect(
+        tester.widget<FastLottie>(find.byType(FastLottie)).animate,
+        isTrue,
+      );
+
+      await tester.pumpWidget(const SizedBox());
     },
   );
 }

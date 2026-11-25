@@ -423,72 +423,72 @@ void main() {
     await compare(doc, [0.0, 30.0]);
   });
 
-  test('mask with 50% opacity on transformed layer uses local saveLayer bounds', () async {
-    final doc = {
-      'v': '5.5.2',
-      'fr': 60,
-      'ip': 0,
-      'op': 60,
-      'w': 256,
-      'h': 256,
-      'layers': [
-        {
-          'ty': 4,
-          'ip': 0,
-          'op': 60,
-          'st': 0,
-          'ks': {
-            'o': constant(100),
-            'r': constant(25),
-            'p': constant([135, 125]),
-            'a': constant([40, 40]),
-            's': constant([120, 120]),
-          },
-          'hasMask': true,
-          'masksProperties': [
-            maskObject(
-              pt: constant(maskPathRect(10, 10, 60, 60)),
-              mode: 'a',
-              o: constant(55),
-            ),
-          ],
-          'shapes': [
-            {
-              'ty': 'rc',
-              'p': constant([40, 40]),
-              's': constant([80, 80]),
-              'r': constant(8),
+  test(
+    'mask with 50% opacity on transformed layer uses local saveLayer bounds',
+    () async {
+      final doc = {
+        'v': '5.5.2',
+        'fr': 60,
+        'ip': 0,
+        'op': 60,
+        'w': 256,
+        'h': 256,
+        'layers': [
+          {
+            'ty': 4,
+            'ip': 0,
+            'op': 60,
+            'st': 0,
+            'ks': {
+              'o': constant(100),
+              'r': constant(25),
+              'p': constant([135, 125]),
+              'a': constant([40, 40]),
+              's': constant([120, 120]),
             },
-            fill([0.2, 0.6, 0.9]),
-          ],
-        },
-      ],
-    };
-    await compare(doc, [0.0, 15.0, 30.0]);
-  });
+            'hasMask': true,
+            'masksProperties': [
+              maskObject(
+                pt: constant(maskPathRect(10, 10, 60, 60)),
+                mode: 'a',
+                o: constant(55),
+              ),
+            ],
+            'shapes': [
+              {
+                'ty': 'rc',
+                'p': constant([40, 40]),
+                's': constant([80, 80]),
+                'r': constant(8),
+              },
+              fill([0.2, 0.6, 0.9]),
+            ],
+          },
+        ],
+      };
+      await compare(doc, [0.0, 15.0, 30.0]);
+    },
+  );
 
-  test('cached static combined masks match reference across animated layer frames', () async {
-    final doc = shapeSceneWithMask(
-      masks: [
-        maskObject(
-          pt: constant(maskPathRect(40, 40, 160, 160)),
-          mode: 'a',
-        ),
-        maskObject(
-          pt: constant(maskPathRect(95, 95, 60, 60)),
-          mode: 's',
-        ),
-      ],
-      shape: {
-        'ty': 'rc',
-        'p': animated([110, 128], [146, 128]),
-        's': constant([160, 160]),
-        'r': constant(12),
-      },
-      paint: fill([0.9, 0.4, 0.1]),
-    );
-    await compare(doc, [0.0, 15.0, 45.0, 15.0]);
-  });
+  test(
+    'cached static combined masks match reference across animated layer frames',
+    () async {
+      final doc = shapeSceneWithMask(
+        masks: [
+          maskObject(pt: constant(maskPathRect(40, 40, 160, 160)), mode: 'a'),
+          maskObject(pt: constant(maskPathRect(95, 95, 60, 60)), mode: 's'),
+        ],
+        shape: {
+          'ty': 'rc',
+          'p': animated([110, 128], [146, 128]),
+          's': constant([160, 160]),
+          'r': constant(12),
+        },
+        paint: fill([0.9, 0.4, 0.1]),
+      );
+      await compare(doc, [0.0, 15.0, 45.0, 15.0]);
+    },
+  );
 
   test('cached static expanded mask on Canvas matches software rasterizer across frames', () async {
     final doc = shapeSceneWithMask(
@@ -535,7 +535,8 @@ void main() {
         final cb = canvasRgba[p * 4 + 2];
         final ca = canvasRgba[p * 4 + 3];
         final sp = swPixels[p];
-        diffSum += (ca - (sp >>> 24)).abs() +
+        diffSum +=
+            (ca - (sp >>> 24)).abs() +
             (cr - ((sp >>> 16) & 0xff)).abs() +
             (cg - ((sp >>> 8) & 0xff)).abs() +
             (cb - (sp & 0xff)).abs();
