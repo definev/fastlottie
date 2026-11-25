@@ -93,13 +93,7 @@ class ChatMessage {
     if (cached != null) return cached;
     final rawText = text;
     if (rawText == null || rawText.isEmpty) return const {};
-    final result = <int, (int, TgsRemoteItem)>{};
-    for (final match in catalog.richMessageRegex.allMatches(rawText)) {
-      if (catalog.findItem(match[0]!) case final item?) {
-        result[match.start] = (match.end - match.start, item);
-      }
-    }
-    return _inlineItemsExpando[this] = result;
+    return _inlineItemsExpando[this] = catalog.extractInlineItems(rawText);
   }
 
   ChatMessage withReloadEpoch(int nextEpoch) => sticker != null
@@ -139,6 +133,9 @@ List<InlineSpan> _buildStaticEmojiTextSpans(
   double emojiBoxSize,
 ) {
   if (text.isEmpty) return const [];
+  if (!TgsRemoteCatalog.containsNonAscii(text)) {
+    return [TextSpan(text: text, style: baseStyle)];
+  }
   final matches = unicodeEmojiRegex.allMatches(text);
   if (matches.isEmpty) {
     return [TextSpan(text: text, style: baseStyle)];
@@ -232,8 +229,11 @@ class EmojiComposerController extends TextEditingController {
     if (!TgsRemoteCatalog.couldContainEmojiOrShortcode(sourceText)) {
       return sourceText;
     }
+    final pattern = TgsRemoteCatalog.containsNonAscii(sourceText)
+        ? cat.emojiAndShortcodeRegex
+        : TgsRemoteCatalog.shortcodeRegex;
     final emojis = cat.emojis;
-    return sourceText.replaceAllMapped(cat.emojiAndShortcodeRegex, (match) {
+    return sourceText.replaceAllMapped(pattern, (match) {
       final token = match.group(0)!;
       final item = cat.findItem(token);
       if (item != null) {
@@ -400,7 +400,10 @@ class EmojiShortcodeTextInputFormatter extends TextInputFormatter {
       return newValue;
     }
 
-    final matches = catalog.emojiAndShortcodeRegex.allMatches(text).toList();
+    final pattern = TgsRemoteCatalog.containsNonAscii(text)
+        ? catalog.emojiAndShortcodeRegex
+        : TgsRemoteCatalog.shortcodeRegex;
+    final matches = pattern.allMatches(text).toList();
     if (matches.isEmpty) {
       return newValue;
     }
@@ -1306,11 +1309,9 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
         if (posters.length >= 6) break;
         continue;
       }
-      final text = message.text;
-      if (text == null) continue;
-      for (final token in catalog.richMessageRegex.allMatches(text)) {
-        final item = catalog.findItem(token.group(0)!);
-        if (item?.poster case final poster?) {
+      if (message.text == null || message.text!.isEmpty) continue;
+      for (final (_, item) in message.resolveInlineItems(catalog).values) {
+        if (item.poster case final poster?) {
           posters.add(poster);
         }
         if (posters.length >= 6) break;
@@ -1362,15 +1363,16 @@ class _CupertinoChatScreenState extends State<CupertinoChatScreen>
     final inlineItems = <int, (int, TgsRemoteItem)>{};
     final catalog = _catalog;
     var cursor = 0;
-    for (final match
-        in catalog?.richMessageRegex.allMatches(raw) ?? const <RegExpMatch>[]) {
-      final item = catalog?.findItem(match[0]!);
-      if (item == null) continue;
-      text.write(raw.substring(cursor, match.start));
+    final references = catalog == null
+        ? const <int, (int, TgsRemoteItem)>{}
+        : catalog.extractInlineItems(raw);
+    for (final MapEntry(key: start, value: (length, item))
+        in references.entries) {
+      text.write(raw.substring(cursor, start));
       final label = item.shortcode ?? item.unicode ?? item.label;
       inlineItems[text.length] = (label.length, item);
       text.write(label);
-      cursor = match.end;
+      cursor = start + length;
     }
     text.write(raw.substring(cursor));
     _composerController.clear();
@@ -2820,6 +2822,9 @@ class _ChatMessageRow extends StatelessWidget {
     Color placeholderColor,
   ) {
     final references = message.resolveInlineItems(catalog);
+    if (references.isEmpty && !TgsRemoteCatalog.containsNonAscii(text)) {
+      return (spans: [TextSpan(text: text)], isJumboEmojiOnly: false);
+    }
     final tokens =
         <({TgsRemoteItem? item, String? text, String? staticEmoji})>[];
     var emojiOnly = true;
@@ -2827,6 +2832,11 @@ class _ChatMessageRow extends StatelessWidget {
 
     void appendTextGap(String gap) {
       if (gap.isEmpty) return;
+      if (!TgsRemoteCatalog.containsNonAscii(gap)) {
+        if (gap.trim().isNotEmpty) emojiOnly = false;
+        tokens.add((item: null, text: gap, staticEmoji: null));
+        return;
+      }
       var gapCursor = 0;
       for (final match in unicodeEmojiRegex.allMatches(gap)) {
         if (match.start > gapCursor) {

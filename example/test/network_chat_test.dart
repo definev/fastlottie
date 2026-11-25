@@ -2082,4 +2082,51 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  test('TgsRemoteCatalog fast paths preserve ASCII, PUA, shortcode, uncovered BMP, and ZWJ emoji matching', () async {
+    final server = await LocalTgsServer.startFromDirectoryPath('assets/tgs');
+    addTearDown(() => server.close(force: true));
+    final catalog = server.catalog;
+
+    // Pure ASCII skips regex and resolves nothing.
+    expect(TgsRemoteCatalog.containsNonAscii('Plain ASCII 123!'), isFalse);
+    expect(catalog.extractInlineItems('Plain ASCII 123!'), isEmpty);
+
+    // Pure PUA + ASCII resolves exact offsets via O(N) linear scan.
+    final puaText = 'A\uE000 \uE005B';
+    final puaItems = catalog.extractInlineItems(puaText);
+    expect(puaItems.keys.toList(), [1, 3]);
+    expect(puaItems[1], (1, catalog.emojis[0]));
+    expect(puaItems[3], (1, catalog.emojis[5]));
+
+    // Mixed shortcodes & PUA + ASCII.
+    final scItems = catalog.extractInlineItems('Hi :smile: and \uE002!');
+    expect(scItems.length, 2);
+    expect(scItems[3]?.$2, catalog.shortcodeMap[':smile:']);
+    expect(scItems[15]?.$2, catalog.emojis[2]);
+
+    // Uncovered BMP symbols (without U+FE0F), ZWJ sequences, and standard emojis.
+    const bmpSample = '❤ ❤‍🔥 ✌ © ® ‼ 😀 ❤️‍🔥';
+    final bmpItems = catalog.extractInlineItems(bmpSample);
+    final resolvedEmojis = bmpItems.values.map((e) => e.$2.unicode).toList();
+    expect(resolvedEmojis, [
+      '❤️',
+      '❤️\u200D🔥',
+      '✌️',
+      '©️',
+      '®️',
+      '‼️',
+      '😀',
+      '❤️\u200D🔥',
+    ]);
+
+    // Missing compound ZWJ/tag emojis must still not split on their Noto prefix.
+    expect(
+      catalog.extractInlineItems('🐻\u200D❄️ 🏳️\u200D🌈 🍋\u200D🟩'),
+      isEmpty,
+    );
+    expect(catalog.toShortcodeText('Plain ASCII 123!'), 'Plain ASCII 123!');
+    expect(catalog.toShortcodeText('Hi :smile:'), 'Hi :smile:');
+    expect(catalog.toShortcodeText('A❤B'), 'A:red_heart:B');
+  });
 }

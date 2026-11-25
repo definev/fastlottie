@@ -3124,33 +3124,122 @@ class TgsRemoteCatalog {
   final Map<String, TgsRemoteItem> shortcodeMap;
   final Map<String, TgsRemoteItem> unicodeMap;
 
+  /// Matches shortcodes (`:smile:`).
+  static final RegExp shortcodeRegex = RegExp(r':[a-z0-9_]+:');
+
+  /// Matches only shortcodes (`:smile:`) and single-unit PUA emoji tokens (`\uE000`).
+  static final RegExp shortcodeOrPuaRegex = RegExp(
+    r':[a-z0-9_]+:|[\uE000-\uF8FF]',
+  );
+
+  /// Fast check if [text] contains any non-ASCII code unit.
+  static bool containsNonAscii(String text) {
+    final len = text.length;
+    for (var i = 0; i < len; i++) {
+      if (text.codeUnitAt(i) > 127) return true;
+    }
+    return false;
+  }
+
+  /// Classifies [text] in a single O(n) pass over UTF-16 code units.
+  static ({bool hasColon, bool hasPua, bool hasOtherNonAscii}) scanRichText(
+    String text,
+  ) {
+    var hasColon = false;
+    var hasPua = false;
+    var hasOtherNonAscii = false;
+    final len = text.length;
+    for (var i = 0; i < len; i++) {
+      final code = text.codeUnitAt(i);
+      if (code == 0x3A) {
+        hasColon = true;
+      } else if (code >= 0xE000 && code <= 0xF8FF) {
+        hasPua = true;
+      } else if (code > 127) {
+        hasOtherNonAscii = true;
+      }
+      if (hasColon && hasPua && hasOtherNonAscii) break;
+    }
+    return (
+      hasColon: hasColon,
+      hasPua: hasPua,
+      hasOtherNonAscii: hasOtherNonAscii,
+    );
+  }
+
   late final RegExp emojiAndShortcodeRegex = _buildEmojiAndShortcodeRegex();
   late final RegExp richMessageRegex = _buildRichMessageRegex();
 
+  /// Returns only `unicodeMap` keys not already completely matched by
+  /// [unicodeEmojiRegex] (e.g. text-presentation BMP symbols without U+FE0F),
+  /// cutting the regex alternation count from ~1,760 down to ~37.
+  List<String> _uncoveredEmojiPatterns() {
+    final extra = <String>[];
+    for (final key in unicodeMap.keys) {
+      final m = unicodeEmojiRegex.firstMatch(key);
+      if (m == null || m.start != 0 || m.end != key.length) {
+        extra.add(key);
+      }
+    }
+    extra.sort((a, b) => b.length.compareTo(a.length));
+    return extra;
+  }
+
   RegExp _buildEmojiAndShortcodeRegex() {
-    final emojiPatterns = unicodeMap.keys.toList()
-      ..sort((a, b) => b.length.compareTo(a.length));
-    final escapedEmojis = emojiPatterns.map(RegExp.escape).join('|');
-    if (escapedEmojis.isEmpty) {
+    if (unicodeMap.isEmpty) {
       return RegExp(r':[a-z0-9_]+:', unicode: true);
     }
+    final extra = _uncoveredEmojiPatterns();
+    final tail = extra.isEmpty ? '' : '|${extra.map(RegExp.escape).join('|')}';
     return RegExp(
-      ':[a-z0-9_]+:|${unicodeEmojiRegex.pattern}|$escapedEmojis',
+      ':[a-z0-9_]+:|${unicodeEmojiRegex.pattern}$tail',
       unicode: true,
     );
   }
 
   RegExp _buildRichMessageRegex() {
-    final emojiPatterns = unicodeMap.keys.toList()
-      ..sort((a, b) => b.length.compareTo(a.length));
-    final escapedEmojis = emojiPatterns.map(RegExp.escape).join('|');
-    if (escapedEmojis.isEmpty) {
+    if (unicodeMap.isEmpty) {
       return RegExp(r':[a-z0-9_]+:|[\uE000-\uF8FF]', unicode: true);
     }
+    final extra = _uncoveredEmojiPatterns();
+    final tail = extra.isEmpty ? '' : '|${extra.map(RegExp.escape).join('|')}';
     return RegExp(
-      ':[a-z0-9_]+:|[\uE000-\uF8FF]|${unicodeEmojiRegex.pattern}|$escapedEmojis',
+      ':[a-z0-9_]+:|[\uE000-\uF8FF]|${unicodeEmojiRegex.pattern}$tail',
       unicode: true,
     );
+  }
+
+  /// Resolves every inline custom-emoji offset in [text] without compiling or
+  /// executing heavyweight Unicode regexes when [text] only contains ASCII,
+  /// shortcodes, or PUA tokens.
+  Map<int, (int, TgsRemoteItem)> extractInlineItems(String text) {
+    if (text.isEmpty || emojis.isEmpty) return const {};
+    final scan = scanRichText(text);
+    if (!scan.hasColon && !scan.hasPua && !scan.hasOtherNonAscii) {
+      return const {};
+    }
+    final result = <int, (int, TgsRemoteItem)>{};
+    if (!scan.hasColon && !scan.hasOtherNonAscii) {
+      // Pure PUA + ASCII fast path (no RegExp).
+      final len = text.length;
+      final count = emojis.length;
+      for (var i = 0; i < len; i++) {
+        final idx = text.codeUnitAt(i) - 0xE000;
+        if (idx >= 0 && idx < count) {
+          result[i] = (1, emojis[idx]);
+        }
+      }
+      return result;
+    }
+    final pattern = scan.hasOtherNonAscii
+        ? richMessageRegex
+        : shortcodeOrPuaRegex;
+    for (final match in pattern.allMatches(text)) {
+      if (findItem(match[0]!) case final item?) {
+        result[match.start] = (match.end - match.start, item);
+      }
+    }
+    return result;
   }
 
   /// Finds a matching [TgsRemoteItem] by shortcode (`:smile:`), PUA token (`\uE000`),
@@ -3195,7 +3284,7 @@ class TgsRemoteCatalog {
     final expanded = buf.toString();
     if (!expanded.contains(':')) return expanded;
     // 2. Expand shortcodes to Unicode if available
-    return expanded.replaceAllMapped(RegExp(r':[a-z0-9_]+:'), (match) {
+    return expanded.replaceAllMapped(shortcodeRegex, (match) {
       final token = match.group(0)!;
       final item = shortcodeMap[token];
       return item?.unicode ?? token;
@@ -3224,6 +3313,7 @@ class TgsRemoteCatalog {
     if (unicodeMap.isEmpty || !couldContainEmojiOrShortcode(expanded)) {
       return expanded;
     }
+    if (!containsNonAscii(expanded)) return expanded;
     return expanded.replaceAllMapped(emojiAndShortcodeRegex, (match) {
       final token = match.group(0)!;
       if (token.startsWith(':')) return token;
@@ -3233,13 +3323,8 @@ class TgsRemoteCatalog {
   }
 
   /// Fast check if [text] could potentially contain a shortcode or Unicode emoji.
-  static bool couldContainEmojiOrShortcode(String text) {
-    if (text.contains(':')) return true;
-    for (var i = 0; i < text.length; i++) {
-      if (text.codeUnitAt(i) > 127) return true;
-    }
-    return false;
-  }
+  static bool couldContainEmojiOrShortcode(String text) =>
+      text.contains(':') || containsNonAscii(text);
 
   List<TgsRemotePack> get stickerPacks =>
       packs.where((p) => p.kind == TgsItemKind.sticker).toList(growable: false);

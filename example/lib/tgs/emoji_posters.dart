@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'network_server_types.dart';
 import 'pack_assets.dart';
 
-const _maximumIdleBytes = 384 * 1024;
+const _maximumIdleBytes = 2 * 1024 * 1024;
 const _maximumConcurrentDecodes = 2;
 
 /// Shares one decoded poster and in-flight decode per media URL.
