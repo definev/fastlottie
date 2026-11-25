@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show compare, render;
 import 'path_ops_test.dart' show animated, constant, fill;
+import 'tgs_fixtures.dart';
 
 Map<String, dynamic> maskPathRect(
   double x,
@@ -556,7 +557,7 @@ void main() {
       'emoji_u1f37e',
       'emoji_u1f483',
     ]) {
-      final file = File('example/assets/tgs/NotoEmoji/$name.tgs');
+      final file = File('$tgsCorpusPath/NotoEmoji/$name.tgs');
       if (file.existsSync()) {
         final raw = decodeLottieBytes(file.readAsBytesSync());
         final doc = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;

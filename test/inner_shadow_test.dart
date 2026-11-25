@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'fastlottie_test.dart' show render;
 import 'mask_test.dart' show solidSceneWithMask;
 import 'path_ops_test.dart' show constant, fill, rectangle, scene;
+import 'tgs_fixtures.dart';
 
 const _rect = ui.Rect.fromLTWH(0, 0, 256, 256);
 
@@ -86,7 +87,7 @@ void main() {
 
   for (final code in ['1f607', '1f623', '1f631']) {
     test('renders original Noto sticker $code', () async {
-      final bytes = File('example/assets/tgs/NotoEmoji/emoji_u$code.tgs')
+      final bytes = File('$tgsCorpusPath/NotoEmoji/emoji_u$code.tgs')
           .readAsBytesSync();
       final comp = await FastLottieComposition.fromBytesAsync(bytes);
       final software = FastLottieSoftwareSession(

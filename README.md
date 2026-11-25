@@ -86,15 +86,7 @@ the C Wasm kernels in JavaScript builds. Flutter `--wasm` keeps inline
 rasterization in Dart by default. Use `enableOnDartWasm: true` only to opt into
 the inline C kernel path. Worker acceleration is independent of this setting.
 
-To run the Cupertino sticker chat:
+See the [package example](example/README.md) for a minimal Flutter integration.
+Run `flutter analyze` and `flutter test` from the package root.
 
-```sh
-cd example
-flutter run -d macos
-```
-
-See the [example guide](example/README.md) for the local TGS server, renderer
-comparison, and other entry points. For development, run `flutter analyze`
-and `flutter test` from the root, and `flutter test` from `example/`.
-
-[RAM/performance tuning guide](docs/memory-performance-guide.md) · [Architecture](docs/architecture.md) · [Benchmarks](docs/benchmarks.md)
+[Architecture](docs/architecture.md) · [Cache settings](docs/lod-cache.md)

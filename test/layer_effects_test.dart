@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show fixture, render;
 import 'path_ops_test.dart' show animated, constant, fill, rectangle;
+import 'tgs_fixtures.dart';
 
 const _bounds = ui.Rect.fromLTWH(0, 0, 256, 256);
 
@@ -179,7 +180,7 @@ void main() {
     ('1f4bb', [0, 14, 20, 45, 92, 94, 120, 145]),
   ]) {
     test('Canvas and software render original sticker $code', () async {
-      final bytes = File('example/assets/tgs/NotoEmoji/emoji_u$code.tgs')
+      final bytes = File('$tgsCorpusPath/NotoEmoji/emoji_u$code.tgs')
           .readAsBytesSync();
       final comp = await FastLottieComposition.fromBytesAsync(bytes);
       final player = FastLottiePlayer(comp, cache: FastLottieCache.none);

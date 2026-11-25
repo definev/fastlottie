@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show render;
 import 'path_ops_test.dart' show animated, constant, fill;
+import 'tgs_fixtures.dart';
 
 Map<String, dynamic> rectShape({
   required double x,
@@ -348,15 +349,14 @@ void main() {
 
   test('real TGS stickers with merge paths compile and render', () async {
     final sampleStickers = [
-      'example/assets/tgs/NotoEmoji/emoji_u1f192.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u1f30b.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u1f345.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u1f60a.tgs',
-      'example/assets/tgs/NotoEmoji/emoji_u1f614.tgs',
+      '$tgsCorpusPath/NotoEmoji/emoji_u1f192.tgs',
+      '$tgsCorpusPath/NotoEmoji/emoji_u1f30b.tgs',
+      '$tgsCorpusPath/NotoEmoji/emoji_u1f345.tgs',
+      '$tgsCorpusPath/NotoEmoji/emoji_u1f60a.tgs',
+      '$tgsCorpusPath/NotoEmoji/emoji_u1f614.tgs',
     ];
     for (final path in sampleStickers) {
       final file = File(path);
-      if (!file.existsSync()) continue;
       final bytes = file.readAsBytesSync();
       final comp = FastLottieComposition.fromBytes(bytes);
       final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
@@ -372,8 +372,7 @@ void main() {
   testWidgets(
     'background worker isolate rasterizes merge path stickers without UI isolate error',
     (tester) async {
-      final file = File('example/assets/tgs/NotoEmoji/emoji_u1f345.tgs');
-      if (!file.existsSync()) return;
+      final file = File('$tgsCorpusPath/NotoEmoji/emoji_u1f345.tgs');
       final comp = FastLottieComposition.fromBytes(file.readAsBytesSync());
 
       final cache = FastLottieRasterCache(

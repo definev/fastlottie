@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show render;
 import 'path_ops_test.dart' show animated, constant, fill;
+import 'tgs_fixtures.dart';
 
 Map<String, dynamic> solidLayer({
   required int index,
@@ -385,17 +386,16 @@ void main() {
     'All newly supported TGS stickers with blend modes compile and render',
     () async {
       final bmStickers = [
-        'example/assets/tgs/NotoEmoji/emoji_u1f389.tgs',
-        'example/assets/tgs/NotoEmoji/emoji_u1f393.tgs',
-        'example/assets/tgs/NotoEmoji/emoji_u1f3c1.tgs',
-        'example/assets/tgs/NotoEmoji/emoji_u1f3f3_fe0f.tgs',
-        'example/assets/tgs/NotoEmoji/emoji_u1f3f4.tgs',
-        'example/assets/tgs/NotoEmoji/emoji_u1f426_200d_1f525.tgs',
-        'example/assets/tgs/NotoEmoji/emoji_u26ce.tgs',
+        '$tgsCorpusPath/NotoEmoji/emoji_u1f389.tgs',
+        '$tgsCorpusPath/NotoEmoji/emoji_u1f393.tgs',
+        '$tgsCorpusPath/NotoEmoji/emoji_u1f3c1.tgs',
+        '$tgsCorpusPath/NotoEmoji/emoji_u1f3f3_fe0f.tgs',
+        '$tgsCorpusPath/NotoEmoji/emoji_u1f3f4.tgs',
+        '$tgsCorpusPath/NotoEmoji/emoji_u1f426_200d_1f525.tgs',
+        '$tgsCorpusPath/NotoEmoji/emoji_u26ce.tgs',
       ];
       for (final path in bmStickers) {
         final file = File(path);
-        if (!file.existsSync()) continue;
         final bytes = file.readAsBytesSync();
         final comp = FastLottieComposition.fromBytes(bytes);
         final player = FastLottiePlayer(comp, cache: FastLottieCache.none);

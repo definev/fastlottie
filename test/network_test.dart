@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:fastlottie/fastlottie.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'fastlottie_test.dart' show bytes, fixture;
 
 class _PassthroughHttpOverrides extends HttpOverrides {}
 
@@ -13,9 +16,7 @@ void main() {
     HttpOverrides.global = _PassthroughHttpOverrides();
     addTearDown(() => HttpOverrides.global = previous);
 
-    final tgsBytes = File(
-      'example/assets/tgs/Topics-1794247486249/file_4798662.tgs',
-    ).readAsBytesSync();
+    final tgsBytes = const GZipEncoder().encode(bytes(fixture('icon')));
 
     var httpHits = 0;
     Completer<void>? releaseSlowRequest;
@@ -172,9 +173,7 @@ void main() {
       HttpOverrides.global = _PassthroughHttpOverrides();
       addTearDown(() => HttpOverrides.global = previous);
 
-      final tgsBytes = File(
-        'example/assets/tgs/Topics-1794247486249/file_4798662.tgs',
-      ).readAsBytesSync();
+      final tgsBytes = const GZipEncoder().encode(bytes(fixture('icon')));
 
       var failFirst = true;
       Completer<void>? slowGate;
@@ -287,9 +286,7 @@ void main() {
     HttpOverrides.global = _PassthroughHttpOverrides();
     addTearDown(() => HttpOverrides.global = previous);
 
-    final tgsBytes = File(
-      'example/assets/tgs/Topics-1794247486249/file_4798662.tgs',
-    ).readAsBytesSync();
+    final tgsBytes = const GZipEncoder().encode(bytes(fixture('icon')));
     var httpHits = 0;
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => server.close(force: true));

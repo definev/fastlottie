@@ -29,7 +29,7 @@ mini-strip slots use the same pipeline.
 - Native requests for a first raster image wait on the host until their worker
   is available. Leaving the viewport or seeking can remove or replace a queued
   request before it reaches the worker. Entries with an image can still queue
-  ahead for playback. See [the Pixel 7a worker queue benchmark](worker-queue-pixel7a.md).
+  ahead for playback.
 - A warm page with two to four resident frames at up to 65,536 pixels per frame
   can be rebuilt in RAM as a dictionary of identical 16×16 tiles plus an index
   per frame. A page can include only the frames sampled by a lower playback
@@ -59,6 +59,3 @@ flutter test test/software_native_parity_test.dart test/tile_playback_test.dart 
 The software parity test compares the native pipeline with the Dart fallback
 across dimensions and non-monotonic frame access. The tile tests check
 materialization, seek, and RAM admission and eviction.
-
-See [the Pixel 7a cache eviction benchmark](scene-cache-pixel7a.md) for the
-raster cost under frequent scene eviction and the separate chat workload.

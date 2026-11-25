@@ -8,8 +8,10 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';
 
+import 'external_fixtures.dart';
+
 Map<String, dynamic> fixture(String name) =>
-    jsonDecode(File('example/assets/$name.json').readAsStringSync())
+    jsonDecode(File('test/fixtures/$name.json').readAsStringSync())
         as Map<String, dynamic>;
 List<int> bytes(Map<String, dynamic> json) => utf8.encode(jsonEncode(json));
 Future<Uint8List> render(void Function(Canvas) draw, {int size = 256}) async {
@@ -95,10 +97,9 @@ void main() {
     'glow_loading',
     'loading_animation',
   ]) {
+    final file = File('rlottie-master/example/resource/$name.json');
     test('real rlottie resource: $name', () async {
-      final json = jsonDecode(
-        File('rlottie-master/example/resource/$name.json').readAsStringSync(),
-      ) as Map<String, dynamic>;
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
       final span = (json['op'] as num) - (json['ip'] as num);
       await compare(json, [
         0,
@@ -108,7 +109,7 @@ void main() {
         span - 1,
         span * .1,
       ]);
-    });
+    }, skip: skipRlottieFixture(file));
   }
   test(
     'SIMD morph matches lottie',

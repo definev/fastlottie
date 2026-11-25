@@ -1,270 +1,114 @@
 [
   {
-    "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786107.tgs",
-    "sample": 0.25,
-    "mae": 9.451385498046875,
-    "badRatio": 0.05810546875,
-    "interiorMae": 5.773764241419094
-  },
-  {
-    "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786107.tgs",
-    "sample": 0.1,
-    "mae": 7.459346771240234,
-    "badRatio": 0.04973602294921875,
-    "interiorMae": 3.7056776257201536
-  },
-  {
-    "asset": "assets/tgs/Topics-1794247486249/file_4798733.tgs",
-    "sample": 0.4,
-    "mae": 5.960594177246094,
-    "badRatio": 0.06562042236328125,
-    "interiorMae": 1.7820795639922884
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f99a.tgs",
+    "asset": "NotoEmoji/emoji_u1f99a.tgs",
     "sample": 0.1,
     "mae": 5.131294250488281,
     "badRatio": 0.08042144775390625,
     "interiorMae": 0.6410487956056169
   },
   {
-    "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786107.tgs",
-    "sample": 0.4,
-    "mae": 4.951892852783203,
-    "badRatio": 0.03899383544921875,
-    "interiorMae": 1.6247851262100788
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f409.tgs",
+    "asset": "NotoEmoji/emoji_u1f409.tgs",
     "sample": 0.6,
     "mae": 4.834812164306641,
     "badRatio": 0.04486083984375,
     "interiorMae": 2.257386278477218
   },
   {
-    "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786106.tgs",
-    "sample": 0.6,
-    "mae": 4.089214324951172,
-    "badRatio": 0.03937530517578125,
-    "interiorMae": 0.9960620590326521
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f388.tgs",
+    "asset": "NotoEmoji/emoji_u1f388.tgs",
     "sample": 0.6,
     "mae": 3.9490928649902344,
     "badRatio": 0.0345001220703125,
     "interiorMae": 1.2057129336509904
   },
   {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f388.tgs",
+    "asset": "NotoEmoji/emoji_u1f388.tgs",
     "sample": 0.4,
     "mae": 3.3711776733398438,
     "badRatio": 0.03125762939453125,
     "interiorMae": 0.7490816326530613
   },
   {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f99a.tgs",
+    "asset": "NotoEmoji/emoji_u1f99a.tgs",
     "sample": 0.6,
     "mae": 3.3607635498046875,
     "badRatio": 0.05844879150390625,
     "interiorMae": 0.0818216334795815
   },
   {
-    "asset": "assets/tgs/Topics-1794247486249/file_4798730.tgs",
-    "sample": 0.75,
-    "mae": 2.834075927734375,
-    "badRatio": 0.04203033447265625,
-    "interiorMae": 0.14053206554723852
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f342.tgs",
+    "asset": "NotoEmoji/emoji_u1f342.tgs",
     "sample": 0.75,
     "mae": 2.385822296142578,
     "badRatio": 0.020015716552734375,
     "interiorMae": 1.4383736744250104
   },
   {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f31f.tgs",
+    "asset": "NotoEmoji/emoji_u1f31f.tgs",
     "sample": 0.6,
     "mae": 2.0573577880859375,
     "badRatio": 0.02300262451171875,
     "interiorMae": 0.011250586186105714
   },
   {
-    "asset": "assets/tgs/Topics-1794247486249/file_4798730.tgs",
-    "sample": 0.1,
-    "mae": 1.9755325317382812,
-    "badRatio": 0.03327178955078125,
-    "interiorMae": 0.12871466537811066
-  },
-  {
-    "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786085.tgs",
-    "sample": 0.6,
-    "mae": 1.7922210693359375,
-    "badRatio": 0.035427093505859375,
-    "interiorMae": 0.0
-  },
-  {
-    "asset": "assets/tgs/Topics-1794247486249/file_4798713.tgs",
-    "sample": 0.25,
-    "mae": 1.7371139526367188,
-    "badRatio": 0.039432525634765625,
-    "interiorMae": 0.0017563804511662366,
-    "variant": "unmodified interior check"
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f450_1f3fb.tgs",
+    "asset": "NotoEmoji/emoji_u1f450_1f3fb.tgs",
     "sample": 0.4,
     "mae": 1.6747665405273438,
     "badRatio": 0.033420562744140625,
     "interiorMae": 0.0
   },
   {
-    "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786120.tgs",
-    "sample": 0.4,
-    "mae": 1.49383544921875,
-    "badRatio": 0.017742156982421875,
-    "interiorMae": 0.33694272755046883
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f450_1f3fc.tgs",
+    "asset": "NotoEmoji/emoji_u1f450_1f3fc.tgs",
     "sample": 0.4,
     "mae": 1.4913673400878906,
     "badRatio": 0.031810760498046875,
     "interiorMae": 0.0
   },
   {
-    "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786122.tgs",
-    "sample": 0.25,
-    "mae": 1.4366416931152344,
-    "badRatio": 0.037441253662109375,
-    "interiorMae": 0.0
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f450.tgs",
+    "asset": "NotoEmoji/emoji_u1f450.tgs",
     "sample": 0.4,
     "mae": 1.3859825134277344,
     "badRatio": 0.0254364013671875,
     "interiorMae": 0.0
   },
   {
-    "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786122.tgs",
-    "sample": 0.9,
-    "mae": 1.3125457763671875,
-    "badRatio": 0.03354644775390625,
-    "interiorMae": 3.4279446044151926e-05
-  },
-  {
-    "asset": "assets/tgs/HotCherry-1794222813220/file_4764998.tgs",
-    "sample": 0.9,
-    "mae": 1.2883949279785156,
-    "badRatio": 0.017475128173828125,
-    "interiorMae": 0.09271240124534345
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f450_1f3fd.tgs",
+    "asset": "NotoEmoji/emoji_u1f450_1f3fd.tgs",
     "sample": 0.4,
     "mae": 1.2542533874511719,
     "badRatio": 0.028614044189453125,
     "interiorMae": 0.0
   },
   {
-    "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786117.tgs",
-    "sample": 0.75,
-    "mae": 1.1855621337890625,
-    "badRatio": 0.01804351806640625,
-    "interiorMae": 0.010899956312800349
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f450_1f3fe.tgs",
+    "asset": "NotoEmoji/emoji_u1f450_1f3fe.tgs",
     "sample": 0.4,
     "mae": 1.0890541076660156,
     "badRatio": 0.0237579345703125,
     "interiorMae": 0.0
   },
   {
-    "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786096.tgs",
-    "sample": 0.9,
-    "mae": 1.0889053344726562,
-    "badRatio": 0.010028839111328125,
-    "interiorMae": 0.6633736752439321
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u2603_fe0f.tgs",
+    "asset": "NotoEmoji/emoji_u2603_fe0f.tgs",
     "sample": 0.25,
     "mae": 1.068634033203125,
     "badRatio": 0.02056121826171875,
     "interiorMae": 6.837957502094124e-05
   },
   {
-    "asset": "assets/tgs/NotoEmoji/emoji_u26c4.tgs",
+    "asset": "NotoEmoji/emoji_u26c4.tgs",
     "sample": 0.25,
     "mae": 1.0577011108398438,
     "badRatio": 0.0201568603515625,
     "interiorMae": 6.719639827305257e-05
   },
   {
-    "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786096.tgs",
-    "sample": 0.95,
-    "mae": 1.0048065185546875,
-    "badRatio": 0.0091552734375,
-    "interiorMae": 0.5090700165112232
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f450_1f3ff.tgs",
+    "asset": "NotoEmoji/emoji_u1f450_1f3ff.tgs",
     "sample": 0.4,
     "mae": 0.9835624694824219,
     "badRatio": 0.021121978759765625,
     "interiorMae": 0.0
   },
   {
-    "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786120.tgs",
-    "sample": 0.6,
-    "mae": 0.9272117614746094,
-    "badRatio": 0.0137481689453125,
-    "interiorMae": 0.05491661874640598
-  },
-  {
-    "asset": "assets/tgs/Topics-1794247486249/file_4798679.tgs",
-    "sample": 0.4,
-    "mae": 0.7787857055664062,
-    "badRatio": 0.0125732421875,
-    "interiorMae": 0.013422706325932133
-  },
-  {
-    "asset": "assets/tgs/ViAndCaitlyn-1794222798837/file_4786120.tgs",
-    "sample": 0.25,
-    "mae": 0.7210350036621094,
-    "badRatio": 0.011608123779296875,
-    "interiorMae": 0.005677019799193018
-  },
-  {
-    "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786096.tgs",
-    "sample": 0.75,
-    "mae": 0.7065505981445312,
-    "badRatio": 0.006603240966796875,
-    "interiorMae": 0.6896218618779595
-  },
-  {
-    "asset": "assets/tgs/NotoEmoji/emoji_u1f3ad.tgs",
+    "asset": "NotoEmoji/emoji_u1f3ad.tgs",
     "sample": 0.9,
     "mae": 0.6929359436035156,
     "badRatio": 0.011211395263671875,
     "interiorMae": 0.0
-  },
-  {
-    "asset": "assets/tgs/Crocosaurus-1794222759141/file_4786106.tgs",
-    "sample": 0.25,
-    "mae": 0.6856727600097656,
-    "badRatio": 0.0118255615234375,
-    "interiorMae": 0.0023113889227447636
-  },
-  {
-    "asset": "assets/tgs/Topics-1794247486249/file_4798713.tgs",
-    "sample": 0.25,
-    "mae": 0.6734580993652344,
-    "badRatio": 0.0116119384765625,
-    "interiorMae": 0.0067655543925042765,
-    "variant": "linear OSNOVA position"
   }
 ]

@@ -14,10 +14,6 @@ stable while the animation therefore appears jerky.
 
 The cache does not slow the timeline to replay missed samples. Dense grids can
 spread initial phases across the Mini-Strip width to distribute worker requests.
-The example sticker sheet uses one shared clock and preserves its configured
-30 FPS regardless of visible asset count. `StickerPlaybackBudget.qualityScale`
-can lower the rate only as an explicit application choice; density alone never
-changes the sampling rate.
 
 ## Progressive first image
 
@@ -56,8 +52,7 @@ queued work with no users is canceled. Shared entries used by visible widgets
 remain valid. External controllers are not stopped; their owners manage them.
 The scope applies to FastLottie (including loaded network widgets), not a
 caller-owned FastLottieView/player. An ancestor hiding a network widget does not
-cancel loading. Gallery demonstrates active/prewarm integration; the application
-still owns viewport policy. Tests: `test/playback_scope_test.dart`.
+cancel loading. The application owns viewport policy. Tests: `test/playback_scope_test.dart`.
 
 ## Fused Bézier fill
 
@@ -103,92 +98,3 @@ Rasterization, LZ4, and IPC still happen; this saves image creation/upload only,
 and cannot share an individual slot between different Mini-Strips. Setting
 `deduplicateImageUploads: false` also disables fingerprint computation on the
 worker.
-
-## Measurement and checks
-
-`example/lib/worker_queue_benchmark.dart` alternates progressive startup on/off
-for eight visible tiles. It measures from their first layout to the first draw
-using a raster image on the Flutter canvas, not GPU presentation. Each tile is
-48 logical px, rasterized at DPR 2; all fit in the 192×96 viewport. New cache per
-trial, four pairs in one process, no disk. It also compares six seconds of
-continuous playback with 16 entries, 30 sample ticks/s, in false/true/true/false
-order. CPU ticks are reported on Android/Linux only.
-
-The same executable finishes with a six-second dense-sheet workload: 60
-distinct compositions, staggered Mini-Strip phases and 30 sample ticks/s.
-Each draw requests the sample at the actual elapsed wall time. It reports
-exact-target hit rate, queue work, late host ticks, worker render time, transfer
-bytes and image decode p95. These offscreen draws do not measure display
-presentation or guarantee that every requested sample becomes visible.
-
-On the Pixel 7a quality-first profile, the benchmark uses eight workers, 16
-in-flight jobs, three-frame strips and full-strip startup. The same profile is
-selected by the Android example picker. It preserves 30 FPS sampling; it does
-not invoke `qualityScale` automatically.
-
-```sh
-cd example
-flutter run --release -d <android-device> -t lib/worker_queue_benchmark.dart \
-  --dart-define=DENSE_ONLY=true --dart-define=DENSE_WORKERS=8 \
-  --dart-define=DENSE_IN_FLIGHT=16 --dart-define=DENSE_STRIP_FRAMES=3 \
-  --dart-define=DENSE_PROGRESSIVE=false
-```
-
-Three process starts on a Pixel 7a running Android 17 on 17 November 2026,
-after removing sequential playback, each requested 10,800 samples across
-60 distinct 128×128 raster entries. Thermal status was 2 before measurement
-and reached 3 after the final run:
-
-| Run | Exact-target hit rate | Late host ticks | Image decode p95 |
-| --- | ---: | ---: | ---: |
-| 1 | 3.80% | 70 | 68.992 ms |
-| 2 | 97.73% | 0 | 6.809 ms |
-| 3 | 11.31% | 71 | 72.448 ms |
-
-The variability prevents a stable 30 FPS claim from these runs. The middle
-sample establishes that high exact-target availability is possible, not that it
-is sustained. These hit rates are not display FPS and are not directly comparable
-to the sequential-presentation fractions previously measured with a slowing
-timeline.
-
-```sh
-cd example
-flutter run --release -d macos -t lib/worker_queue_benchmark.dart
-```
-
-Run fresh processes in alternating order to verify the tradeoffs on target phones. Compare first raster paint p95, exact-frame hit rate, stale frame time,
-CPU and peak memory. First raster paint timing includes Flutter scheduling and
-does not isolate worker execution. The visible benchmark intentionally does not
-advance playback; the separate playback test does.
-
-Correctness: root and example suites retain the known baseline TGS comparison
-and fixture-count failures; analyzer is clean. New tests cover startup/seek,
-visibility/listener lifecycle, fused geometry/fallback and duplicate lifecycle.
-
-## macOS release result (15 November 2026)
-
-[Recorded samples](playback-experiments-macos.json), one ARM64 process, native
-raster enabled. These samples predate the default change; fused fill and
-duplicate detection were off for both variants. Four visible-startup pairs
-alternate order. Median of trial p95:
-**7.985 ms baseline vs 7.975 ms progressive** — effectively unchanged, with a
-19.445 ms cold baseline trial. Rasterized source frames before first paint fall
-from **32 to 8** for eight tiles; retained GPU image payload falls from
-**1,188,864 to 294,912 bytes**. Cache reservation is unchanged.
-
-Two continuous-playback pairs (false/true/true/false), 2,880 lookups per run:
-
-| Metric | Baseline (both runs) | Progressive (both runs) |
-| --- | ---: | ---: |
-| Exact raster hits | 2,878 (99.93%) | 2,862 (99.38%) |
-| Worker dispatches | 761 | 777 |
-| Source frames rasterized | 1,611 | 1,611 |
-| Compressed hits | 1,376 | 1,392 |
-
-Each progressive player has an additional miss when first advancing from its
-bootstrap frame into a full strip. No further difference in exact-hit counts
-appeared in these runs. This establishes reduced startup work but **does not
-establish faster visible startup** and shows a continuous-playback tradeoff.
-Set `progressiveFirstFrame: false` to prioritize uninterrupted playback on the
-first advance. No release speed measurements were made for
-fused fill or duplicate detection; visibility has lifecycle tests only.

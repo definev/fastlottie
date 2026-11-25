@@ -13,9 +13,7 @@ clips do not change the scale. Widgets get DPR from `MediaQuery`; direct
 
 `maximumFrameRate` caps the number of timeline samples per second without
 slowing playback. Omit it to use the source rate. Players can override the
-shared cache's resolution and frame rate. The comparison gallery's LoD preset
-uses scale 0.5 and up to 30 FPS (see
-[gallery.dart](../example/lib/tgs/gallery.dart)).
+shared cache's resolution and frame rate.
 
 `maximumBytes` defaults to 32 MiB and limits retained image payload and
 reservations. It does not measure total process or GPU memory. Compressed

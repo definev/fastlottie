@@ -104,6 +104,59 @@ void main() {
     }
   });
 
+  test('spatial tangents bend the position between keyframes', () async {
+    final doc = scene([
+      rectangle(0, 0, 24, 24),
+      fill([1, 0, 0]),
+    ]);
+    final position = animated([40, 180], [216, 180]);
+    position['k'][0]
+      ..['to'] = [0, -120]
+      ..['ti'] = [0, -120];
+    doc['layers'][0]['ks']['p'] = position;
+    final composition = FastLottieComposition.fromJson(doc);
+    final player = FastLottiePlayer(composition);
+    addTearDown(player.dispose);
+
+    final frame = await render(
+      (canvas) => player.draw(
+        canvas,
+        const ui.Rect.fromLTWH(0, 0, 256, 256),
+        29.5 / 60,
+        useFrameRate: false,
+      ),
+    );
+
+    expect(frame[(90 * 256 + 128) * 4 + 3], 255);
+    expect(frame[(180 * 256 + 128) * 4 + 3], 0);
+  });
+
+  test('negative precomp offset can sample after the root duration', () async {
+    final doc = fixture('static');
+    final child = fixture('static')['layers'][0] as Map<String, dynamic>;
+    child['ip'] = 65;
+    child['op'] = 100;
+    final parent = doc['layers'][0] as Map<String, dynamic>;
+    parent.remove('shapes');
+    parent.addAll({'ty': 0, 'refId': 'child', 'st': -70, 'w': 256, 'h': 256});
+    doc['assets'] = [
+      {
+        'id': 'child',
+        'layers': [child],
+      },
+    ];
+    final composition = FastLottieComposition.fromJson(doc);
+    final player = FastLottiePlayer(composition);
+    addTearDown(player.dispose);
+
+    final frame = await render(
+      (canvas) =>
+          player.draw(canvas, const ui.Rect.fromLTWH(0, 0, 256, 256), 0),
+    );
+
+    expect(frame[(128 * 256 + 128) * 4 + 3], 255);
+  });
+
   final oracle = Platform.environment['RLOTTIE_RENDERER'];
   test(
     'native rlottie oracle: trim, dash, matte, reverse rectangles, morph closure',
@@ -219,127 +272,6 @@ void main() {
       // ignore: avoid_print
       print('RLOTTIE_DIFF ${failures.join('\n')}');
       expect(failures, isEmpty);
-    },
-    skip: oracle == null
-        ? 'Set RLOTTIE_RENDERER to the locally built oracle.'
-        : false,
-  );
-
-  test(
-    'native rlottie oracle: spatial Bézier curve keyframes (Topics cart OSNOVA)',
-    () async {
-      final raw = decodeLottieBytes(
-        File('example/assets/tgs/Topics-1794247486249/file_4798713.tgs')
-            .readAsBytesSync(),
-      );
-      final doc = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
-      final layers = (doc['layers'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
-      final byName = {for (final l in layers) l['nm']: l};
-      final spatialDoc = <String, dynamic>{
-        'v': doc['v'],
-        'fr': doc['fr'],
-        'ip': doc['ip'],
-        'op': doc['op'],
-        'w': doc['w'],
-        'h': doc['h'],
-        'layers': [byName['OSNOVA']!],
-      };
-      final directory = Directory.systemTemp.createTempSync(
-        'fastlottie-spatial-oracle-',
-      );
-      addTearDown(() => directory.deleteSync(recursive: true));
-      final input = File('${directory.path}/osnova.json')
-        ..writeAsStringSync(jsonEncode(spatialDoc));
-      final output = File('${directory.path}/output.rgba');
-      final comp = FastLottieComposition.fromJson(spatialDoc);
-      final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
-      addTearDown(player.dispose);
-      final span = comp.endFrame - comp.startFrame;
-      for (final n in [0, 18, 45, 72, 134, 135, 161, 179]) {
-        final process = await Process.run(oracle!, [
-          input.path,
-          '$n',
-          '256',
-          '256',
-          output.path,
-        ]);
-        expect(process.exitCode, 0, reason: '${process.stderr}');
-        final expected = output.readAsBytesSync();
-        final actual = await render(
-          (c) => player.draw(
-            c,
-            const ui.Rect.fromLTWH(0, 0, 256, 256),
-            n / span,
-            useFrameRate: false,
-          ),
-        );
-        var error = 0, bad = 0;
-        for (var i = 0; i < actual.length; i++) {
-          final delta = (actual[i] - expected[i]).abs();
-          error += delta;
-          if (delta > 12) bad++;
-        }
-        final mae = error / actual.length;
-        final ratio = bad / actual.length;
-        expect(mae, lessThan(.65), reason: 'OSNOVA frame $n MAE=$mae');
-        expect(ratio, lessThan(.006), reason: 'OSNOVA frame $n bad=$ratio');
-      }
-    },
-    skip: oracle == null
-        ? 'Set RLOTTIE_RENDERER to the locally built oracle.'
-        : false,
-  );
-
-  test(
-    'native rlottie oracle: precomp overflow past parent duration (Topics notes 728)',
-    () async {
-      final raw = decodeLottieBytes(
-        File('example/assets/tgs/Topics-1794247486249/file_4798728.tgs')
-            .readAsBytesSync(),
-      );
-      final directory = Directory.systemTemp.createTempSync(
-        'fastlottie-notes-oracle-',
-      );
-      addTearDown(() => directory.deleteSync(recursive: true));
-      final input = File('${directory.path}/notes.json')..writeAsBytesSync(raw);
-      final output = File('${directory.path}/output.rgba');
-      final comp = FastLottieComposition.fromBytes(raw);
-      final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
-      addTearDown(player.dispose);
-      final span = comp.endFrame - comp.startFrame;
-      for (final n in [0, 18, 45, 72, 107, 134, 161, 179]) {
-        final process = await Process.run(oracle!, [
-          input.path,
-          '$n',
-          '256',
-          '256',
-          output.path,
-        ]);
-        expect(process.exitCode, 0, reason: '${process.stderr}');
-        final expected = output.readAsBytesSync();
-        final actual = await render(
-          (c) => player.draw(
-            c,
-            const ui.Rect.fromLTWH(0, 0, 256, 256),
-            n / span,
-            useFrameRate: false,
-          ),
-        );
-        var error = 0, bad = 0;
-        for (var i = 0; i < actual.length; i++) {
-          final delta = (actual[i] - expected[i]).abs();
-          error += delta;
-          if (delta > 12) bad++;
-        }
-        final mae = error / actual.length;
-        final ratio = bad / actual.length;
-        // Composite RLE coverage rounding across the 18-layer 3D note mattes gives
-        // ~1.3 MAE between native rlottie and Skia/Impeller (already <0.65 vs lottie
-        // outside the child-duration overflow region around frame 107).
-        expect(mae, lessThan(2.0), reason: 'Notes frame $n MAE=$mae');
-        expect(ratio, lessThan(.035), reason: 'Notes frame $n bad=$ratio');
-      }
     },
     skip: oracle == null
         ? 'Set RLOTTIE_RENDERER to the locally built oracle.'

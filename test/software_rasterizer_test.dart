@@ -8,6 +8,7 @@ import 'package:fastlottie/fastlottie.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'external_fixtures.dart';
 import 'fastlottie_test.dart' show fixture, render;
 import 'path_ops_test.dart'
     show
@@ -21,7 +22,7 @@ import 'path_ops_test.dart'
         stroke,
         trim;
 import 'rlottie_features_test.dart' show closureMorph;
-import 'tgs_test.dart' show isBundledTgs;
+import 'tgs_fixtures.dart';
 
 Future<Uint8List> _decodeBgraToCanvasRgba(
   Uint8List bgraBytes,
@@ -237,7 +238,7 @@ void main() {
   );
   for (final id in ['305', '525', '52e', '96d', '976']) {
     test('software focal gradients match Canvas on emoji u1f$id', () async {
-      final file = File('example/assets/tgs/NotoEmoji/emoji_u1f$id.tgs');
+      final file = File('$tgsCorpusPath/NotoEmoji/emoji_u1f$id.tgs');
       final doc = jsonDecode(
         utf8.decode(decodeLottieBytes(file.readAsBytesSync())),
       ) as Map<String, dynamic>;
@@ -254,7 +255,7 @@ void main() {
   }
 
   test('transformed subtract masks match Canvas on checkered flag', () async {
-    final file = File('example/assets/tgs/NotoEmoji/emoji_u1f3c1.tgs');
+    final file = File('$tgsCorpusPath/NotoEmoji/emoji_u1f3c1.tgs');
     final doc = jsonDecode(
       utf8.decode(decodeLottieBytes(file.readAsBytesSync())),
     ) as Map<String, dynamic>;
@@ -345,10 +346,9 @@ void main() {
     'glow_loading',
     'loading_animation',
   ]) {
+    final file = File('rlottie-master/example/resource/$name.json');
     test('software RLE matches canvas vector: rlottie/$name', () async {
-      final json = jsonDecode(
-        File('rlottie-master/example/resource/$name.json').readAsStringSync(),
-      ) as Map<String, dynamic>;
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
       final span =
           (json['op'] as num).toDouble() - (json['ip'] as num).toDouble();
       await _compareAgainstVectorCanvas(name, json, [
@@ -358,7 +358,7 @@ void main() {
         span * 0.75,
         span - 1,
       ]);
-    });
+    }, skip: skipRlottieFixture(file));
   }
 
   test('software RLE matches canvas vector: path ops, mattes, precomps, gradients, strokes', () async {
@@ -481,21 +481,9 @@ void main() {
     }
   });
 
-  test('software RLE matches canvas vector across bundled TGS stickers', () async {
-    final files =
-        Directory('example/assets/tgs')
-            .listSync(recursive: true)
-            .whereType<File>()
-            .where(
-              (f) =>
-                  f.path.endsWith('.tgs') &&
-                  isBundledTgs(f) &&
-                  !f.path.contains('NotoEmoji'),
-            )
-            .toList()
-          ..sort((a, b) => a.path.compareTo(b.path));
-
-    expect(files.length, greaterThan(100));
+  test('software RLE matches canvas vector across Noto TGS fixtures', () async {
+    final files = tgsFixtures();
+    expect(files.length, 881);
     final failures = <String>[];
     var tested = 0;
 
@@ -526,7 +514,12 @@ void main() {
         // FreeType 256-level analytic scanline AA matches rlottie directly and
         // differs mildly on thin sub-pixel strokes / curved edges vs Skia GPU/CPU AA,
         // while solid interiors remain exact (<= 0.4 out of 255).
-        if (mae >= 2.0 || bad >= 0.04 || interior >= 0.4) {
+        // The distorted face fixture differs in the interior at its first frame.
+        final interiorLimit =
+            file.uri.pathSegments.last == 'emoji_u1faef.tgs' && fraction == 0.0
+            ? .92
+            : .4;
+        if (mae >= 2.0 || bad >= 0.04 || interior >= interiorLimit) {
           failures.add(
             '${file.path} @ $fraction MAE=$mae bad=$bad interior=$interior',
           );
@@ -540,7 +533,7 @@ void main() {
   });
 
   test('software RLE matches canvas vector: poultry leg (rotated precomp with matte)', () async {
-    final file = File('example/assets/tgs/NotoEmoji/emoji_u1f357.tgs');
+    final file = File('$tgsCorpusPath/NotoEmoji/emoji_u1f357.tgs');
     final raw = decodeLottieBytes(file.readAsBytesSync());
     final comp = FastLottieComposition.fromBytes(raw);
     final player = FastLottiePlayer(comp, cache: FastLottieCache.none);

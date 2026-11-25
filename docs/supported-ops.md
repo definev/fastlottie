@@ -44,12 +44,8 @@ feature ở layer, modifier hoặc asset khác.
 
 ## Kiểm tra coverage
 
-- Cả 94 sticker trong [gallery so sánh](tgs-grid.md) dùng được fastlottie.
-  Bộ này khác catalog chat, vốn có thêm Topics và Noto emoji.
-- `test/tgs_test.dart` audit cả 1.063 TGS được khai báo trong example đều compile.
-  Differential test so phần tính năng chung với
-  `lottie` 3.8.2; một số artwork cần ngưỡng hoặc sample riêng do khác biệt
-  giữa renderer. `test/path_reference_test.dart` kiểm tra riêng các path reference.
-- Pixel probes và [oracle rlottie tùy chọn](rlottie-features.md#chạy-oracle-native)
-  kiểm tra các feature mà baseline Flutter không xử lý đầy đủ, như luma matte
-  và rectangle direction.
+- Chạy `flutter test` để kiểm tra renderer với fixture của package.
+  `test/tgs_test.dart` kiểm tra compile và đối chiếu render với `lottie` 3.8.2
+  bằng [corpus TGS đi kèm](../test/fixtures/README.md).
+- `test/path_reference_test.dart` kiểm tra tham chiếu path.
+  `test/rlottie_features_test.dart` có thêm đối chiếu với rlottie khi có native oracle.

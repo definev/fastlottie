@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'fastlottie_test.dart' show bytes, fixture, render;
 import 'mask_test.dart' show maskPathRect;
 import 'path_ops_test.dart' show animated, constant, fill;
+import 'tgs_fixtures.dart';
 
 const _size = 256;
 const _rect = ui.Rect.fromLTWH(0, 0, 256, 256);
@@ -213,7 +214,7 @@ void main() {
       '1f590_fe0f',
     ];
     for (final code in codes) {
-      final file = File('example/assets/tgs/NotoEmoji/emoji_u$code.tgs');
+      final file = File('$tgsCorpusPath/NotoEmoji/emoji_u$code.tgs');
       final comp = FastLottieComposition.fromBytes(file.readAsBytesSync());
       final session = FastLottieSoftwareSession(
         comp,

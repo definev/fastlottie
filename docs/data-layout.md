@@ -4,7 +4,7 @@ Bước tối ưu này dựa trên cách dữ liệu được đọc: tìm segme
 nội suy cần toàn bộ vector của hai đầu, còn render cần giữ thứ tự scene. Không
 chuyển mọi object thành SoA.
 
-Census ngày 11/11/2026 của 1.087 file `example/assets/tgs/**/*.tgs`: 50.389
+Census ngày 11/11/2026 của 1.087 file TGS trong corpus đo: 50.389
 property động, 342.517 key; không có end tường minh trong corpus này. 453 file có
 stroke. Track hai key phổ biến nhất (8.594 track), kế đến bốn key (7.095) và ba
 key (6.441). Vì nhiều track nhỏ, giảm số object/buffer giữ lại quan trọng hơn

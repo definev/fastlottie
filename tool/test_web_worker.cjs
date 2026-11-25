@@ -44,7 +44,7 @@ async function smoke(asset) {
     const height = 24;
     const frameBytes = width * height * 4;
     const rowBytes = width * 4;
-    const icon = new Uint8Array(fs.readFileSync('example/assets/icon.json'));
+    const icon = new Uint8Array(fs.readFileSync('test/fixtures/icon.json'));
     const frameRequest = [2, 101, 'entry', 'scene', 2, 2, width, height, 60, false];
     const frame = await exchange([0, null, 1048576, true], [1, 'scene', icon, true], frameRequest);
     assert.deepEqual(frame.slice(0, 3), [0, 101, 'entry']);

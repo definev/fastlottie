@@ -1,0 +1,29 @@
+# Local files and generated output
+*.class
+*.log
+*.pyc
+*.swp
+*.iml
+.DS_Store
+.atom/
+.buildlog/
+.history/
+.svn/
+.idea/
+migrate_working_dir/
+/pubspec.lock
+**/doc/api/
+.dart_tool/
+.flutter-plugins-dependencies
+/build/
+/coverage/
+
+# Keep the package example guide and the Web build tools
+/example/*
+!/example/README.md
+/test/
+/tool/*
+!/tool/build_wasm.dart
+!/tool/build_web_worker.dart
+/rlottie-master/
+/thorvg-main/

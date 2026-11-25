@@ -5,6 +5,7 @@ import 'package:fastlottie/fastlottie.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show render;
+import 'tgs_fixtures.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,7 +13,7 @@ void main() {
   const rect = ui.Rect.fromLTWH(0, 0, size * 1.0, size * 1.0);
 
   test('anxious face keeps its eyes, eyebrows and mouth', () async {
-    final file = File('example/assets/tgs/NotoEmoji/emoji_u1f630.tgs');
+    final file = File('$tgsCorpusPath/NotoEmoji/emoji_u1f630.tgs');
     final comp = FastLottieComposition.fromBytes(file.readAsBytesSync());
     final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
     final software = FastLottieSoftwareSession(
@@ -55,7 +56,7 @@ void main() {
     test(
       '$name renders intact in Canvas and software across transitions',
       () async {
-        final file = File('example/assets/tgs/NotoEmoji/emoji_u$code.tgs');
+        final file = File('$tgsCorpusPath/NotoEmoji/emoji_u$code.tgs');
         final comp = FastLottieComposition.fromBytes(file.readAsBytesSync());
         final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
         addTearDown(player.dispose);
