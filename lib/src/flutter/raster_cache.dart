@@ -51,7 +51,7 @@ class FastLottieRasterCache {
     this.resolutionScale = 1,
     this.maximumInFlight = 8,
     this.disposalBatchSize = 8,
-    this.maximumCompressedMemoryBytes = 16 * 1024 * 1024,
+    this.maximumCompressedMemoryBytes = 32 * 1024 * 1024,
     this.maximumDiskBytes = 128 * 1024 * 1024,
     this.framesPerStrip,
     this.adaptiveStripBudget = false,

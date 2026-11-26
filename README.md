@@ -1,4 +1,8 @@
-# fastlottie
+<p align="center">
+  <img src="docs/logo.svg" alt="fastlottie logo" width="160" />
+</p>
+
+<h1 align="center">fastlottie</h1>
 
 Fastlottie renders a subset of 2D Lottie animations in Flutter from JSON or
 Telegram's gzip-compressed TGS format. It compiles each composition once so

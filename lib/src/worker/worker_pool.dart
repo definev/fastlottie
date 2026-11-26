@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../platform/isolate_stub.dart'
     if (dart.library.isolate) '../platform/isolate_io.dart';
 import '../platform/platform_stub.dart'
     if (dart.library.io) '../platform/platform_io.dart';
+import '../platform/simd_stub.dart'
+    if (dart.library.ffi) '../platform/simd_io.dart'
+    if (dart.library.js_interop) '../platform/simd_wasm.dart';
 import '../raster/raster_core.dart' show RasterScene;
 import 'raster_browser_stub.dart'
     if (dart.library.js_interop) 'raster_browser.dart';
@@ -62,6 +66,8 @@ abstract interface class RasterWorkerListener<T> {
 
   void onStripError(T context, Object error);
 
+  void onStripCancelled(T context, int dispatchedGen);
+
   void onBrowserWorkerFallback(T context);
 }
 
@@ -83,6 +89,8 @@ final class _PendingRequest<T> {
     required this.height,
     required this.totalFrames,
     required this.poster,
+    this.cancelSlot = -1,
+    this.cancelToken = 0,
   });
 
   final int reqId;
@@ -101,6 +109,8 @@ final class _PendingRequest<T> {
   final int height;
   final int totalFrames;
   final bool poster;
+  final int cancelSlot;
+  final int cancelToken;
   bool retried = false;
 }
 
@@ -137,7 +147,17 @@ final class RasterWorkerPool<T> {
   final _subs = <StreamSubscription<Object?>>[];
   final _registeredScenes = <Set<String>>[];
   final _workerRamBytes = <int>[];
+  final _workerRamLimits = <int>[];
+  final _shardActiveWeight = <int>[];
+  final _shardEntryCounts = <int>[];
+  final _entryShard = <String, int>{};
+  final _entryWeight = <String, int>{};
+  final _entryCancelSlot = <String, int>{};
+  final _entryCancelToken = <String, int>{};
   final _pendingRequests = <int, _PendingRequest<T>>{};
+
+  static int _globalNextSlot = 0;
+  static int _globalNextToken = 1;
 
   // Host-tracked disk cache LRU across all shards.
   final _diskLru = <String, int>{};
@@ -150,6 +170,7 @@ final class RasterWorkerPool<T> {
   bool _started = false;
   bool _disposed = false;
 
+  int get workerCount => _handles.isNotEmpty ? _handles.length : _workerCount;
   int get registeredSceneCount =>
       _registeredScenes.fold(0, (count, shard) => count + shard.length);
   int get diskBytes => _diskBytes;
@@ -182,6 +203,9 @@ final class RasterWorkerPool<T> {
       final handle = _handles[shard];
       _registeredScenes.add(<String>{});
       _workerRamBytes.add(0);
+      _workerRamLimits.add(perWorkerRam);
+      _shardActiveWeight.add(0);
+      _shardEntryCounts.add(0);
       _subs.add(_listen(shard, handle));
       handle.send((
         opConfigure,
@@ -192,9 +216,69 @@ final class RasterWorkerPool<T> {
     }
   }
 
-  int shardForKey(String entryKey) {
+  /// Dynamically assigns a cold [entryKey] to the least-loaded shard (weighted
+  /// by active pixel*frame footprint) and pins that assignment for the session
+  /// so compressed RAM and `.flcache` files stay shard-local without FNV skew.
+  int shardForKey(String entryKey, {int weight = 1}) {
     _ensureStarted();
-    return _shardForKey(entryKey, _handles.length);
+    final existing = _entryShard[entryKey];
+    if (existing != null && existing < _handles.length) {
+      return existing;
+    }
+    final count = _handles.length;
+    if (count <= 1) {
+      _entryShard[entryKey] = 0;
+      _entryWeight[entryKey] = weight;
+      _shardActiveWeight[0] += weight;
+      _shardEntryCounts[0]++;
+      return 0;
+    }
+    final hashStart = _shardForKey(entryKey, count);
+    var best = hashStart;
+    var bestWeight = _shardActiveWeight[best];
+    var bestEntries = _shardEntryCounts[best];
+    for (var i = 1; i < count; i++) {
+      final candidate = (hashStart + i) % count;
+      final w = _shardActiveWeight[candidate];
+      final e = _shardEntryCounts[candidate];
+      if (w < bestWeight || (w == bestWeight && e < bestEntries)) {
+        best = candidate;
+        bestWeight = w;
+        bestEntries = e;
+      }
+    }
+    _entryShard[entryKey] = best;
+    _entryWeight[entryKey] = weight;
+    _shardActiveWeight[best] += weight;
+    _shardEntryCounts[best]++;
+    return best;
+  }
+
+  void releaseEntryShard(String entryKey) {
+    final shard = _entryShard[entryKey];
+    final weight = _entryWeight.remove(entryKey);
+    if (shard != null && weight != null && shard < _shardActiveWeight.length) {
+      _shardActiveWeight[shard] = math.max(
+        0,
+        _shardActiveWeight[shard] - weight,
+      );
+      _shardEntryCounts[shard] = math.max(0, _shardEntryCounts[shard] - 1);
+    }
+  }
+
+  int _cancelSlotFor(String entryKey) =>
+      _entryCancelSlot.putIfAbsent(entryKey, () => (_globalNextSlot++) & 255);
+
+  /// Atomically invalidates any in-flight native strip for [entryKey] so the
+  /// worker aborts remaining frames instead of burning CPU/LZ4 on stale pixels.
+  void cancelInFlight(String entryKey) {
+    if (!isNativeCancelSupported || !isIsolatePoolSupported) return;
+    final slot = _entryCancelSlot[entryKey];
+    if (slot == null) return;
+    var token = (_globalNextToken++) & 0x7fffffff;
+    if (token == 0) token = (_globalNextToken++) & 0x7fffffff;
+    _entryCancelToken[entryKey] = token;
+    nativeCancelSlotStore(slot, token);
   }
 
   bool isInlineShard(int shard) => !isBrowserRasterWorker(_handles[shard]);
@@ -272,20 +356,39 @@ final class RasterWorkerPool<T> {
     }
     final handle = _handles[shard];
     if (request.stripCount > 1) {
-      handle.send((
-        opRenderStrip,
-        requestId: request.reqId,
-        entryKey: request.entryKey,
-        contentKey: request.contentKey,
-        stripStart: request.stripStart,
-        stripCount: request.stripCount,
-        startFrame: request.startFrame,
-        frameStep: request.frameStep,
-        width: request.width,
-        height: request.height,
-        totalFrames: request.totalFrames,
-        poster: request.poster,
-      ));
+      if (!isBrowserRasterWorker(handle) && request.cancelSlot >= 0) {
+        handle.send((
+          opRenderStripNative,
+          requestId: request.reqId,
+          entryKey: request.entryKey,
+          contentKey: request.contentKey,
+          stripStart: request.stripStart,
+          stripCount: request.stripCount,
+          startFrame: request.startFrame,
+          frameStep: request.frameStep,
+          width: request.width,
+          height: request.height,
+          totalFrames: request.totalFrames,
+          poster: request.poster,
+          cancelSlot: request.cancelSlot,
+          cancelToken: request.cancelToken,
+        ));
+      } else {
+        handle.send((
+          opRenderStrip,
+          requestId: request.reqId,
+          entryKey: request.entryKey,
+          contentKey: request.contentKey,
+          stripStart: request.stripStart,
+          stripCount: request.stripCount,
+          startFrame: request.startFrame,
+          frameStep: request.frameStep,
+          width: request.width,
+          height: request.height,
+          totalFrames: request.totalFrames,
+          poster: request.poster,
+        ));
+      }
     } else {
       final index = resolveWorkerSourceIndex(
         request.stripStart,
@@ -321,12 +424,11 @@ final class RasterWorkerPool<T> {
     }
     if (_started) {
       final effective = maximumDiskBytes > 0 ? _diskDir : null;
-      final perWorkerRam = maximumCompressedMemoryBytes ~/ _handles.length;
-      for (final h in _handles) {
-        h.send((
+      for (var i = 0; i < _handles.length; i++) {
+        _handles[i].send((
           opConfigure,
           diskDirectory: effective,
-          maximumRamBytes: perWorkerRam,
+          maximumRamBytes: _workerRamLimits[i],
           deduplicateUploads: deduplicateImageUploads,
         ));
       }
@@ -504,6 +606,15 @@ final class RasterWorkerPool<T> {
         _registerScene(pending);
         _sendRequest(pending);
       case (
+        repStripCancelled,
+        requestId: final int reqId,
+        workerRamBytes: final int workerRam,
+      ):
+        final pending = _pendingRequests.remove(reqId);
+        _updateWorkerRam(shard, workerRam);
+        if (pending == null) return;
+        listener.onStripCancelled(pending.context, pending.dispatchedGen);
+      case (
         repDeleted,
         entryKey: final String entryKey,
         workerRamBytes: final int workerRam,
@@ -519,6 +630,57 @@ final class RasterWorkerPool<T> {
     if (shard >= _workerRamBytes.length) return;
     _compressedRamBytes += nextBytes - _workerRamBytes[shard];
     _workerRamBytes[shard] = nextBytes;
+    _maybeRebalanceShardRam(shard);
+  }
+
+  // Shift unused compressed-RAM headroom from under-utilized shards to a
+  // saturated shard while strictly keeping sum(_workerRamLimits) <= global cap.
+  void _maybeRebalanceShardRam(int hotShard) {
+    final count = _handles.length;
+    if (count <= 1 || maximumCompressedMemoryBytes <= 0) return;
+    final currentLimit = _workerRamLimits[hotShard];
+    final hotUsed = _workerRamBytes[hotShard];
+    if (currentLimit <= 0 || hotUsed * 10 < currentLimit * 8) return;
+    if (_compressedRamBytes * 10 >= maximumCompressedMemoryBytes * 9) return;
+
+    final floorPerShard = math.min(
+      maximumCompressedMemoryBytes ~/ (count * 2),
+      512 * 1024,
+    );
+    final maxForOne = (maximumCompressedMemoryBytes * 3) ~/ 4;
+    if (currentLimit >= maxForOne) return;
+
+    var donor = -1;
+    var bestSpare = 0;
+    for (var i = 0; i < count; i++) {
+      if (i == hotShard) continue;
+      final minKeep = math.max(floorPerShard, (_workerRamBytes[i] * 5) ~/ 4);
+      final spare = _workerRamLimits[i] - minKeep;
+      if (spare > bestSpare) {
+        bestSpare = spare;
+        donor = i;
+      }
+    }
+    const minTransfer = 256 * 1024;
+    if (donor < 0 || bestSpare < minTransfer) return;
+    final transfer = math.min(bestSpare ~/ 2, maxForOne - currentLimit);
+    if (transfer < minTransfer) return;
+
+    _workerRamLimits[donor] -= transfer;
+    _workerRamLimits[hotShard] += transfer;
+    final effectiveDiskDir = maximumDiskBytes > 0 ? _diskDir : null;
+    _handles[donor].send((
+      opConfigure,
+      diskDirectory: effectiveDiskDir,
+      maximumRamBytes: _workerRamLimits[donor],
+      deduplicateUploads: deduplicateImageUploads,
+    ));
+    _handles[hotShard].send((
+      opConfigure,
+      diskDirectory: effectiveDiskDir,
+      maximumRamBytes: _workerRamLimits[hotShard],
+      deduplicateUploads: deduplicateImageUploads,
+    ));
   }
 
   void _recordDiskWrite(String entryKey, int newSize) {
@@ -559,7 +721,7 @@ final class RasterWorkerPool<T> {
   void _evictKeyOnShard(String entryKey) {
     _pendingDiskDeletes.add(entryKey);
     if (_started) {
-      final shard = _shardForKey(entryKey, _handles.length);
+      final shard = _entryShard[entryKey] ?? _shardForKey(entryKey, _handles.length);
       _handles[shard].send((opDeleteDisk, entryKey: entryKey));
     } else if (_diskDir != null && isDiskCacheSupported) {
       PlatformDiskFs.deleteFile(joinPath(_diskDir!, '$entryKey.flcache'));
@@ -587,6 +749,16 @@ final class RasterWorkerPool<T> {
     if (_disposed) return;
     final reqId = _nextReqId++;
     debugDispatchCount++;
+    var cancelSlot = -1;
+    var cancelToken = 0;
+    if (stripCount > 1 && isNativeCancelSupported && isIsolatePoolSupported) {
+      cancelSlot = _cancelSlotFor(entryKey);
+      var nextToken = (_globalNextToken++) & 0x7fffffff;
+      if (nextToken == 0) nextToken = (_globalNextToken++) & 0x7fffffff;
+      cancelToken = nextToken;
+      _entryCancelToken[entryKey] = cancelToken;
+      nativeCancelSlotStore(cancelSlot, cancelToken);
+    }
     final request = _pendingRequests[reqId] = _PendingRequest<T>(
       reqId: reqId,
       shard: shard,
@@ -604,6 +776,8 @@ final class RasterWorkerPool<T> {
       height: height,
       totalFrames: totalFrames,
       poster: poster,
+      cancelSlot: cancelSlot,
+      cancelToken: cancelToken,
     );
     // A cold entry (or any entry when disk caching is disabled) needs vector
     // pixels, so send its scene with the first request to avoid a round trip.
@@ -643,6 +817,13 @@ final class RasterWorkerPool<T> {
     _handles.clear();
     _registeredScenes.clear();
     _workerRamBytes.clear();
+    _workerRamLimits.clear();
+    _shardActiveWeight.clear();
+    _shardEntryCounts.clear();
+    _entryShard.clear();
+    _entryWeight.clear();
+    _entryCancelSlot.clear();
+    _entryCancelToken.clear();
     _compressedRamBytes = 0;
 
     final dir = _diskDir;

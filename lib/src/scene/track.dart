@@ -21,19 +21,31 @@ class Keyframes {
               values.length ~/ 4,
             )
           : null,
-      _spatial = tangents == null
+      _spatial = tangents == null || width < 2
           ? null
-          : List<_SpatialCurve?>.filled(times.length, null) {
-    final t = tangents;
-    if (t == null || width < 2) return;
-    for (var i = 0; i < count - 1; i++) {
-      if (isHold(i) || !hasTangents(i)) continue;
-      final a = i * stride, b = endOffset(i), j = i * 4;
-      if ((values[a] != values[b] || values[a + 1] != values[b + 1]) &&
-          (t[j] != 0 || t[j + 1] != 0 || t[j + 2] != 0 || t[j + 3] != 0)) {
-        _spatial![i] = _SpatialCurve(values, a, b, t, j);
-      }
+          : List<_SpatialCurve?>.filled(times.length, null);
+
+  static final _SpatialCurve _noSpatial = _SpatialCurve._none();
+
+  _SpatialCurve? _spatialAt(int key) {
+    final table = _spatial;
+    if (table == null) return null;
+    final cached = table[key];
+    // Value check (not identical(..., _noSpatial)) so Keyframes sent across
+    // isolates (compile pool -> UI -> raster worker) never misread the sentinel.
+    if (cached != null) return cached.lengths.isEmpty ? null : cached;
+    final t = tangents!;
+    if (key >= count - 1 || isHold(key) || !hasTangents(key)) {
+      table[key] = _noSpatial;
+      return null;
     }
+    final a = key * stride, b = endOffset(key), j = key * 4;
+    if ((values[a] != values[b] || values[a + 1] != values[b + 1]) &&
+        (t[j] != 0 || t[j + 1] != 0 || t[j + 2] != 0 || t[j + 3] != 0)) {
+      return table[key] = _SpatialCurve(values, a, b, t, j);
+    }
+    table[key] = _noSpatial;
+    return null;
   }
 
   static const holdFlag = 1, endFlag = 2, tangentFlag = 4, linearFlag = 8;
@@ -85,18 +97,49 @@ class Keyframes {
 }
 
 class Track {
+  static final Float32List _emptyOutput = Float32List(0);
+  static final Track zero = Track.constantValues(Float32List.fromList([0.0]));
+  static final Track one = Track.constantValues(Float32List.fromList([1.0]));
+  static final Track hundred = Track.constantValues(
+    Float32List.fromList([100.0]),
+  );
+  static final Track zero2 = Track.constantValues(
+    Float32List.fromList([0.0, 0.0]),
+  );
+  static final Track hundred2 = Track.constantValues(
+    Float32List.fromList([100.0, 100.0]),
+  );
+
+  /// Returns a shared immutable constant track for common Lottie defaults.
+  static Track canonicalConstant(List<double> fallback) {
+    final len = fallback.length;
+    if (len == 1) {
+      final v = fallback[0];
+      if (v == 0.0) return zero;
+      if (v == 100.0) return hundred;
+      if (v == 1.0) return one;
+    } else if (len == 2) {
+      final a = fallback[0], b = fallback[1];
+      if (a == 0.0 && b == 0.0) return zero2;
+      if (a == 100.0 && b == 100.0) return hundred2;
+    }
+    return Track.constant(fallback);
+  }
+
   Track.fork(Track source)
     : constant = source.constant,
       keyframes = source.keyframes,
       simd = source.simd,
-      output = Float32List(source.output.length),
+      output = source.output.isEmpty
+          ? _emptyOutput
+          : Float32List(source.output.length),
       gamma = source.gamma;
   Track.constant(List<double> value)
     : this.constantValues(Float32List.fromList(value));
   Track.constantValues(this.constant)
     : keyframes = null,
       simd = false,
-      output = Float32List(0);
+      output = _emptyOutput;
   Track.animated(Keyframes data, this.simd)
     : constant = null,
       keyframes = data,
@@ -202,7 +245,7 @@ class Track {
     final easeCount = flags >> 4;
     final linear = flags & Keyframes.linearFlag != 0;
     final t = linear ? fraction : data.ease(easeOffset, fraction);
-    final spatial = data._spatial?[key];
+    final spatial = data._spatialAt(key);
     if (spatial != null) {
       spatial.sample(t.clamp(0.0, 1.0), output);
     } else if (simd && len >= 32 && easeCount <= 1) {
@@ -259,10 +302,12 @@ class Track {
   double scalar(double frame) => at(frame)[0];
 }
 
-/// Arc-length lookup for spatial position keyframes, built without native Path.
+/// Arc-length lookup for spatial position keyframes, built lazily on first use.
 class _SpatialCurve {
+  _SpatialCurve._none() : points = Float32List(0), lengths = Float32List(0);
+
   _SpatialCurve(Float32List values, int a, int b, Float32List tangents, int t)
-    : points = Float64List.fromList([
+    : points = Float32List.fromList([
         values[a],
         values[a + 1],
         values[a] + tangents[t],
@@ -271,7 +316,8 @@ class _SpatialCurve {
         values[b + 1] + tangents[t + 3],
         values[b],
         values[b + 1],
-      ]) {
+      ]),
+      lengths = Float32List(129) {
     var x = points[0], y = points[1];
     for (var i = 1; i < lengths.length; i++) {
       final t = i / (lengths.length - 1);
@@ -282,8 +328,8 @@ class _SpatialCurve {
       y = ny;
     }
   }
-  final Float64List points;
-  final lengths = Float64List(129);
+  final Float32List points;
+  final Float32List lengths;
   double _coordinate(double t, int axis) {
     final u = 1 - t;
     return u * u * u * points[axis] +

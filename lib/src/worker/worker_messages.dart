@@ -6,9 +6,11 @@ const int opRenderFrame = 2;
 const int opDeleteDisk = 3;
 const int opClearMem = 4;
 const int opRenderStrip = 5;
+const int opRenderStripNative = 6;
 
 const int repFrameReady = 0;
 const int repFrameError = 1;
 const int repDeleted = 2;
 const int repSceneMissing = 3;
 const int repStripReady = 4;
+const int repStripCancelled = 5;

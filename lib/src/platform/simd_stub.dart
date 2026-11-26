@@ -102,6 +102,10 @@ bool nativeCompositeMatte(
 ) => false;
 
 bool get isNativeGradientSupported => false;
+bool get isNativeAdvancedBlendSupported => false;
+bool get isNativeCancelSupported => false;
+void nativeCancelSlotStore(int slot, int token) {}
+int nativeCancelSlotLoad(int slot) => 0;
 
 bool nativeInnerShadow(
   NativePixelBuffer dst,

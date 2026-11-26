@@ -92,7 +92,7 @@ void main() {
         'morph',
       ]) {
         final composition = FastLottieComposition.fromJson(fixture(name));
-        for (final size in [73, 112, 256]) {
+        for (final size in [73, 112, 256, 512]) {
           final candidate = FastLottieSoftwareSession(
             composition,
             pixelWidth: size,
@@ -134,7 +134,7 @@ void main() {
         'morph',
       ]) {
         final composition = FastLottieComposition.fromJson(fixture(name));
-        for (final size in [73, 112, 256]) {
+        for (final size in [73, 112, 256, 512]) {
           final candidate = FastLottieSoftwareSession(
             composition,
             pixelWidth: size,

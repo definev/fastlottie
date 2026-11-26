@@ -389,6 +389,9 @@ class BitstreamStore {
 
   final _ramLru = <_RamKey, _RamFrame>{};
   final _ramFramesByEntry = <String, Set<int>>{};
+  final _entryRamBytes = <String, int>{};
+  final _entryTotalFrames = <String, int>{};
+  final _oversizedEntries = <String>{};
   int _ramBytes = 0;
   int _ramClock = 0;
   final _tilePages = <_RamKey, TilePlaybackPage>{};
@@ -834,6 +837,7 @@ class BitstreamStore {
 
     _putRam(
       ramKey: (entryKey, frameIndex),
+      totalFrames: totalFrames,
       bytes: srcPayload,
       start: 0,
       length: payloadLen,
@@ -892,6 +896,9 @@ class BitstreamStore {
       _removeTilePage(key);
     }
     _attemptedPages.removeWhere((key) => key.$1 == entryKey);
+    _oversizedEntries.remove(entryKey);
+    _entryTotalFrames.remove(entryKey);
+    _entryRamBytes.remove(entryKey);
     final frames = _ramFramesByEntry.remove(entryKey);
     if (frames == null) return;
     for (final frameIndex in frames) {
@@ -914,6 +921,9 @@ class BitstreamStore {
   void clearRam() {
     _ramLru.clear();
     _ramFramesByEntry.clear();
+    _entryRamBytes.clear();
+    _entryTotalFrames.clear();
+    _oversizedEntries.clear();
     _ramBytes = 0;
     _tilePages.clear();
     _attemptedPages.clear();
@@ -978,6 +988,7 @@ class BitstreamStore {
 
   void _putRam({
     required _RamKey ramKey,
+    int totalFrames = 0,
     required Uint8List bytes,
     required int start,
     required int length,
@@ -987,8 +998,27 @@ class BitstreamStore {
     required int fpLo,
   }) {
     if (maximumRamBytes <= 0 || length > maximumRamBytes) return;
+    final entryKey = ramKey.$1;
+    if (totalFrames > 0) {
+      _entryTotalFrames[entryKey] = totalFrames;
+    }
     _removeRamKey(ramKey);
-    _makeRamRoom(length);
+    // Estimate whether this entry can fit its full loop BEFORE evicting others:
+    // if even with this incoming frame it exceeds shard RAM, mark it oversized
+    // immediately so it self-evicts instead of cannibalizing complete short loops.
+    final prevSet = _ramFramesByEntry[entryKey];
+    final nextCount = (prevSet?.length ?? 0) + 1;
+    final nextBytes = (_entryRamBytes[entryKey] ?? 0) + length;
+    _updateOversizedFlag(entryKey, nextCount, nextBytes);
+    final isOversized = _oversizedEntries.contains(entryKey);
+    if (isOversized) {
+      // Evict only oversized entries' frames; never cannibalize smaller loops
+      // that can fit completely in RAM just to buffer an un-cacheable stream.
+      _evictOversizedFor(length);
+      if (ramBytes + length > maximumRamBytes) return;
+    } else {
+      _makeRamRoom(length, protectedEntry: entryKey);
+    }
     final copy = Uint8List(length)..setRange(0, length, bytes, start);
     final frame = _RamFrame(
       payload: copy,
@@ -999,8 +1029,28 @@ class BitstreamStore {
       lastUsed: ++_ramClock,
     );
     _ramLru[ramKey] = frame;
-    (_ramFramesByEntry[ramKey.$1] ??= <int>{}).add(ramKey.$2);
+    final set = (_ramFramesByEntry[entryKey] ??= <int>{})..add(ramKey.$2);
     _ramBytes += length;
+    final updatedEntryBytes = (_entryRamBytes[entryKey] ?? 0) + length;
+    _entryRamBytes[entryKey] = updatedEntryBytes;
+    _updateOversizedFlag(entryKey, set.length, updatedEntryBytes);
+  }
+
+  void _updateOversizedFlag(String entryKey, int cachedCount, int entryBytes) {
+    final total = _entryTotalFrames[entryKey] ?? 0;
+    if (total > 0 && cachedCount >= 1 && cachedCount < total) {
+      final estimatedLoopBytes = (entryBytes * total) ~/ cachedCount;
+      // On frame 1 require a 1.25x margin (frame 0 can be denser/lighter);
+      // from frame 2 onward use the direct loop estimate.
+      final threshold = cachedCount == 1
+          ? (maximumRamBytes * 5) ~/ 4
+          : maximumRamBytes;
+      if (estimatedLoopBytes > threshold) {
+        _oversizedEntries.add(entryKey);
+        return;
+      }
+    }
+    _oversizedEntries.remove(entryKey);
   }
 
   void _removeTilePage(_RamKey key) {
@@ -1008,8 +1058,53 @@ class BitstreamStore {
     if (removed != null) _tileBytes -= removed.bytes;
   }
 
-  void _makeRamRoom(int added) {
+  void _evictOversizedFor(int added) {
+    while (ramBytes + added > maximumRamBytes && _oversizedEntries.isNotEmpty) {
+      String? victimEntry;
+      for (final candidate in _oversizedEntries) {
+        final frames = _ramFramesByEntry[candidate];
+        if (frames != null && frames.isNotEmpty) {
+          victimEntry = candidate;
+          break;
+        }
+      }
+      if (victimEntry == null) {
+        _oversizedEntries.clear();
+        break;
+      }
+      _removeRamKey((victimEntry, _ramFramesByEntry[victimEntry]!.first));
+    }
+  }
+
+  void _makeRamRoom(int added, {String? protectedEntry}) {
     while (ramBytes + added > maximumRamBytes) {
+      // Scan/loop-resistant eviction: evict frames from un-cacheable giant
+      // loops before cannibalizing smaller loops that can warm completely and
+      // release their compiled scenes.
+      var evictedOversized = false;
+      if (_oversizedEntries.isNotEmpty) {
+        String? victimEntry;
+        for (final candidate in _oversizedEntries) {
+          final frames = _ramFramesByEntry[candidate];
+          if (frames == null || frames.isEmpty) continue;
+          if (candidate != protectedEntry) {
+            victimEntry = candidate;
+            break;
+          }
+          victimEntry ??= candidate;
+        }
+        if (victimEntry != null) {
+          final frames = _ramFramesByEntry[victimEntry];
+          if (frames != null && frames.isNotEmpty) {
+            _removeRamKey((victimEntry, frames.first));
+            evictedOversized = true;
+          } else {
+            _oversizedEntries.remove(victimEntry);
+          }
+        }
+      }
+      if (evictedOversized) continue;
+
       final hasRam = _ramLru.isNotEmpty;
       final hasTile = _tilePages.isNotEmpty;
       if (hasRam && hasTile) {
@@ -1031,11 +1126,23 @@ class BitstreamStore {
   void _removeRamKey(_RamKey ramKey) {
     final removed = _ramLru.remove(ramKey);
     if (removed == null) return;
+    final entryKey = ramKey.$1;
     _ramBytes -= removed.payload.length;
-    final set = _ramFramesByEntry[ramKey.$1];
+    final remaining = (_entryRamBytes[entryKey] ?? 0) - removed.payload.length;
+    final set = _ramFramesByEntry[entryKey];
     if (set != null) {
       set.remove(ramKey.$2);
-      if (set.isEmpty) _ramFramesByEntry.remove(ramKey.$1);
+      if (set.isEmpty) {
+        _ramFramesByEntry.remove(entryKey);
+        _entryRamBytes.remove(entryKey);
+        _oversizedEntries.remove(entryKey);
+      } else {
+        _entryRamBytes[entryKey] = remaining > 0 ? remaining : 0;
+        _updateOversizedFlag(entryKey, set.length, _entryRamBytes[entryKey]!);
+      }
+    } else {
+      _entryRamBytes.remove(entryKey);
+      _oversizedEntries.remove(entryKey);
     }
   }
 

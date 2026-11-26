@@ -45,7 +45,10 @@ class _Fork {
     if (v is _MergePathSource) {
       return _copy(
         v,
-        () => _MergePathSource(v.sources.map(source).toList(), v.mode),
+        () => _MergePathSource(
+          v.sources.map(source).toList(growable: false),
+          v.mode,
+        ),
       );
     }
     if (v is _BezierGeometry) {
@@ -91,7 +94,7 @@ class _Fork {
       return _copy(
         v,
         () => _Style(
-          v.sources.map(source).toList(),
+          v.sources.map(source).toList(growable: false),
           track(v.color),
           track(v.opacity),
           track(v.width),
@@ -111,8 +114,8 @@ class _Fork {
   _Group group(_Group v) => _copy(
     v,
     () => _Group(
-      v.sources.map(source).toList(),
-      v.draws.map(draw).toList(),
+      v.sources.map(source).toList(growable: false),
+      v.draws.map(draw).toList(growable: false),
       transform(v.transform),
     ),
   );

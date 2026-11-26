@@ -24,6 +24,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   final _lowPriorityQueue = LinkedHashSet<_RasterEntry>.identity();
   final _activeDiskKeys = <String>{};
   final _activeWorkerShards = <int, int>{};
+  final _inFlightShards = Map<_RasterEntry, int>.identity();
   final _awaitingImages = <_RasterEntry>{};
   // Non-owning 64-bit fingerprint `(fpHi, fpLo, image)` for each entry's last
   // accepted buffer. Reused only while `image` is still a front/back buffer;
@@ -64,7 +65,15 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   }
 
   int _workerShard(_RasterEntry entry) =>
-      entry.workerShard ??= workerPool.shardForKey(entry.entryKey);
+      entry.workerShard ??= workerPool.shardForKey(
+        entry.entryKey,
+        weight: math.max(
+          1,
+          entry.key.$2.width.toInt() *
+              entry.key.$2.height.toInt() *
+              entry.sourceFrames,
+        ),
+      );
 
   bool _canDispatch(_RasterEntry entry) {
     if (_activeJobs >= _maximumInFlight) return false;
@@ -103,6 +112,12 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
 
   void onEntryReleased(_RasterEntry entry) {
     _forgetDuplicate(entry);
+    if (entry.inFlightStripStart >= 0) {
+      workerPool.cancelInFlight(entry.entryKey);
+    }
+    if (entry.retired) {
+      workerPool.releaseEntryShard(entry.entryKey);
+    }
     if (entry.queuedForRaster) {
       _highPriorityQueue.remove(entry);
       _lowPriorityQueue.remove(entry);
@@ -115,6 +130,9 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
 
   void onEntryDemoted(_RasterEntry entry) {
     _forgetDuplicate(entry);
+    if (entry.inFlightStripStart >= 0) {
+      workerPool.cancelInFlight(entry.entryKey);
+    }
     if (entry.pendingStripStart >= 0) {
       if (entry.desiredFrameIndex >= 0 &&
           (entry.queuedHighPriority || entry.renderingImage == null)) {
@@ -449,6 +467,19 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     }
     if (entry.inFlightStripStart >= 0) {
       // Latest desire wins without growing a request backlog.
+      // Once a front buffer exists, cancel an in-flight multi-frame strip if
+      // an urgent miss supersedes it (e.g. seek or fast scroll); on cold start
+      // let the initial strip finish rather than starving first-frame delivery.
+      if (highPriority &&
+          entry.renderingImage != null &&
+          entry.inFlightStripCount > 1 &&
+          !_stripContains(
+            entry.inFlightStripStart,
+            entry.inFlightStripCount,
+            stripStart,
+          )) {
+        workerPool.cancelInFlight(entry.entryKey);
+      }
       entry.pendingStripStart = stripStart;
       entry.pendingStripCount = stripCount;
       entry.queuedHighPriority = highPriority;
@@ -493,6 +524,22 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     _dispatchEntryStrip(entry, stripStart, stripCount);
   }
 
+  int _shardForStrip(_RasterEntry entry, int stripStart) {
+    final baseShard = _workerShard(entry);
+    final workers = workerPool.workerCount;
+    // Fan out strips of a single/dual hero animation across idle worker shards
+    // when disk caching is inactive (avoids multi-isolate writes to one .flcache).
+    if (!kIsWeb &&
+        workers > 1 &&
+        workerPool.diskCacheDirectory == null &&
+        cache._entries.length <= 2 &&
+        entry.framesPerStrip > 1 &&
+        entry.totalFrames > entry.framesPerStrip) {
+      return (baseShard + (stripStart ~/ entry.framesPerStrip)) % workers;
+    }
+    return baseShard;
+  }
+
   void _dispatchEntryStrip(_RasterEntry entry, int stripStart, int stripCount) {
     if (_disposed ||
         !cache._enabled ||
@@ -512,7 +559,8 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     entry.inFlightStripStart = stripStart;
     entry.inFlightStripCount = stripCount;
     final dispatchedGen = entry.stripGeneration;
-    final shard = _workerShard(entry);
+    final shard = _shardForStrip(entry, stripStart);
+    _inFlightShards[entry] = shard;
     _activeWorkerShards[shard] = (_activeWorkerShards[shard] ?? 0) + 1;
     _activeJobs++;
 
@@ -663,7 +711,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         );
         return;
       }
-      final shard = _workerShard(entry);
+      final shard = _inFlightShards.remove(entry) ?? _workerShard(entry);
       if (!kIsWeb || !workerPool.isInlineShard(shard)) {
         _releaseWorker(shard);
         _awaitingImages.add(entry);
@@ -716,6 +764,16 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     if (!_disposed && cache.lastError == null) {
       cache._failed(error);
     }
+  }
+
+  @override
+  void onStripCancelled(_RasterEntry entry, int dispatchedGen) {
+    final active =
+        !_disposed &&
+        !entry.retired &&
+        entry.users.isNotEmpty &&
+        cache.lastError == null;
+    _finishJob(entry, scheduleFollowup: active);
   }
 
   void _onImageDecoded(
@@ -887,8 +945,9 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   }
 
   void _finishJob(_RasterEntry entry, {required bool scheduleFollowup}) {
+    final activeShard = _inFlightShards.remove(entry);
     if (!_disposed && !_awaitingImages.remove(entry)) {
-      _releaseWorker(_workerShard(entry));
+      _releaseWorker(activeShard ?? _workerShard(entry));
     }
     if (_activeJobs > 0) _activeJobs--;
     entry.inFlightStripStart = -1;

@@ -10,6 +10,7 @@ import '../platform/raster_no_canvas.dart'
 import '../platform/simd_stub.dart'
     if (dart.library.ffi) '../platform/simd_io.dart'
     if (dart.library.js_interop) '../platform/simd_wasm.dart';
+import '../scene/lottie_json_reader.dart';
 import '../scene/options.dart';
 import '../scene/track.dart';
 import 'raster_geometry.dart';
@@ -71,6 +72,13 @@ final class RasterScene {
     Map<String, dynamic> document,
     FastLottieOptions options,
   ) => RasterScene._(_Compiler(options)..compile(document));
+
+  /// Parses UTF-8 Lottie JSON directly into a compiled [RasterScene] using
+  /// packed Bezier point/number slabs to cut transient DOM allocations.
+  factory RasterScene.compileBytes(
+    Uint8List utf8Json,
+    FastLottieOptions options,
+  ) => RasterScene._(_Compiler(options)..compile(parseLottieJsonBytes(utf8Json)));
 
   _Compiler? _compilerState;
   _Compiler get _compiler =>

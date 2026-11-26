@@ -1,0 +1,146 @@
+{
+  "phoenix": {
+    "src": "/public/sprites/phoenix.png",
+    "cols": 10,
+    "rows": 6,
+    "frames": 60,
+    "frameSize": 256,
+    "fps": 60.0
+  },
+  "morph": {
+    "src": "/public/sprites/morph.png",
+    "cols": 6,
+    "rows": 6,
+    "frames": 36,
+    "frameSize": 256,
+    "fps": 30.0
+  },
+  "emoji_0": {
+    "src": "/public/sprites/emoji_0.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_1": {
+    "src": "/public/sprites/emoji_1.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_2": {
+    "src": "/public/sprites/emoji_2.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_3": {
+    "src": "/public/sprites/emoji_3.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_4": {
+    "src": "/public/sprites/emoji_4.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_5": {
+    "src": "/public/sprites/emoji_5.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_6": {
+    "src": "/public/sprites/emoji_6.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_7": {
+    "src": "/public/sprites/emoji_7.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_8": {
+    "src": "/public/sprites/emoji_8.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_9": {
+    "src": "/public/sprites/emoji_9.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_10": {
+    "src": "/public/sprites/emoji_10.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_11": {
+    "src": "/public/sprites/emoji_11.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_12": {
+    "src": "/public/sprites/emoji_12.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_13": {
+    "src": "/public/sprites/emoji_13.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_14": {
+    "src": "/public/sprites/emoji_14.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  },
+  "emoji_15": {
+    "src": "/public/sprites/emoji_15.png",
+    "cols": 6,
+    "rows": 4,
+    "frames": 24,
+    "frameSize": 160,
+    "fps": 60.0
+  }
+}

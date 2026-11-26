@@ -15,6 +15,7 @@ class FastLottiePictureCache {
   FastLottiePictureCache({
     this.maximumCompositions = 24,
     this.maximumCommands = 8 * 1000 * 1000,
+    this.bypassOversizedLoops = true,
   }) : assert(maximumCompositions >= 0),
        assert(maximumCommands >= 0) {
     RangeError.checkNotNegative(maximumCompositions, 'maximumCompositions');
@@ -27,6 +28,11 @@ class FastLottiePictureCache {
   /// Soft estimated command budget across cached frames; unpinned compositions
   /// are evicted oldest-first when exceeded.
   final int maximumCommands;
+
+  /// When true, animated compositions whose full loop cannot fit inside the
+  /// player's [FastLottieCache] frame/command limits draw directly to the canvas
+  /// instead of thrashing `PictureRecorder` allocations on every frame.
+  final bool bypassOversizedLoops;
 
   final _entries = <String, _PictureEntry>{};
   final _unpinned = LinkedHashSet<_PictureEntry>.identity();

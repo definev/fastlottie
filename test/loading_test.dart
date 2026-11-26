@@ -100,10 +100,16 @@ void main() {
     player.dispose();
   });
   test(
-    'worker prepares first scene; constructing/discarding players stays lazy',
+    'worker compiles lazily by default and prepares vector scene when requested',
     () async {
+      final lazy = await FastLottieComposition.fromBytesAsync(
+        bytes(fixture('icon')),
+      );
+      expect(lazy.debugHasPreparedScene, isFalse);
+
       final c = await FastLottieComposition.fromBytesAsync(
         bytes(fixture('icon')),
+        prepareForVector: true,
       );
       expect(c.debugHasPreparedScene, isTrue);
       final discarded = FastLottiePlayer(c);

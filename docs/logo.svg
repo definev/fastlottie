@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 720" width="760" height="720" fill="none">
+  <defs>
+    <!-- Blue ribbon gradient: bright cyan at top-right through azure to deep royal blue at bottom-left -->
+    <linearGradient id="blue-ribbon" x1="695" y1="55" x2="275" y2="635" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1FE0F4"/>
+      <stop offset="28%" stop-color="#1ACBF0"/>
+      <stop offset="58%" stop-color="#1294EC"/>
+      <stop offset="86%" stop-color="#0673F6"/>
+      <stop offset="100%" stop-color="#0364F7"/>
+    </linearGradient>
+
+    <filter id="overlap-shadow" x="130" y="340" width="490" height="300"
+      filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="-3" dy="12" result="offset-shadow"/>
+      <feComposite in="offset-shadow" in2="SourceAlpha" operator="out" result="cast-shadow"/>
+      <feFlood flood-color="#00225E" flood-opacity="0.38"/>
+      <feComposite in2="cast-shadow" operator="in"/>
+    </filter>
+
+    <!-- Yellow lightning bolt outer amber-gold bevel -->
+    <linearGradient id="bolt-amber" x1="420" y1="32" x2="115" y2="670" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F3B216"/>
+      <stop offset="36%" stop-color="#E6A40C"/>
+      <stop offset="68%" stop-color="#D98E03"/>
+      <stop offset="100%" stop-color="#D48801"/>
+    </linearGradient>
+
+    <!-- Yellow lightning bolt inner bright gold highlight -->
+    <linearGradient id="bolt-bright" x1="385" y1="68" x2="105" y2="680" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FCD514"/>
+      <stop offset="48%" stop-color="#FDCE0F"/>
+      <stop offset="78%" stop-color="#F0AE04"/>
+      <stop offset="100%" stop-color="#DE9302"/>
+    </linearGradient>
+
+    <!-- The pen rises from behind the bolt, loops over itself, and sweeps into the tail. -->
+    <path id="ribbon-stroke" fill="none" stroke-width="68" stroke-linecap="butt"
+      d="M 184 447
+         C 173 536, 222 602, 291 602
+         C 381 602, 470 493, 552 401
+         C 634 309, 696 194, 696 125
+         C 696 88, 679 66, 646 66
+         C 599 66, 554 122, 519 207
+         C 484 292, 460 391, 460 491
+         C 460 558, 506 603, 586 603
+         C 632 603, 686 578, 728 529"
+    />
+    <mask id="ribbon-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="760" height="720">
+      <use href="#ribbon-stroke" stroke="white"/>
+    </mask>
+
+    <path id="bolt-outline"
+      d="M 508 32
+         L 368 32
+         C 278 32, 207 77.6, 179 140
+         L 74 374
+         C 71.9 378.68, 73 382, 79 382
+         L 130 382
+         C 144 382, 149 389.75, 144 402
+         L 24 696
+         L 378 284
+         L 250 284
+         C 236 284, 231 275, 237 262
+         L 272 184
+         C 298 128, 336 105, 396 105
+         L 464 105
+         C 471 105, 476.5 102.2, 480 94.4
+         Z"
+    />
+    <clipPath id="clip-bolt">
+      <use href="#bolt-outline"/>
+    </clipPath>
+  </defs>
+
+  <!-- Blue cursive ribbon ("L") -->
+  <g id="ribbon" mask="url(#ribbon-mask)">
+    <rect width="760" height="720" fill="url(#blue-ribbon)"/>
+    <!-- Only the descending pass casts a shadow where the stroke crosses itself. -->
+    <use href="#ribbon-stroke" stroke="white" stroke-dasharray="2000" stroke-dashoffset="-820"
+      filter="url(#overlap-shadow)"/>
+    <use href="#bolt-outline" fill="white" filter="url(#overlap-shadow)"/>
+  </g>
+
+  <!-- Yellow/gold lightning bolt ("F") -->
+  <g id="lightning-bolt">
+    <use href="#bolt-outline" fill="url(#bolt-amber)"/>
+
+    <!-- Inner bright-gold beveled highlight facet -->
+    <g clip-path="url(#clip-bolt)">
+      <path fill="url(#bolt-bright)"
+        d="M 530 67
+           L 382 67
+           C 304 67, 236 111.6, 208 174
+           L 132.75 341.7
+           L 230 341.7
+           L 24 696
+           L 530 696 Z"
+      />
+    </g>
+  </g>
+</svg>

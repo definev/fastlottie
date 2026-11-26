@@ -37,6 +37,7 @@ typedef _DartFillSolidSpans = void Function(
 @ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Uint32>, ffi.Int32)>(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
   symbol: 'fastlottie_clear_pixels',
+  isLeaf: true,
 )
 external void _nativeClearPixelsAsset(ffi.Pointer<ffi.Uint32> dst, int count);
 
@@ -53,6 +54,7 @@ external void _nativeClearPixelsAsset(ffi.Pointer<ffi.Uint32> dst, int count);
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
   symbol: 'fastlottie_fill_solid_spans',
+  isLeaf: true,
 )
 external void _nativeFillSolidSpansAsset(
   ffi.Pointer<ffi.Uint32> dst,
@@ -77,6 +79,7 @@ external void _nativeFillSolidSpansAsset(
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
   symbol: 'fastlottie_blend_rect',
+  isLeaf: true,
 )
 external void _blendRect(
   ffi.Pointer<ffi.Uint32> dst,
@@ -102,6 +105,7 @@ external void _blendRect(
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
   symbol: 'fastlottie_blend_solid',
+  isLeaf: true,
 )
 external void _blendSolid(
   ffi.Pointer<ffi.Uint32> dst,
@@ -133,6 +137,7 @@ external void _blendSolid(
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
   symbol: 'fastlottie_composite_matte',
+  isLeaf: true,
 )
 external void _compositeMatte(
   ffi.Pointer<ffi.Uint32> dst,
@@ -176,6 +181,7 @@ external void _compositeMatte(
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
   symbol: 'fastlottie_gradient_spans',
+  isLeaf: true,
 )
 external void _gradientSpans(
   ffi.Pointer<ffi.Uint32> dst,
@@ -309,6 +315,7 @@ bool _hasCompositeMatte = true;
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
   symbol: 'fastlottie_inner_shadow',
+  isLeaf: true,
 )
 external void _innerShadow(
   ffi.Pointer<ffi.Uint32> dst,
@@ -469,6 +476,7 @@ bool nativeCompositeMatte(
   }
 }
 
+bool _useAssetClearFill = false;
 _DartClearPixels? _nativeClearPixels;
 _DartFillSolidSpans? _nativeFillSolidSpans;
 
@@ -478,6 +486,7 @@ bool _initLib() {
     try {
       _nativeClearPixelsAsset(ffi.nullptr, 0);
 
+      _useAssetClearFill = true;
       _nativeClearPixels = _nativeClearPixelsAsset;
       _nativeFillSolidSpans = _nativeFillSolidSpansAsset;
       return true;
@@ -535,10 +544,12 @@ bool _initLib() {
     _nativeClearPixels = lib
         .lookupFunction<_NativeClearPixels, _DartClearPixels>(
           'fastlottie_clear_pixels',
+          isLeaf: true,
         );
     _nativeFillSolidSpans = lib
         .lookupFunction<_NativeFillSolidSpans, _DartFillSolidSpans>(
           'fastlottie_fill_solid_spans',
+          isLeaf: true,
         );
     return true;
   } catch (_) {
@@ -547,12 +558,50 @@ bool _initLib() {
 }
 
 final bool isSimdSupported = _initLib();
+bool get isNativeAdvancedBlendSupported => isSimdSupported;
+
+@ffi.Native<ffi.Void Function(ffi.Int32, ffi.Int32)>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fastlottie_cancel_store',
+  isLeaf: true,
+)
+external void _cancelStore(int slot, int token);
+
+@ffi.Native<ffi.Int32 Function(ffi.Int32)>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fastlottie_cancel_load',
+  isLeaf: true,
+)
+external int _cancelLoad(int slot);
+
+bool _hasCancelAtomic = true;
+bool get isNativeCancelSupported => isSimdSupported && _hasCancelAtomic;
+
+void nativeCancelSlotStore(int slot, int token) {
+  if (!isNativeCancelSupported) return;
+  try {
+    _cancelStore(slot, token);
+  } on ArgumentError {
+    _hasCancelAtomic = false;
+  }
+}
+
+int nativeCancelSlotLoad(int slot) {
+  if (!isNativeCancelSupported) return 0;
+  try {
+    return _cancelLoad(slot);
+  } on ArgumentError {
+    _hasCancelAtomic = false;
+    return 0;
+  }
+}
+
 Future<void> ensureSimdReady({bool enableOnDartWasm = false}) async {}
 
 class NativeSpansBuffer {
   NativeSpansBuffer(int count) {
     if (isSimdSupported) {
-      ptr = calloc<ffi.Int32>(count);
+      ptr = malloc<ffi.Int32>(count);
       typedList = ptr!.asTypedList(count);
     } else {
       typedList = Int32List(count);
@@ -564,10 +613,10 @@ class NativeSpansBuffer {
 
   void reallocate(int newCount, int copyCount) {
     if (ptr != null) {
-      final nextPtr = calloc<ffi.Int32>(newCount);
+      final nextPtr = malloc<ffi.Int32>(newCount);
       final nextList = nextPtr.asTypedList(newCount);
       if (copyCount > 0) nextList.setRange(0, copyCount, typedList);
-      calloc.free(ptr!);
+      malloc.free(ptr!);
       ptr = nextPtr;
       typedList = nextList;
     } else {
@@ -579,7 +628,7 @@ class NativeSpansBuffer {
 
   void dispose() {
     if (ptr != null) {
-      calloc.free(ptr!);
+      malloc.free(ptr!);
       ptr = null;
     }
   }
@@ -636,12 +685,21 @@ class NativePixelBuffer {
 }
 
 void simdClearPixels(NativePixelBuffer dst, int count) {
-  if (dst.ptr != null && _nativeClearPixels != null) {
-    _nativeClearPixels!(dst.ptr!, count);
-    _kernelCalls++;
-  } else {
-    dst.typedList.fillRange(0, count, 0);
+  final p = dst.ptr;
+  if (p != null) {
+    if (_useAssetClearFill) {
+      _nativeClearPixelsAsset(p, count);
+      _kernelCalls++;
+      return;
+    }
+    final fn = _nativeClearPixels;
+    if (fn != null) {
+      fn(p, count);
+      _kernelCalls++;
+      return;
+    }
   }
+  dst.typedList.fillRange(0, count, 0);
 }
 
 bool simdFillSolidSpans(
@@ -653,18 +711,27 @@ bool simdFillSolidSpans(
   int spanCount,
   int srcPremul,
 ) {
-  if (dst.ptr != null && spans.ptr != null && _nativeFillSolidSpans != null) {
-    _nativeFillSolidSpans!(
-      dst.ptr!,
-      dstOriginX,
-      dstOriginY,
-      stride,
-      spans.ptr!,
-      spanCount,
-      srcPremul,
-    );
-    _kernelCalls++;
-    return true;
+  final d = dst.ptr, s = spans.ptr;
+  if (d != null && s != null) {
+    if (_useAssetClearFill) {
+      _nativeFillSolidSpansAsset(
+        d,
+        dstOriginX,
+        dstOriginY,
+        stride,
+        s,
+        spanCount,
+        srcPremul,
+      );
+      _kernelCalls++;
+      return true;
+    }
+    final fn = _nativeFillSolidSpans;
+    if (fn != null) {
+      fn(d, dstOriginX, dstOriginY, stride, s, spanCount, srcPremul);
+      _kernelCalls++;
+      return true;
+    }
   }
   return false;
 }
@@ -684,12 +751,14 @@ external void _denseFree(ffi.Pointer<ffi.Void> p);
 @ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32)>(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
   symbol: 'fl_dense_trim',
+  isLeaf: true,
 )
 external void _denseTrim(ffi.Pointer<ffi.Void> p, int maxCells);
 
 @ffi.Native<ffi.Int32 Function(ffi.Pointer<ffi.Void>, ffi.Int32, ffi.Int32)>(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
   symbol: 'fl_dense_reserve',
+  isLeaf: true,
 )
 external int _denseReserve(ffi.Pointer<ffi.Void> state, int width, int height);
 
@@ -802,7 +871,11 @@ external int _denseSolidBorrowed(
     ffi.Int32,
     ffi.Pointer<ffi.Int32>,
   )
->(assetId: 'package:fastlottie/fastlottie_simd.dart', symbol: 'fl_dense_raster')
+>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fl_dense_raster',
+  isLeaf: true,
+)
 external int _denseRaster(
   ffi.Pointer<ffi.Void> state,
   ffi.Pointer<ffi.Double> vx,
@@ -889,11 +962,11 @@ class NativeCoverageWorkspace {
     if (cells > _peakCells) _peakCells = cells;
     if (borrowGeometry &&
         !_borrowedUnavailable &&
-        nv <= 512 &&
-        nc <= 64 &&
-        x1 - x0 <= 128 &&
-        y1 - y0 <= 128 &&
-        nv * (x1 - x0 + y1 - y0 + 4) + cells <= 32768) {
+        nv <= 1024 &&
+        nc <= 128 &&
+        x1 - x0 <= 384 &&
+        y1 - y0 <= 384 &&
+        nv * (x1 - x0 + y1 - y0 + 4) + cells <= 196608) {
       try {
         final words = ((x1 - x0 + 63) ~/ 64) * (y1 - y0);
         final reserved = cells <= _borrowedCells && words <= _borrowedWords;
@@ -939,23 +1012,23 @@ class NativeCoverageWorkspace {
     copiedDraws++;
     if (nv > _points) {
       if (_points > 0) {
-        calloc.free(_x);
-        calloc.free(_y);
+        malloc.free(_x);
+        malloc.free(_y);
       }
       _points = nv * 2;
-      _x = calloc<ffi.Double>(_points);
-      _y = calloc<ffi.Double>(_points);
+      _x = malloc<ffi.Double>(_points);
+      _y = malloc<ffi.Double>(_points);
       _xs = _x.asTypedList(_points);
       _ys = _y.asTypedList(_points);
     }
     if (nc > _contours) {
       if (_contours > 0) {
-        calloc.free(_s);
-        calloc.free(_e);
+        malloc.free(_s);
+        malloc.free(_e);
       }
       _contours = nc * 2;
-      _s = calloc<ffi.Int32>(_contours);
-      _e = calloc<ffi.Int32>(_contours);
+      _s = malloc<ffi.Int32>(_contours);
+      _e = malloc<ffi.Int32>(_contours);
       _ss = _s.asTypedList(_contours);
       _es = _e.asTypedList(_contours);
     }
@@ -1017,11 +1090,11 @@ class NativeCoverageWorkspace {
         nc == 0 ||
         out.ptr == null ||
         cells > 262144 ||
-        nv > 512 ||
-        nc > 64 ||
-        x1 - x0 > 128 ||
-        y1 - y0 > 128 ||
-        nv * (x1 - x0 + y1 - y0 + 4) + cells > 32768) {
+        nv > 1024 ||
+        nc > 128 ||
+        x1 - x0 > 384 ||
+        y1 - y0 > 384 ||
+        nv * (x1 - x0 + y1 - y0 + 4) + cells > 196608) {
       return -2;
     }
     try {
@@ -1082,16 +1155,16 @@ class NativeCoverageWorkspace {
     }
     const softPoints = 8192;
     if (_points > softPoints) {
-      calloc.free(_x);
-      calloc.free(_y);
+      malloc.free(_x);
+      malloc.free(_y);
       _points = 0;
       _x = ffi.nullptr;
       _y = ffi.nullptr;
     }
     const softContours = 512;
     if (_contours > softContours) {
-      calloc.free(_s);
-      calloc.free(_e);
+      malloc.free(_s);
+      malloc.free(_e);
       _contours = 0;
       _s = ffi.nullptr;
       _e = ffi.nullptr;
@@ -1114,12 +1187,12 @@ class NativeCoverageWorkspace {
     _denseFree(_state);
     calloc.free(_bounds);
     if (_points > 0) {
-      calloc.free(_x);
-      calloc.free(_y);
+      malloc.free(_x);
+      malloc.free(_y);
     }
     if (_contours > 0) {
-      calloc.free(_s);
-      calloc.free(_e);
+      malloc.free(_s);
+      malloc.free(_e);
     }
   }
 }

@@ -863,7 +863,7 @@ abstract final class SwarBlender {
   ) {
     if (color == 0) return;
     if (nativeDst != null &&
-        !usesAdvancedBlend(mode) &&
+        (!usesAdvancedBlend(mode) || isNativeAdvancedBlendSupported) &&
         nativeBlendSolid(
           nativeDst,
           originX,

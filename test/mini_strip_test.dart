@@ -945,6 +945,12 @@ final class _StripTestListener
   }
 
   @override
+  void onStripCancelled(
+    Completer<({Uint8List bytes, int fpHi, int fpLo})> context,
+    int dispatchedGen,
+  ) {}
+
+  @override
   void onBrowserWorkerFallback(
     Completer<({Uint8List bytes, int fpHi, int fpLo})> context,
   ) {}

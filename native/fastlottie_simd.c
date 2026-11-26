@@ -2,6 +2,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
 #include <arm_neon.h>
 #elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
@@ -15,6 +19,26 @@
 #else
 #define FL_EXPORT __attribute__((visibility("default")))
 #endif
+
+static int32_t fl_cancel_slots[256];
+
+FL_EXPORT void fastlottie_cancel_store(int32_t slot, int32_t token) {
+    int32_t idx = slot & 255;
+#if defined(_MSC_VER)
+    _InterlockedExchange((volatile long *)&fl_cancel_slots[idx], (long)token);
+#else
+    __atomic_store_n(&fl_cancel_slots[idx], token, __ATOMIC_RELEASE);
+#endif
+}
+
+FL_EXPORT int32_t fastlottie_cancel_load(int32_t slot) {
+    int32_t idx = slot & 255;
+#if defined(_MSC_VER)
+    return (int32_t)_InterlockedOr((volatile long *)&fl_cancel_slots[idx], 0);
+#else
+    return __atomic_load_n(&fl_cancel_slots[idx], __ATOMIC_ACQUIRE);
+#endif
+}
 
 static inline uint32_t scale_premul(uint32_t premul, uint32_t factor256) {
     if (factor256 >= 256) return premul;
@@ -518,6 +542,147 @@ FL_EXPORT void fastlottie_inner_shadow(
     }
 }
 
+static inline double fl_min3(double a, double b, double c) {
+    double m = a < b ? a : b;
+    return m < c ? m : c;
+}
+
+static inline double fl_max3(double a, double b, double c) {
+    double m = a > b ? a : b;
+    return m > c ? m : c;
+}
+
+static inline double fl_lum(double r, double g, double b) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    return 0.3 * r + 0.59 * g + 0.11 * b;
+}
+
+static inline double fl_sat(double r, double g, double b) {
+    return fl_max3(r, g, b) - fl_min3(r, g, b);
+}
+
+static inline void fl_set_sat(
+    double r, double g, double b, double sat,
+    double *or_, double *og, double *ob
+) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    const double low = fl_min3(r, g, b);
+    const double span = fl_sat(r, g, b);
+    if (span == 0.0) {
+        *or_ = 0.0;
+        *og = 0.0;
+        *ob = 0.0;
+        return;
+    }
+    *or_ = (r - low) * sat / span;
+    *og = (g - low) * sat / span;
+    *ob = (b - low) * sat / span;
+}
+
+static inline void fl_set_lum(
+    double r, double g, double b, double lum,
+    double *or_, double *og, double *ob
+) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    const double delta = lum - fl_lum(r, g, b);
+    const double low = fl_min3(r, g, b) + delta;
+    const double high = fl_max3(r, g, b) + delta;
+    double cr = r + delta, cg = g + delta, cb = b + delta;
+    if (low < 0.0) {
+        cr = lum + (cr - lum) * lum / (lum - low);
+        cg = lum + (cg - lum) * lum / (lum - low);
+        cb = lum + (cb - lum) * lum / (lum - low);
+    }
+    if (high > 1.0) {
+        cr = lum + (cr - lum) * (1.0 - lum) / (high - lum);
+        cg = lum + (cg - lum) * (1.0 - lum) / (high - lum);
+        cb = lum + (cb - lum) * (1.0 - lum) / (high - lum);
+    }
+    *or_ = cr;
+    *og = cg;
+    *ob = cb;
+}
+
+static inline double fl_advanced_channel(double d, double s, int mode) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    if (mode == 6) {
+        if (d == 0.0) return 0.0;
+        if (s == 1.0) return 1.0;
+        double v = d / (1.0 - s);
+        return v < 1.0 ? v : 1.0;
+    }
+    if (mode == 7) {
+        if (d == 1.0) return 1.0;
+        if (s == 0.0) return 0.0;
+        double v = (1.0 - d) / s;
+        return 1.0 - (v < 1.0 ? v : 1.0);
+    }
+    if (s <= 0.5) return d - (1.0 - 2.0 * s) * d * (1.0 - d);
+    const double curve = d <= 0.25 ? ((16.0 * d - 12.0) * d + 4.0) * d : sqrt(d);
+    return d + (2.0 * s - 1.0) * (curve - d);
+}
+
+static inline uint32_t fl_premul_advanced(
+    uint32_t sc, uint32_t dc, uint32_t sa, uint32_t da, uint32_t alpha, double overlap
+) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    const double v = ((double)sc * (double)(255 - da) +
+                      (double)dc * (double)(255 - sa) +
+                      (double)sa * (double)da * overlap) / 255.0;
+    long r = lround(v);
+    if (r < 0) return 0;
+    if ((uint32_t)r > alpha) return alpha;
+    return (uint32_t)r;
+}
+
+static inline uint32_t blend_advanced(
+    uint32_t sr, uint32_t sg, uint32_t sb,
+    uint32_t dr, uint32_t dg, uint32_t db,
+    uint32_t sa, uint32_t da, uint32_t alpha, int mode
+) {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+    const double sr_f = (double)sr / (double)sa;
+    const double sg_f = (double)sg / (double)sa;
+    const double sb_f = (double)sb / (double)sa;
+    const double dr_f = (double)dr / (double)da;
+    const double dg_f = (double)dg / (double)da;
+    const double db_f = (double)db / (double)da;
+    double r, g, b;
+    if (mode == 12) {
+        double tr, tg, tb;
+        fl_set_sat(sr_f, sg_f, sb_f, fl_sat(dr_f, dg_f, db_f), &tr, &tg, &tb);
+        fl_set_lum(tr, tg, tb, fl_lum(dr_f, dg_f, db_f), &r, &g, &b);
+    } else if (mode == 13) {
+        double tr, tg, tb;
+        fl_set_sat(dr_f, dg_f, db_f, fl_sat(sr_f, sg_f, sb_f), &tr, &tg, &tb);
+        fl_set_lum(tr, tg, tb, fl_lum(dr_f, dg_f, db_f), &r, &g, &b);
+    } else if (mode == 14) {
+        fl_set_lum(sr_f, sg_f, sb_f, fl_lum(dr_f, dg_f, db_f), &r, &g, &b);
+    } else if (mode == 15) {
+        fl_set_lum(dr_f, dg_f, db_f, fl_lum(sr_f, sg_f, sb_f), &r, &g, &b);
+    } else {
+        r = fl_advanced_channel(dr_f, sr_f, mode);
+        g = fl_advanced_channel(dg_f, sg_f, mode);
+        b = fl_advanced_channel(db_f, sb_f, mode);
+    }
+    return (alpha << 24) |
+        (fl_premul_advanced(sr, dr, sa, da, alpha, r) << 16) |
+        (fl_premul_advanced(sg, dg, sa, da, alpha, g) << 8) |
+        fl_premul_advanced(sb, db, sa, da, alpha, b);
+}
+
 static inline uint32_t blend_pixel(uint32_t src, uint32_t dst, int mode) {
     if (src == 0) return dst;
     if (dst == 0) return src;
@@ -531,6 +696,9 @@ static inline uint32_t blend_pixel(uint32_t src, uint32_t dst, int mode) {
             (blend_sat255(sg + dg) << 8) | blend_sat255(sb + db);
     }
     const uint32_t a = sa + da - blend_div255(sa * da);
+    if (mode == 6 || mode == 7 || mode == 9 || (mode >= 12 && mode <= 15)) {
+        return blend_advanced(sr, sg, sb, dr, dg, db, sa, da, a, mode);
+    }
     if (mode == 2) {
         return (a << 24) |
             ((sr + dr - blend_div255(sr * dr)) << 16) |

@@ -316,8 +316,10 @@ class _Compiler {
               precompTemplates: precomps,
             );
           precomps[precompKey] = template;
+          child = template;
+        } else {
+          child = _Fork().scene(template);
         }
-        child = _Fork().scene(template);
         commands += child.commands;
         hasStroke |= child.hasStroke;
       }
@@ -783,6 +785,27 @@ class _Compiler {
         flags[key * 2 + (at.segment == 'e' ? 1 : 0)] = c ? 1 : 2;
       }
       final v = shape['v'], incoming = shape['i'], outgoing = shape['o'];
+      if (v is PackedPointList &&
+          incoming is PackedPointList &&
+          outgoing is PackedPointList) {
+        final count = v.length;
+        if (count != incoming.length || count != outgoing.length) {
+          fail(at, 'Invalid path topology');
+        }
+        final data = _trackValues(at, output, count * 6, width);
+        final vxy = v.xy, ixy = incoming.xy, oxy = outgoing.xy;
+        for (var n = 0; n < count; n++) {
+          final p = n * 2;
+          final index = offset + n * 6;
+          data[index] = vxy[p];
+          data[index + 1] = vxy[p + 1];
+          data[index + 2] = ixy[p];
+          data[index + 3] = ixy[p + 1];
+          data[index + 4] = oxy[p];
+          data[index + 5] = oxy[p + 1];
+        }
+        return data;
+      }
       if (v is! List ||
           incoming is! List ||
           outgoing is! List ||
@@ -1067,8 +1090,13 @@ class _Compiler {
               join > 3) {
             fail(p, 'Stroke cap/join');
           }
-          final color = _track(m['c'], p.field('c'), 3, [0, 0, 0])
-            ..gamma = true;
+          final color = _track(
+            m['c'],
+            p.field('c'),
+            3,
+            [0, 0, 0],
+            shareFallback: false,
+          )..gamma = true;
           // Lottie also permits RGB components encoded in [0,255].
           final values = color.constant ?? color.keyframes!.values;
           for (var base = 0; base < values.length; base += 3) {
@@ -1210,9 +1238,14 @@ class _Compiler {
     List<double> fallback, {
     double z = 0,
     bool separateEasing = false,
+    bool shareFallback = true,
     _TrackDecoder? decode,
   }) {
-    if (value == null) return Track.constant(fallback);
+    if (value == null) {
+      return shareFallback
+          ? Track.canonicalConstant(fallback)
+          : Track.constant(fallback);
+    }
     final m = map(value, path);
     check(m, path, const {'a', 'k', 'ix', 'x', 'l'});
     if (m['a'] != null && m['a'] != 0 && m['a'] != 1) {

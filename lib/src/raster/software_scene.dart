@@ -151,7 +151,8 @@ void _renderCompilerInto(
                 (paint.gradient == null ||
                     (nativeDst != null &&
                         isNativeGradientSupported &&
-                        !SwarBlender.usesAdvancedBlend(bm) &&
+                        (!SwarBlender.usesAdvancedBlend(bm) ||
+                            isNativeAdvancedBlendSupported) &&
                         !paint.gradient!.hasFocalPoint))) {
               _renderLayerInto(
                 layer,
@@ -217,7 +218,8 @@ void _renderCompilerInto(
 
             final nativeComposited =
                 nativeDst != null &&
-                !SwarBlender.usesAdvancedBlend(bm) &&
+                (!SwarBlender.usesAdvancedBlend(bm) ||
+                    isNativeAdvancedBlendSupported) &&
                 nativeBlendRect(
                   nativeDst,
                   (by0 - dstOriginY) * dstStride + bx0 - dstOriginX,

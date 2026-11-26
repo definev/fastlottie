@@ -65,29 +65,22 @@ final class _ContentKeyHasher {
     final cnst = t.constant;
     if (cnst != null) {
       _mixInt(cnst.length);
-      for (var i = 0; i < cnst.length; i++) {
-        _mixDouble(cnst[i]);
-      }
+      _mixFloatRange(cnst, 0, cnst.length);
       return;
     }
     final data = t.keyframes!;
     _mixInt(data.count);
     final values = data.values;
     final controls = data.easing;
+    final w = data.width;
     for (var key = 0; key < data.count; key++) {
       _mixDouble(data.times[key]);
       _mixInt(data.isHold(key) ? 1 : 0);
-      _mixInt(data.width);
-      final start = key * data.stride;
-      for (var i = 0; i < data.width; i++) {
-        _mixDouble(values[start + i]);
-      }
+      _mixInt(w);
+      _mixFloatRange(values, key * data.stride, w);
       if (data.hasEnd(key)) {
-        _mixInt(data.width);
-        final end = data.endOffset(key);
-        for (var i = 0; i < data.width; i++) {
-          _mixDouble(values[end + i]);
-        }
+        _mixInt(w);
+        _mixFloatRange(values, data.endOffset(key), w);
       }
       final easeCount = data.easeCount(key);
       _mixInt(easeCount);
@@ -96,11 +89,45 @@ final class _ContentKeyHasher {
         _mixDouble(controls[i]);
       }
       if (data.hasTangents(key)) {
-        for (var i = 0; i < 4; i++) {
-          _mixDouble(data.tangents![key * 4 + i]);
-        }
+        _mixFloatRange(data.tangents!, key * 4, 4);
       }
     }
+  }
+
+  void _mixFloatRange(Float32List values, int start, int length) {
+    if (_isWeb ||
+        const bool.fromEnvironment('FASTLOTTIE_SPLIT_HASH_MULTIPLY')) {
+      for (var i = 0; i < length; i++) {
+        _mixDouble(values[start + i]);
+      }
+      return;
+    }
+    final buf = _floatBuf;
+    var h1 = _h1, h2 = _h2, h3 = _h3, h4 = _h4;
+    final end = start + length;
+    for (var i = start; i < end; i++) {
+      final v = values[i];
+      buf.setFloat64(0, v == 0.0 ? 0.0 : v, Endian.little);
+      final lo = buf.getUint32(0, Endian.little);
+      h1 = ((h1 ^ lo) * 0x01000193) & 0xFFFFFFFF;
+      h2 = (((h2 + lo) & 0xFFFFFFFF) * 0x85EBCA6B) & 0xFFFFFFFF;
+      h2 ^= h2 >>> 16;
+      h3 = ((h3 ^ lo) * 0xC2B2AE35) & 0xFFFFFFFF;
+      h3 ^= h3 >>> 13;
+      h4 = (((h4 + h1 + lo) & 0xFFFFFFFF) * 0x27D4EB2F) & 0xFFFFFFFF;
+
+      final hi = buf.getUint32(4, Endian.little);
+      h1 = ((h1 ^ hi) * 0x01000193) & 0xFFFFFFFF;
+      h2 = (((h2 + hi) & 0xFFFFFFFF) * 0x85EBCA6B) & 0xFFFFFFFF;
+      h2 ^= h2 >>> 16;
+      h3 = ((h3 ^ hi) * 0xC2B2AE35) & 0xFFFFFFFF;
+      h3 ^= h3 >>> 13;
+      h4 = (((h4 + h1 + hi) & 0xFFFFFFFF) * 0x27D4EB2F) & 0xFFFFFFFF;
+    }
+    _h1 = h1;
+    _h2 = h2;
+    _h3 = h3;
+    _h4 = h4;
   }
 
   void _mixTransform(_Transform t) {

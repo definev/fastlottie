@@ -65,8 +65,14 @@ class _ExpressionResolver {
         }
       }
       for (final key in value.keys) {
+        // Property value / keyframe arrays ('k') never hold nested expressions;
+        // expressions ('x') always live as a sibling of 'k' on the property map.
+        if (key == 'k') continue;
         final child = value[key];
-        if (child is! Map<String, dynamic> && child is! List) continue;
+        if (child is! Map<String, dynamic> &&
+            (child is! List || child is TypedData)) {
+          continue;
+        }
         segments.add(key);
         _walk(
           child,
@@ -78,10 +84,13 @@ class _ExpressionResolver {
         );
         segments.removeLast();
       }
-    } else if (value is List) {
+    } else if (value is List && value is! TypedData) {
       for (var i = 0; i < value.length; i++) {
         final child = value[i];
-        if (child is! Map<String, dynamic> && child is! List) continue;
+        if (child is! Map<String, dynamic> &&
+            (child is! List || child is TypedData)) {
+          continue;
+        }
         segments.add(i);
         _walk(child, roots, layerPath, segments, resolving: resolving);
         segments.removeLast();

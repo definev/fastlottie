@@ -30,7 +30,7 @@ final class TilePlaybackPage {
 
   static const tileSize = 16;
   static const maxFrames = 4;
-  static const maxPixels = 256 * 256;
+  static const maxPixels = 384 * 384;
   final int width, height, firstFrame;
   final Uint8List _slots;
   static const _absent = 255;

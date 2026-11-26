@@ -199,18 +199,23 @@ class FastLottiePlayer extends ChangeNotifier {
   /// Throws before allocating if the RGBA payload exceeds [maximumBytes].
   /// This trades startup work and memory for the cheapest repeated playback.
   /// GPU/engine overhead is additional to this RGBA payload budget.
+  ///
+  /// When [fitBudget] is true and the requested size exceeds [maximumBytes],
+  /// resolution is proportionally scaled down to fit inside [maximumBytes]
+  /// instead of throwing [ArgumentError] (useful on 3× DPR mobile displays).
   Future<void> prepareRaster({
     required num width,
     required num height,
     double devicePixelRatio = 1,
     int maximumBytes = 32 * 1024 * 1024,
+    bool fitBudget = false,
   }) async {
     if (_disposed) throw StateError('FastLottiePlayer has been disposed');
     _checkPositiveFinite(width, 'width');
     _checkPositiveFinite(height, 'height');
     _checkPositiveFinite(devicePixelRatio, 'devicePixelRatio');
     RangeError.checkNotNegative(maximumBytes, 'maximumBytes');
-    final contentSize = Size(
+    var contentSize = Size(
       width * devicePixelRatio,
       height * devicePixelRatio,
     );
@@ -223,16 +228,35 @@ class FastLottiePlayer extends ChangeNotifier {
         'Must be positive and finite after scaling by devicePixelRatio ($devicePixelRatio)',
       );
     }
-    final pixelWidth = contentSize.width.ceil();
-    final pixelHeight = contentSize.height.ceil();
+    var pixelWidth = contentSize.width.ceil();
+    var pixelHeight = contentSize.height.ceil();
     final count = composition.isStatic ? 1 : composition.frameCount;
     // Divide before multiplying so an oversized request cannot wrap an int.
     if (pixelWidth > maximumBytes ~/ 4 ~/ count ~/ pixelHeight) {
-      throw ArgumentError.value(
-        maximumBytes,
-        'maximumBytes',
-        'Too small for $count RGBA frames at $pixelWidth × $pixelHeight pixels',
+      if (!fitBudget || maximumBytes < 4 * count) {
+        throw ArgumentError.value(
+          maximumBytes,
+          'maximumBytes',
+          'Too small for $count RGBA frames at $pixelWidth × $pixelHeight pixels',
+        );
+      }
+      final maxPixelsPerFrame = maximumBytes ~/ (4 * count);
+      final scale = math.sqrt(maxPixelsPerFrame / (pixelWidth * pixelHeight));
+      contentSize = Size(
+        math.max(1.0, (contentSize.width * scale).floorToDouble()),
+        math.max(1.0, (contentSize.height * scale).floorToDouble()),
       );
+      pixelWidth = contentSize.width.ceil();
+      pixelHeight = contentSize.height.ceil();
+      while (pixelWidth > maximumBytes ~/ 4 ~/ count ~/ pixelHeight &&
+          (pixelWidth > 1 || pixelHeight > 1)) {
+        if (pixelWidth >= pixelHeight && pixelWidth > 1) {
+          pixelWidth--;
+        } else if (pixelHeight > 1) {
+          pixelHeight--;
+        }
+      }
+      contentSize = Size(pixelWidth.toDouble(), pixelHeight.toDouble());
     }
     final generation = ++_rasterGeneration;
     final images = <ui.Image>[];
@@ -459,12 +483,24 @@ class FastLottiePlayer extends ChangeNotifier {
         sharedPictures != null &&
         !sharedPictures.isDisposed &&
         cache.maximumFrames > 0) {
+      final commandsPerFrame = c.sceneTemplate.commands;
+      final loopFits =
+          c.isStatic ||
+          !sharedPictures.bypassOversizedLoops ||
+          (c.frameCount <= cache.maximumFrames &&
+              commandsPerFrame <= cache.maximumCommands ~/ c.frameCount);
+      if (!loopFits) {
+        _misses++;
+        _scene.draw(canvas, frame);
+        canvas.restore();
+        return;
+      }
       var entry = _pictureEntry;
       if (entry == null || entry.retired) {
         entry = _pictureEntry = sharedPictures._acquire(
           this,
           c.contentKey,
-          c.sceneTemplate.commands,
+          commandsPerFrame,
         );
       }
       var picture = sharedPictures._lookup(entry, key);
@@ -473,7 +509,7 @@ class FastLottiePlayer extends ChangeNotifier {
         canvas.drawPicture(picture);
       } else {
         _misses++;
-        if (c.sceneTemplate.commands <= cache.maximumCommands) {
+        if (commandsPerFrame <= cache.maximumCommands) {
           final recorder = ui.PictureRecorder();
           _scene.draw(Canvas(recorder), frame);
           picture = recorder.endRecording();
@@ -538,6 +574,44 @@ class FastLottiePlayer extends ChangeNotifier {
       composition.height * target.height / source.height * dpr * scale,
     );
     shared._prewarm(this, pixels);
+  }
+
+  /// Prewarms the initial strip via the off-UI software/LZ4 worker pipeline
+  /// and resolves once the first GPU texture is ready (much lower RAM than
+  /// [prepareRaster] on high-DPR displays).
+  Future<void> prewarmCache({
+    Size? destinationSize,
+    BoxFit fit = BoxFit.contain,
+    Alignment alignment = Alignment.center,
+    double devicePixelRatio = 1,
+  }) {
+    final shared = rasterCache;
+    if (shared == null || !shared.enabled || _disposed) {
+      return Future<void>.value();
+    }
+    prewarm(
+      destinationSize: destinationSize,
+      fit: fit,
+      alignment: alignment,
+      devicePixelRatio: devicePixelRatio,
+    );
+    final entry = _rasterEntry;
+    if (entry == null || entry.renderingImage != null) {
+      return Future<void>.value();
+    }
+    final completer = Completer<void>();
+    void onUpdate() {
+      if (_disposed ||
+          _rasterEntry == null ||
+          _rasterEntry!.renderingImage != null ||
+          shared.lastError != null) {
+        removeListener(onUpdate);
+        if (!completer.isCompleted) completer.complete();
+      }
+    }
+
+    addListener(onUpdate);
+    return completer.future;
   }
 
   /// Releases this player's pictures, prepared images and shared cache lease.

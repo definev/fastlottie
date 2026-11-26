@@ -37,11 +37,11 @@ class _Transform {
     this.skewAxis,
   ]);
   factory _Transform.identity() => _Transform(
-    Track.constant([0, 0]),
-    Track.constant([0, 0]),
-    Track.constant([100, 100]),
-    Track.constant([0]),
-    Track.constant([100]),
+    Track.zero2,
+    Track.zero2,
+    Track.hundred2,
+    Track.zero,
+    Track.hundred,
     null,
     null,
   );

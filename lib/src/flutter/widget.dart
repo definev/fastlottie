@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -220,20 +221,40 @@ class _FastLottieState extends State<FastLottie>
   AnimationController? _controllerInstance;
   AnimationController get _controller => _controllerInstance ??=
       AnimationController(vsync: this, duration: widget.composition.duration);
+  _SharedClockAnimation? _sharedAnimation;
   late final _FrameRepaint _repaint;
   bool _reducedMotion = false;
+  bool _tickerEnabled = true;
   FastLottiePlayback _playback = FastLottiePlayback.active;
   FastLottieRasterMode get _rasterMode =>
       _playback == FastLottiePlayback.prewarm
       ? FastLottieRasterMode.poster
       : widget.rasterMode;
+  bool get _useSharedClock =>
+      widget.controller == null &&
+      widget.repeat &&
+      widget.animate &&
+      !_reducedMotion &&
+      !widget.composition.isStatic &&
+      _playback == FastLottiePlayback.active &&
+      widget.composition.duration.inMicroseconds > 0;
+  Animation<double> get _activeAnimation {
+    if (widget.controller != null) return widget.controller!;
+    if (_useSharedClock) {
+      return _sharedAnimation ??= _SharedClockAnimation(
+        widget.composition.duration,
+      );
+    }
+    return _controller;
+  }
+
   Animation<double> get _paintAnimation =>
       _playback == FastLottiePlayback.active
-      ? animation
+      ? _activeAnimation
       : const AlwaysStoppedAnimation<double>(0);
   bool _repeating = false;
   bool _usesDefaultPipeline = false;
-  Animation<double> get animation => widget.controller ?? _controller;
+  Animation<double> get animation => _activeAnimation;
 
   FastLottieRasterCache? _resolveRasterCache() {
     if (widget.rasterCache != null) {
@@ -266,6 +287,7 @@ class _FastLottieState extends State<FastLottie>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _reducedMotion = MediaQuery.disableAnimationsOf(context);
+    _tickerEnabled = TickerMode.valuesOf(context).enabled;
     final nextPlayback = FastLottiePlaybackScope.of(context);
     if (_playerInstance == null) {
       _playback = nextPlayback;
@@ -328,6 +350,17 @@ class _FastLottieState extends State<FastLottie>
   }
 
   void _play() {
+    if (_useSharedClock) {
+      _controllerInstance?.stop();
+      final shared = _sharedAnimation ??= _SharedClockAnimation(
+        widget.composition.duration,
+      );
+      shared.setDuration(widget.composition.duration);
+      shared.setActive(_tickerEnabled);
+      _repeating = true;
+      return;
+    }
+    _sharedAnimation?.setActive(false);
     if (_playback != FastLottiePlayback.active ||
         widget.controller != null ||
         !widget.animate ||
@@ -392,11 +425,13 @@ class _FastLottieState extends State<FastLottie>
       if (wasUsingDefault && !_usesDefaultPipeline) {
         DefaultRasterCacheScope.release();
       }
-      if (oldWidget.composition != widget.composition &&
-          _controllerInstance != null) {
-        _controllerInstance!.stop();
-        _controllerInstance!.duration = widget.composition.duration;
-        _controllerInstance!.value = 0;
+      if (oldWidget.composition != widget.composition) {
+        _sharedAnimation?.reset(widget.composition.duration);
+        if (_controllerInstance != null) {
+          _controllerInstance!.stop();
+          _controllerInstance!.duration = widget.composition.duration;
+          _controllerInstance!.value = 0;
+        }
       }
     } else {
       _repaint.update(
@@ -413,6 +448,7 @@ class _FastLottieState extends State<FastLottie>
   void dispose() {
     _repaint.dispose();
     _playerInstance?.dispose();
+    _sharedAnimation?.dispose();
     _controllerInstance?.dispose();
     if (_usesDefaultPipeline) {
       _usesDefaultPipeline = false;
@@ -582,6 +618,125 @@ class _FrameRepaint extends ChangeNotifier {
     if (!hasListeners) {
       detachListeners();
     }
+  }
+}
+
+/// Coalesces repeating [FastLottie] widgets onto a single vsync [Ticker]
+/// instead of registering one [AnimationController] ticker per widget.
+final class _SharedPlaybackClock {
+  static final _SharedPlaybackClock instance = _SharedPlaybackClock._();
+  _SharedPlaybackClock._();
+
+  final _active = <_SharedClockAnimation>[];
+  Ticker? _ticker;
+  int _lastElapsedUs = 0;
+
+  void attach(_SharedClockAnimation animation) {
+    if (_active.contains(animation)) return;
+    _active.add(animation);
+    animation._anchorUs = _lastElapsedUs - animation._offsetUs;
+    if (_ticker == null) {
+      _lastElapsedUs = 0;
+      animation._anchorUs = -animation._offsetUs;
+      _ticker = Ticker(_onTick, debugLabel: 'fastlottie.sharedClock')..start();
+    }
+  }
+
+  void detach(_SharedClockAnimation animation) {
+    if (!_active.remove(animation)) return;
+    if (_active.isEmpty) {
+      _ticker?.stop();
+      _ticker?.dispose();
+      _ticker = null;
+      _lastElapsedUs = 0;
+    }
+  }
+
+  void _onTick(Duration elapsed) {
+    final nowUs = elapsed.inMicroseconds;
+    _lastElapsedUs = nowUs;
+    // Iterate snapshot-safe by index; listeners only repaint, rarely mutate.
+    for (var i = 0; i < _active.length; i++) {
+      _active[i]._advance(nowUs);
+    }
+  }
+}
+
+final class _SharedClockAnimation extends Animation<double>
+    with
+        AnimationEagerListenerMixin,
+        AnimationLocalListenersMixin,
+        AnimationLocalStatusListenersMixin {
+  _SharedClockAnimation(Duration duration)
+    : _periodUs = duration.inMicroseconds > 0 ? duration.inMicroseconds : 1;
+
+  int _periodUs;
+  int _offsetUs = 0;
+  int _anchorUs = 0;
+  double _value = 0.0;
+  bool _active = false;
+  bool _disposed = false;
+
+  @override
+  double get value => _value;
+
+  @override
+  AnimationStatus get status =>
+      _active ? AnimationStatus.forward : AnimationStatus.dismissed;
+
+  void setDuration(Duration duration) {
+    final next = duration.inMicroseconds > 0 ? duration.inMicroseconds : 1;
+    if (next == _periodUs) return;
+    _periodUs = next;
+    _offsetUs = (_value * _periodUs).round();
+    if (_active) {
+      _anchorUs = _SharedPlaybackClock.instance._lastElapsedUs - _offsetUs;
+    }
+  }
+
+  void reset(Duration duration) {
+    _periodUs = duration.inMicroseconds > 0 ? duration.inMicroseconds : 1;
+    _value = 0.0;
+    _offsetUs = 0;
+    if (_active) {
+      _anchorUs = _SharedPlaybackClock.instance._lastElapsedUs;
+    }
+    notifyListeners();
+  }
+
+  void setActive(bool active) {
+    if (_disposed || _active == active) return;
+    _active = active;
+    if (active) {
+      _SharedPlaybackClock.instance.attach(this);
+    } else {
+      _offsetUs = (_value * _periodUs).round();
+      _SharedPlaybackClock.instance.detach(this);
+    }
+  }
+
+  void _advance(int nowUs) {
+    if (_disposed || !_active) return;
+    final elapsed = nowUs - _anchorUs;
+    final mod = elapsed >= 0 ? elapsed % _periodUs : 0;
+    final next = mod / _periodUs;
+    if (next != _value) {
+      _value = next;
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    if (_active) {
+      _active = false;
+      _SharedPlaybackClock.instance.detach(this);
+    }
+    clearListeners();
+    clearStatusListeners();
+    super.dispose();
   }
 }
 

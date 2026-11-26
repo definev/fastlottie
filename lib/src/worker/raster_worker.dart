@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -124,6 +123,220 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
     );
   }
 
+  void renderStripJob({
+    required int reqId,
+    required String entryKey,
+    required String contentKey,
+    required int stripStart,
+    required int stripCount,
+    required double startFrame,
+    required double frameStep,
+    required int width,
+    required int height,
+    required int totalFrames,
+    required bool poster,
+    required int cancelSlot,
+    required int cancelToken,
+  }) {
+    try {
+      if (cancelSlot >= 0 && nativeCancelSlotLoad(cancelSlot) != cancelToken) {
+        endpoint.send((
+          repStripCancelled,
+          requestId: reqId,
+          workerRamBytes: store.ramBytes,
+        ));
+        return;
+      }
+      playback.invalidate(); // This request overwrites the single-frame buffer.
+      final padY = stripCount > 1 ? 1 : 0;
+      final stripHeight = stripCount * height + (stripCount - 1) * padY;
+      final pxCount = width * stripHeight;
+      ensurePixels(pxCount);
+      if (padY > 0) {
+        for (var j = 1; j < stripCount; j++) {
+          final padStart = (j * (height + padY) - 1) * width;
+          pixels.typedList.fillRange(padStart, padStart + width, 0);
+        }
+      }
+
+      final singleFramePx = width * height;
+      var vectorRenderedCount = 0;
+      var compressedHitCount = 0;
+      var latestDiskBytes = -1;
+      var renderMicros = 0;
+      var kernelCalls = 0;
+      var geometryCopyBytes = 0;
+      var hasStripFp = store.computeFingerprints;
+      var stripFpHi = 0x9E3779B9;
+      var stripFpLo = 0x85EBCA6B;
+      int? warmPage;
+
+      RasterScene? scene;
+
+      for (var j = 0; j < stripCount; j++) {
+        if (cancelSlot >= 0 &&
+            nativeCancelSlotLoad(cancelSlot) != cancelToken) {
+          endpoint.send((
+            repStripCancelled,
+            requestId: reqId,
+            workerRamBytes: store.ramBytes,
+          ));
+          recordPixelUse(pxCount);
+          return;
+        }
+        final srcIdx = resolveWorkerSourceIndex(
+          stripStart + j,
+          totalFrames,
+          frameStep,
+        );
+        final scnFrame = startFrame + srcIdx;
+        final slotY = j * (height + padY);
+        final slotPxOffset = slotY * width;
+        final slot = pixels.slice(slotPxOffset, singleFramePx);
+
+        final cacheHit = store.tryReadFrame(
+          entryKey: entryKey,
+          width: width,
+          height: height,
+          totalFrames: totalFrames,
+          poster: poster,
+          frameIndex: srcIdx,
+          dstBgra: Uint8List.sublistView(slot.typedList),
+        );
+
+        if (cacheHit) {
+          compressedHitCount++;
+          warmPage ??= srcIdx;
+          if (hasStripFp) {
+            final slotHi = store.lastFrameFpHi;
+            final slotLo = store.lastFrameFpLo;
+            if (stripCount == 1) {
+              stripFpHi = slotHi;
+              stripFpLo = slotLo;
+            } else if (slotHi == 0 && slotLo == 0) {
+              hasStripFp = false;
+            } else {
+              (stripFpHi, stripFpLo) = BitstreamStore.mixStripFingerprint(
+                stripFpHi,
+                stripFpLo,
+                slotHi,
+                slotLo,
+              );
+            }
+          }
+          continue;
+        }
+
+        scene ??= scenes.remove(contentKey);
+        if (scene == null) {
+          reportMissing(reqId, contentKey);
+          return;
+        }
+        scenes[contentKey] = scene;
+
+        final startedMicros = telemetryClock.elapsedMicroseconds;
+        final beforeNative = readNativeKernelTelemetry();
+        final beforeGeometryCalls = nativeGeometryKernelCalls;
+        renderSceneSoftware(scene, scnFrame, slot, width, height, ws);
+        final telemetry = frameTelemetry(
+          startedMicros,
+          beforeNative,
+          beforeGeometryCalls,
+        );
+        renderMicros += telemetry.$1;
+        kernelCalls += telemetry.$2;
+        geometryCopyBytes += telemetry.$3;
+        vectorRenderedCount++;
+
+        final stored = store.storeFrame(
+          entryKey: entryKey,
+          width: width,
+          height: height,
+          totalFrames: totalFrames,
+          poster: poster,
+          frameIndex: srcIdx,
+          srcBgra: Uint8List.sublistView(slot.typedList),
+          scratch: lz4,
+        );
+        if (stored.entryDiskBytes > 0) {
+          latestDiskBytes = stored.entryDiskBytes;
+        }
+        if (hasStripFp) {
+          final slotHi = stored.fpHi;
+          final slotLo = stored.fpLo;
+          if (stripCount == 1) {
+            stripFpHi = slotHi;
+            stripFpLo = slotLo;
+          } else if (slotHi == 0 && slotLo == 0) {
+            hasStripFp = false;
+          } else {
+            (stripFpHi, stripFpLo) = BitstreamStore.mixStripFingerprint(
+              stripFpHi,
+              stripFpLo,
+              slotHi,
+              slotLo,
+            );
+          }
+        }
+      }
+
+      final stripBytes = pixelBytes(pxCount);
+      final packed = packBytesForIsolate(stripBytes);
+      final int fpHi;
+      final int fpLo;
+      if (!hasStripFp) {
+        fpHi = 0;
+        fpLo = 0;
+      } else if (stripCount == 1) {
+        fpHi = stripFpHi;
+        fpLo = stripFpLo;
+      } else {
+        (fpHi, fpLo) = BitstreamStore.finalizeStripFingerprint(
+          stripFpHi,
+          stripFpLo,
+          stripCount,
+        );
+      }
+      endpoint.send((
+        repStripReady,
+        requestId: reqId,
+        entryKey: entryKey,
+        stripStart: stripStart,
+        stripCount: stripCount,
+        pixels: packed,
+        vectorCount: vectorRenderedCount,
+        compressedCount: compressedHitCount,
+        entryDiskBytes: latestDiskBytes,
+        workerRamBytes: store.ramBytes,
+        stripWidth: width,
+        stripHeight: stripHeight,
+        renderMicros: renderMicros,
+        kernelCalls: kernelCalls,
+        geometryCopyBytes: geometryCopyBytes,
+        transferBytes: pxCount * 4,
+        fpHi: fpHi,
+        fpLo: fpLo,
+      ));
+      recordPixelUse(pxCount);
+      releaseSceneIfCached(contentKey, entryKey, totalFrames);
+      if (!poster && warmPage != null) {
+        store.preparePlaybackPage(
+          entryKey: entryKey,
+          width: width,
+          height: height,
+          totalFrames: totalFrames,
+          frameIndex: warmPage,
+        );
+      }
+    } catch (error) {
+      endpoint.send((
+        repFrameError,
+        requestId: reqId,
+        message: error.toString(),
+      ));
+    }
+  }
+
   endpoint.messages.listen((Object? raw) {
     switch (raw) {
       case null:
@@ -155,12 +368,12 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         useSimd: final bool simd,
       ):
         try {
-          final document = jsonDecode(
-            utf8.decode(decodeLottieBytes(bytes)),
-          ) as Map<String, dynamic>;
           register(
             contentKey,
-            RasterScene.compile(document, FastLottieOptions(useSimd: simd)),
+            RasterScene.compileBytes(
+              decodeLottieBytes(bytes),
+              FastLottieOptions(useSimd: simd),
+            ),
           );
         } catch (error) {
           if (failedScenes.length >= maxWorkerScenes) {
@@ -294,188 +507,52 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         totalFrames: final int totalFrames,
         poster: final bool poster,
       ):
-        try {
-          playback
-              .invalidate(); // This request overwrites the single-frame buffer.
-          final padY = stripCount > 1 ? 1 : 0;
-          final stripHeight = stripCount * height + (stripCount - 1) * padY;
-          final pxCount = width * stripHeight;
-          ensurePixels(pxCount);
-          if (padY > 0) {
-            // Every slot is fully written by tryReadFrame or renderSceneSoftware;
-            // only clear the 1px transparent gutter rows between adjacent slots.
-            for (var j = 1; j < stripCount; j++) {
-              final padStart = (j * (height + padY) - 1) * width;
-              pixels.typedList.fillRange(padStart, padStart + width, 0);
-            }
-          }
-
-          final singleFramePx = width * height;
-          var vectorRenderedCount = 0;
-          var compressedHitCount = 0;
-          var latestDiskBytes = -1;
-          var renderMicros = 0;
-          var kernelCalls = 0;
-          var geometryCopyBytes = 0;
-          var hasStripFp = store.computeFingerprints;
-          var stripFpHi = 0x9E3779B9;
-          var stripFpLo = 0x85EBCA6B;
-          int? warmPage;
-
-          RasterScene? scene;
-
-          for (var j = 0; j < stripCount; j++) {
-            final srcIdx = resolveWorkerSourceIndex(
-              stripStart + j,
-              totalFrames,
-              frameStep,
-            );
-            final scnFrame = startFrame + srcIdx;
-            final slotY = j * (height + padY);
-            final slotPxOffset = slotY * width;
-            final slot = pixels.slice(slotPxOffset, singleFramePx);
-
-            final cacheHit = store.tryReadFrame(
-              entryKey: entryKey,
-              width: width,
-              height: height,
-              totalFrames: totalFrames,
-              poster: poster,
-              frameIndex: srcIdx,
-              dstBgra: Uint8List.sublistView(slot.typedList),
-            );
-
-            if (cacheHit) {
-              compressedHitCount++;
-              warmPage ??= srcIdx;
-              if (hasStripFp) {
-                final slotHi = store.lastFrameFpHi;
-                final slotLo = store.lastFrameFpLo;
-                if (stripCount == 1) {
-                  stripFpHi = slotHi;
-                  stripFpLo = slotLo;
-                } else if (slotHi == 0 && slotLo == 0) {
-                  hasStripFp = false;
-                } else {
-                  (stripFpHi, stripFpLo) = BitstreamStore.mixStripFingerprint(
-                    stripFpHi,
-                    stripFpLo,
-                    slotHi,
-                    slotLo,
-                  );
-                }
-              }
-              continue;
-            }
-
-            scene ??= scenes.remove(contentKey);
-            if (scene == null) {
-              reportMissing(reqId, contentKey);
-              return;
-            }
-            scenes[contentKey] = scene;
-
-            final startedMicros = telemetryClock.elapsedMicroseconds;
-            final beforeNative = readNativeKernelTelemetry();
-            final beforeGeometryCalls = nativeGeometryKernelCalls;
-            renderSceneSoftware(scene, scnFrame, slot, width, height, ws);
-            final telemetry = frameTelemetry(
-              startedMicros,
-              beforeNative,
-              beforeGeometryCalls,
-            );
-            renderMicros += telemetry.$1;
-            kernelCalls += telemetry.$2;
-            geometryCopyBytes += telemetry.$3;
-            vectorRenderedCount++;
-
-            final stored = store.storeFrame(
-              entryKey: entryKey,
-              width: width,
-              height: height,
-              totalFrames: totalFrames,
-              poster: poster,
-              frameIndex: srcIdx,
-              srcBgra: Uint8List.sublistView(slot.typedList),
-              scratch: lz4,
-            );
-            if (stored.entryDiskBytes > 0) {
-              latestDiskBytes = stored.entryDiskBytes;
-            }
-            if (hasStripFp) {
-              final slotHi = stored.fpHi;
-              final slotLo = stored.fpLo;
-              if (stripCount == 1) {
-                stripFpHi = slotHi;
-                stripFpLo = slotLo;
-              } else if (slotHi == 0 && slotLo == 0) {
-                hasStripFp = false;
-              } else {
-                (stripFpHi, stripFpLo) = BitstreamStore.mixStripFingerprint(
-                  stripFpHi,
-                  stripFpLo,
-                  slotHi,
-                  slotLo,
-                );
-              }
-            }
-          }
-
-          final stripBytes = pixelBytes(pxCount);
-          final packed = packBytesForIsolate(stripBytes);
-          final int fpHi;
-          final int fpLo;
-          if (!hasStripFp) {
-            fpHi = 0;
-            fpLo = 0;
-          } else if (stripCount == 1) {
-            fpHi = stripFpHi;
-            fpLo = stripFpLo;
-          } else {
-            (fpHi, fpLo) = BitstreamStore.finalizeStripFingerprint(
-              stripFpHi,
-              stripFpLo,
-              stripCount,
-            );
-          }
-          endpoint.send((
-            repStripReady,
-            requestId: reqId,
-            entryKey: entryKey,
-            stripStart: stripStart,
-            stripCount: stripCount,
-            pixels: packed,
-            vectorCount: vectorRenderedCount,
-            compressedCount: compressedHitCount,
-            entryDiskBytes: latestDiskBytes,
-            workerRamBytes: store.ramBytes,
-            stripWidth: width,
-            stripHeight: stripHeight,
-            renderMicros: renderMicros,
-            kernelCalls: kernelCalls,
-            geometryCopyBytes: geometryCopyBytes,
-            transferBytes: pxCount * 4,
-            fpHi: fpHi,
-            fpLo: fpLo,
-          ));
-          recordPixelUse(pxCount);
-          releaseSceneIfCached(contentKey, entryKey, totalFrames);
-          if (!poster && warmPage != null) {
-            store.preparePlaybackPage(
-              entryKey: entryKey,
-              width: width,
-              height: height,
-              totalFrames: totalFrames,
-              frameIndex: warmPage,
-            );
-          }
-        } catch (error) {
-          endpoint.send((
-            repFrameError,
-            requestId: reqId,
-            message: error.toString(),
-          ));
-        }
+        renderStripJob(
+          reqId: reqId,
+          entryKey: entryKey,
+          contentKey: contentKey,
+          stripStart: stripStart,
+          stripCount: stripCount,
+          startFrame: startFrame,
+          frameStep: frameStep,
+          width: width,
+          height: height,
+          totalFrames: totalFrames,
+          poster: poster,
+          cancelSlot: -1,
+          cancelToken: 0,
+        );
+      case (
+        opRenderStripNative,
+        requestId: final int reqId,
+        entryKey: final String entryKey,
+        contentKey: final String contentKey,
+        stripStart: final int stripStart,
+        stripCount: final int stripCount,
+        startFrame: final double startFrame,
+        frameStep: final double frameStep,
+        width: final int width,
+        height: final int height,
+        totalFrames: final int totalFrames,
+        poster: final bool poster,
+        cancelSlot: final int cancelSlot,
+        cancelToken: final int cancelToken,
+      ):
+        renderStripJob(
+          reqId: reqId,
+          entryKey: entryKey,
+          contentKey: contentKey,
+          stripStart: stripStart,
+          stripCount: stripCount,
+          startFrame: startFrame,
+          frameStep: frameStep,
+          width: width,
+          height: height,
+          totalFrames: totalFrames,
+          poster: poster,
+          cancelSlot: cancelSlot,
+          cancelToken: cancelToken,
+        );
       case (opDeleteDisk, entryKey: final String entryKey):
         store.deleteDiskEntry(entryKey);
         store.evictEntryRam(entryKey);

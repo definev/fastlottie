@@ -172,7 +172,7 @@ FL_EXPORT int64_t fastlottie_encode_cache_frame(
     const uint8_t *src, size_t length, uint8_t *dst, size_t capacity,
     int32_t *hash, const uint32_t *table
 ) {
-    if (!length || length > 256 * 1024 || capacity < length) return -1;
+    if (!length || length > 1024 * 1024 || capacity < length) return -1;
     const size_t stored = compress_frame(src, length, dst, hash);
     const uint32_t crc = crc31(stored == length ? src : dst, stored, table);
     return (int64_t)(((uint64_t)crc << 32) | stored);

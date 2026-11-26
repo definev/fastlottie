@@ -7,6 +7,8 @@ import '../../decoding.dart';
 import '../network/network_stub.dart'
     if (dart.library.io) '../network/network_io.dart';
 import '../network/network_types.dart';
+import '../platform/compile_pool_stub.dart'
+    if (dart.library.isolate) '../platform/compile_pool_io.dart';
 import '../raster/raster_core.dart';
 import '../scene/options.dart';
 
@@ -17,9 +19,18 @@ Future<Uint8List> loadAssetBytes(AssetBundle bundle, String name) async {
 
 final _jsonBytesCodec = json.fuse(utf8);
 
-FastLottieComposition _compileLottie((List<int>, FastLottieOptions) request) =>
-    FastLottieComposition.fromBytes(request.$1, options: request.$2)
-      ..prepareForPlayback();
+FastLottieComposition _compileLottie(
+  List<int> bytes,
+  FastLottieOptions options,
+  bool prepareForVector,
+) {
+  final comp = FastLottieComposition.fromBytes(bytes, options: options);
+  comp.contentKey;
+  if (prepareForVector) {
+    comp.prepareForPlayback();
+  }
+  return comp;
+}
 
 /// Compiled, reusable composition. Each player owns its mutable render state.
 class FastLottieComposition {
@@ -84,31 +95,48 @@ class FastLottieComposition {
     FastLottieOptions options = const FastLottieOptions(),
   }) {
     final source = kIsWeb ? Uint8List.fromList(bytes) : null;
-    return FastLottieComposition._fromOwned(
-      _jsonBytesCodec.decode(decodeLottieBytes(source ?? bytes))
-          as Map<String, dynamic>,
+    final compiler = RasterScene.compileBytes(
+      decodeLottieBytes(source ?? bytes),
       options,
-      sourceBytes: source,
+    );
+    return FastLottieComposition._(
+      compiler.width,
+      compiler.height,
+      compiler.start,
+      compiler.end,
+      compiler.fps,
+      compiler,
+      options,
+      compiler.isStatic,
+      source,
     );
   }
 
-  /// Decode gzip/TGS, parse UTF-8 JSON and compile the model off the UI isolate.
-  /// Native compute returns the compiled Dart graph via Isolate.exit (no JSON
-  /// round-trip). Web compute executes inline; rendering objects remain lazy.
+  /// Decode gzip/TGS, parse UTF-8 JSON and compile the model off the UI isolate
+  /// using a reusable persistent compile worker pool.
+  ///
+  /// Set [prepareForVector] true to eagerly pre-fork the first Tier-C vector
+  /// scene on the compile worker; default `false` avoids wasted forks when
+  /// using the Tier-B raster pipeline.
   static Future<FastLottieComposition> fromBytesAsync(
     List<int> bytes, {
     FastLottieOptions options = const FastLottieOptions(),
-  }) =>
-      compute(_compileLottie, (bytes, options), debugLabel: 'fastlottie.parse');
+    bool prepareForVector = false,
+  }) => runInCompilePool(bytes, options, prepareForVector, _compileLottie);
 
   /// Loads a declared Flutter asset and compiles it via [fromBytesAsync].
   static Future<FastLottieComposition> loadAsset(
     String name, {
     AssetBundle? bundle,
     FastLottieOptions options = const FastLottieOptions(),
+    bool prepareForVector = false,
   }) async {
     final bytes = await loadAssetBytes(bundle ?? rootBundle, name);
-    return FastLottieComposition.fromBytesAsync(bytes, options: options);
+    return FastLottieComposition.fromBytesAsync(
+      bytes,
+      options: options,
+      prepareForVector: prepareForVector,
+    );
   }
 
   /// Fetches raw bytes (`.tgs` or `.json`) over HTTP/HTTPS or from [sourceCacheDirectory],

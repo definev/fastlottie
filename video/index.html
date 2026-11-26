@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FastLottie Video Studio</title>
+  <style>
+    @font-face {
+      font-family: "Outfit";
+      src: url("/public/fonts/Outfit-Variable.ttf") format("truetype");
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: block;
+    }
+    @font-face {
+      font-family: "JetBrains Mono";
+      src: url("/public/fonts/JetBrainsMono-Variable.ttf") format("truetype");
+      font-weight: 100 800;
+      font-style: normal;
+      font-display: block;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #04070E;
+      color: #f8fafc;
+      font-family: "Outfit", -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: min(96vw, 1280px);
+      aspect-ratio: 16 / 9;
+      background: #060911;
+      border-radius: 12px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.75), 0 0 0 1px rgba(84,197,248,0.16);
+    }
+    body.render-mode canvas {
+      width: 1920px;
+      height: 1080px;
+      border-radius: 0;
+      box-shadow: none;
+    }
+    .controls {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: #0B1220;
+      border: 1px solid rgba(84,197,248,0.18);
+      padding: 10px 18px;
+      border-radius: 999px;
+      width: min(96vw, 1100px);
+    }
+    body.render-mode .controls { display: none; }
+    button, select {
+      background: #027DFD;
+      color: #F0F9FF;
+      border: none;
+      border-radius: 999px;
+      padding: 8px 18px;
+      font-family: "Outfit", sans-serif;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    select { background: #162238; color: #f8fafc; }
+    input[type="range"] { flex: 1; accent-color: #027DFD; }
+    .time { font-family: "JetBrains Mono", monospace; font-size: 13px; color: #94a3b8; min-width: 110px; text-align: right; }
+  </style>
+</head>
+<body>
+  <canvas id="stage" width="1920" height="1080"></canvas>
+  <div class="controls">
+    <button id="playBtn">Play</button>
+    <select id="cutSel">
+      <option value="intro">55s Hero Trailer</option>
+      <option value="teaser">15s X Teaser</option>
+      <option value="hello">6.8s Apple "Hello" Lottie Reveal</option>
+      <option value="fastlottie">8.2s Apple "Hello" Fastlottie Reveal</option>
+    </select>
+    <input id="scrubber" type="range" min="0" max="3299" value="0" />
+    <span class="time" id="timeLbl">00.00s / 55.00s</span>
+  </div>
+
+  <script type="module">
+    import { loadSprites } from './src/engine.js';
+    import { renderIntroFrame } from './src/scenes_intro.js';
+    import { renderTeaserFrame } from './src/scenes_teaser.js';
+    import { renderHelloFrame } from './src/scenes_hello.js';
+    import { renderFastLottieFrame } from './src/scenes_fastlottie.js';
+
+    const params = new URLSearchParams(location.search);
+    const isRender = params.get('render') === '1';
+    let cut = params.get('cut') || 'intro';
+    if (isRender) document.body.classList.add('render-mode');
+
+    const canvas = document.getElementById('stage');
+    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: isRender });
+
+    const CUT_META = {
+      intro: { frames: 55 * 60, audio: '/public/audio/soundtrack_55s.wav', fn: renderIntroFrame },
+      teaser: { frames: 15 * 60, audio: '/public/audio/soundtrack_15s.wav', fn: renderTeaserFrame },
+      hello: { frames: Math.round(6.8 * 60), audio: '/public/audio/soundtrack_hello_6_8s.wav', fn: renderHelloFrame },
+      fastlottie: { frames: Math.round(8.2 * 60), audio: '/public/audio/soundtrack_fastlottie_8_2s.wav', fn: renderFastLottieFrame },
+    };
+
+    try {
+      await Promise.all([
+        document.fonts.load('600 48px "Outfit"'),
+        document.fonts.load('700 48px "Outfit"'),
+        document.fonts.load('800 48px "Outfit"'),
+        document.fonts.load('900 96px "Outfit"'),
+        document.fonts.load('600 24px "JetBrains Mono"'),
+        document.fonts.load('700 24px "JetBrains Mono"'),
+        document.fonts.load('800 32px "JetBrains Mono"'),
+      ]);
+      await document.fonts.ready;
+      const sprites = isRender && (cut === 'hello' || cut === 'fastlottie') ? null : await loadSprites();
+
+      if (isRender) {
+        const meta = CUT_META[cut] || CUT_META.intro;
+        for (let f = 0; f < meta.frames; f++) {
+          meta.fn(ctx, f, sprites);
+          const rgba = ctx.getImageData(0, 0, 1920, 1080).data;
+          const res = await fetch(`/frame?i=${f}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: rgba,
+          });
+          if (!res.ok) throw new Error(`Frame ${f} upload failed: ${res.status}`);
+        }
+        await fetch('/done', { method: 'POST' });
+      } else {
+        const playBtn = document.getElementById('playBtn');
+        const cutSel = document.getElementById('cutSel');
+        const scrubber = document.getElementById('scrubber');
+        const timeLbl = document.getElementById('timeLbl');
+        cutSel.value = cut;
+        let audio = new Audio(CUT_META[cut].audio);
+        let playing = false;
+        let curFrame = 0;
+
+        const draw = () => {
+          const meta = CUT_META[cut];
+          scrubber.max = String(meta.frames - 1);
+          scrubber.value = String(curFrame);
+          timeLbl.textContent = `${(curFrame / 60).toFixed(2)}s / ${(meta.frames / 60).toFixed(2)}s`;
+          meta.fn(ctx, curFrame, sprites);
+        };
+
+        const tick = () => {
+          if (!playing) return;
+          const meta = CUT_META[cut];
+          curFrame = Math.min(meta.frames - 1, Math.floor(audio.currentTime * 60));
+          draw();
+          if (curFrame >= meta.frames - 1 || audio.ended) {
+            playing = false;
+            playBtn.textContent = 'Play';
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+
+        playBtn.onclick = () => {
+          if (playing) {
+            audio.pause();
+            playing = false;
+            playBtn.textContent = 'Play';
+          } else {
+            if (curFrame >= CUT_META[cut].frames - 2) curFrame = 0;
+            audio.currentTime = curFrame / 60;
+            audio.play();
+            playing = true;
+            playBtn.textContent = 'Pause';
+            requestAnimationFrame(tick);
+          }
+        };
+
+        scrubber.oninput = () => {
+          curFrame = Number(scrubber.value);
+          audio.currentTime = curFrame / 60;
+          draw();
+        };
+
+        cutSel.onchange = () => {
+          audio.pause();
+          playing = false;
+          playBtn.textContent = 'Play';
+          cut = cutSel.value;
+          audio = new Audio(CUT_META[cut].audio);
+          curFrame = 0;
+          draw();
+        };
+
+        window.addEventListener('keydown', (e) => {
+          if (e.code === 'Space') { e.preventDefault(); playBtn.click(); }
+          if (e.code === 'ArrowRight') { curFrame = Math.min(CUT_META[cut].frames - 1, curFrame + 15); draw(); }
+          if (e.code === 'ArrowLeft') { curFrame = Math.max(0, curFrame - 15); draw(); }
+        });
+
+        draw();
+      }
+    } catch (err) {
+      console.error(err);
+      if (isRender) {
+        await fetch('/error', { method: 'POST', body: String(err.stack || err) });
+      }
+    }
+  </script>
+</body>
+</html>

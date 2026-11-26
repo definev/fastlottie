@@ -530,11 +530,11 @@ FL_EXPORT int32_t fl_dense_raster_borrowed(
     int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t odd,
     int32_t *out, int32_t cap, int32_t *bounds) {
   FLDense *r = state;
-  if (!r || vertices < 2 || vertices > 512 || contours < 1 || contours > 64 ||
+  if (!r || vertices < 2 || vertices > 1024 || contours < 1 || contours > 128 ||
       x0 < 0 || y0 < 0 || x1 > 65535 || y1 > 65535 || x0 >= x1 || y0 >= y1 ||
-      x1 - x0 > 128 || y1 - y0 > 128 || cap < 1) return -2;
+      x1 - x0 > 384 || y1 - y0 > 384 || cap < 1) return -2;
   const int w = x1 - x0, h = y1 - y0;
-  if (vertices * (w + h + 4) + w * h > 32768 ||
+  if (vertices * (w + h + 4) + w * h > 196608 ||
       (size_t)w * h > r->cell_cap || (size_t)((w + 63) / 64) * h > r->used_cap) return -2;
   int previous = 0;
   for (int i = 0; i < contours; ++i) {
@@ -555,11 +555,11 @@ FL_EXPORT int32_t fl_dense_raster_solid_borrowed(
     int32_t *out, int32_t cap, int32_t *bounds, uint32_t *dst,
     int32_t origin_x, int32_t origin_y, int32_t stride, uint32_t color) {
   FLDense *r = state;
-  if (!r || !dst || vertices < 2 || vertices > 512 || contours < 1 || contours > 64 ||
+  if (!r || !dst || vertices < 2 || vertices > 1024 || contours < 1 || contours > 128 ||
       x0 < 0 || y0 < 0 || x1 > 65535 || y1 > 65535 || x0 >= x1 || y0 >= y1 ||
-      x1 - x0 > 128 || y1 - y0 > 128 || cap < 1 || stride <= 0) return -2;
+      x1 - x0 > 384 || y1 - y0 > 384 || cap < 1 || stride <= 0) return -2;
   const int w = x1 - x0, h = y1 - y0;
-  if (vertices * (w + h + 4) + w * h > 32768 ||
+  if (vertices * (w + h + 4) + w * h > 196608 ||
       (size_t)w * h > r->cell_cap || (size_t)((w + 63) / 64) * h > r->used_cap) return -2;
   int previous = 0;
   for (int i = 0; i < contours; ++i) {

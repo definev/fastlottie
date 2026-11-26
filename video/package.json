@@ -1,0 +1,19 @@
+{
+  "name": "fastlottie-intro-video",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Zero-dependency code-driven 1080p 60fps launch trailer for FastLottie (HTML5 Canvas + Headless Chrome + FFmpeg + real FastLottie sprites + procedural 132 BPM DSP soundtrack).",
+  "scripts": {
+    "sprites": "dart run scripts/export_sprites.dart",
+    "audio": "node scripts/generate_audio.mjs",
+    "audio:hello": "node scripts/generate_audio_hello.mjs",
+    "audio:fastlottie": "node scripts/generate_audio_fastlottie.mjs",
+    "render": "node scripts/render.mjs --cut=intro",
+    "render:teaser": "node scripts/render.mjs --cut=teaser",
+    "render:hello": "node scripts/generate_audio_hello.mjs && node scripts/render.mjs --cut=hello",
+    "render:fastlottie": "node scripts/generate_audio_fastlottie.mjs && node scripts/render.mjs --cut=fastlottie",
+    "render:all": "node scripts/generate_audio.mjs && node scripts/render.mjs --cut=intro && node scripts/render.mjs --cut=teaser",
+    "preview": "node scripts/render.mjs --preview"
+  }
+}

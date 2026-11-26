@@ -164,6 +164,10 @@ void _clearU32Fast(Uint32List dst, int count) {
 _WasmExports? _kernels;
 bool get isSimdSupported => _allowWasmKernels && _kernels != null;
 bool get isNativeGradientSupported => isSimdSupported;
+bool get isNativeAdvancedBlendSupported => false;
+bool get isNativeCancelSupported => false;
+void nativeCancelSlotStore(int slot, int token) {}
+int nativeCancelSlotLoad(int slot) => 0;
 ({int calls, int copiedBytes}) readNativeKernelTelemetry() =>
     (calls: 0, copiedBytes: 0);
 

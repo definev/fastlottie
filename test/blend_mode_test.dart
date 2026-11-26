@@ -369,8 +369,7 @@ void main() {
               reason: 'mode=$mode, gradient=$gradientType, frame=$frame',
             );
           }
-          final advanced = [6, 7, 9, 12, 13, 14, 15].contains(mode);
-          if (!gradient || !advanced) expect(native.scratchPixelBytes, 0);
+          expect(native.scratchPixelBytes, 0);
           if (gradient && mode != 0) {
             expect(dart.scratchPixelBytes, greaterThan(0));
           }

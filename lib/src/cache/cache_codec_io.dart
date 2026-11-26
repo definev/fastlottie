@@ -31,8 +31,12 @@ external int _decode(
   Pointer<Uint32> table,
 );
 
+// Covers up to 512×512 RGBA frames (1 MiB), including 96–128pt @ 3× mobile
+// stickers (288×288 = 324 KiB) and 256pt @ 2× desktop heroes.
+const int nativeCacheMaxBytes = 1024 * 1024;
+
 /// Returns null to use the Dart implementation if the code asset is absent or
-/// the frame is too large for a short leaf call.
+/// the frame exceeds [nativeCacheMaxBytes].
 /// Pass a null CRC for a payload already trusted by the caller.
 /// The cache owns the CRC table and keeps source and destination disjoint.
 bool? decodeCacheFrameNative(
@@ -45,7 +49,9 @@ bool? decodeCacheFrameNative(
   int? crc,
   Uint32List table,
 ) {
-  if (_unavailable || outputLength > 256 * 1024 || length > 256 * 1024) {
+  if (_unavailable ||
+      outputLength > nativeCacheMaxBytes ||
+      length > nativeCacheMaxBytes) {
     return null;
   }
   if (offset < 0 ||
@@ -108,7 +114,7 @@ external int _encode(
   Int32List hash,
   Uint32List table,
 ) {
-  if (_encoderUnavailable || length > 256 * 1024) return null;
+  if (_encoderUnavailable || length > nativeCacheMaxBytes) return null;
   if (length <= 0 ||
       length > src.length ||
       length > dst.length ||

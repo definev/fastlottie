@@ -1,11 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:archive/archive.dart';
-
-const _isWeb = bool.fromEnvironment('dart.library.js_interop');
+import 'src/platform/gzip_stub.dart'
+    if (dart.library.io) 'src/platform/gzip_io.dart';
 
 /// Detects TGS/gzip by its signature, returning UTF-8 JSON bytes.
-/// Uses archive's native zlib backend on dart:io, with a Dart fallback on web.
+/// Uses native `dart:io` streaming zlib on native platforms with zip-bomb
+/// enforcement, falling back to `package:archive` on web.
 Uint8List decodeLottieBytes(
   List<int> bytes, {
   int maximumBytes = 16 * 1024 * 1024,
@@ -14,12 +14,7 @@ Uint8List decodeLottieBytes(
     throw ArgumentError.value(maximumBytes, 'maximumBytes');
   }
   if (bytes.length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b) {
-    return const GZipDecoder().decodeBytes(
-      bytes,
-      verify: !_isWeb,
-      throwOnError: true,
-      maxOutputSize: maximumBytes,
-    );
+    return gunzipBytes(bytes, maximumBytes);
   }
   if (bytes.length > maximumBytes) {
     throw const FormatException('Lottie JSON exceeds decode budget');

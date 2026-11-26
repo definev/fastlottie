@@ -269,8 +269,46 @@ void main() {
     }
   });
 
+  test('native encode/decode supports 3x DPR (288x288) and 512x512 frames', () {
+    final scratch = Lz4Scratch();
+    for (final (w, h) in const [(288, 288), (512, 512)]) {
+      final length = w * h * 4;
+      final src = Uint8List(length);
+      for (var i = 0; i < length; i++) {
+        src[i] = (i & 255) ^ ((i >> 9) & 15);
+      }
+      final encodedBuf = Uint8List(length);
+      final encoded = encodeCacheFrameNative(
+        src,
+        length,
+        encodedBuf,
+        scratch.hashTable,
+        table,
+      );
+      expect(encoded, isNotNull, reason: '${w}x$h');
+      final raw = encoded!.length == length;
+      final payload = raw ? src : encodedBuf;
+      final decoded = Uint8List(length);
+      expect(
+        decodeCacheFrameNative(
+          payload,
+          0,
+          encoded.length,
+          decoded,
+          length,
+          raw,
+          encoded.crc,
+          table,
+        ),
+        isTrue,
+        reason: '${w}x$h decode',
+      );
+      expect(decoded, orderedEquals(src));
+    }
+  });
+
   test('native encode falls back above its leaf-call limit', () {
-    final length = 256 * 1024 + 4;
+    final length = 1024 * 1024 + 4;
     final src = Uint8List(length)..fillRange(0, length, 0x37);
     final scratch = Lz4Scratch();
     expect(
