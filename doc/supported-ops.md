@@ -1,51 +1,55 @@
-# Ops được hỗ trợ
+# Supported Operations
 
-Fastlottie hỗ trợ một phần Lottie 2D ở định dạng JSON và TGS/gzip. Compiler
-validate cả layer ẩn. Feature ngoài phạm vi báo `UnsupportedLottieException`
-kèm JSON path; core không tự chuyển sang renderer khác.
+FastLottie supports a 2D subset of Lottie animations in JSON and gzip-compressed
+Telegram TGS formats. The compiler validates hidden layers as well. Features
+outside this subset throw `UnsupportedLottieException` with a JSON path; the
+core renderer does not silently fall back to another renderer.
 
-| Nhóm | Hỗ trợ |
+| Category | Supported |
 | --- | --- |
-| Layer | Shape (`ty:4`), null (`ty:3`), solid (`ty:1`), precomp (`ty:0`); stacking, parent transform, hidden, ip/op; blend modes 2D ở cấp layer (`bm:0..16`); alpha/luma matte thường hoặc đảo từ layer liền trước (`tt:1..4`); layer masks (`hasMask`, `masksProperties`: Add `'a'`, Subtract `'s'`, Intersect `'i'`, Difference `'f'`, None `'n'`, đảo `inv`, opacity và expansion `x`) |
-| Precomp | Child timeline dùng start offset `st` và stretch `sr` khác 0; `tm` tĩnh hoặc động ánh xạ thời gian tính theo giây và thay thế phép tính offset/stretch |
-| Group | `gr`, nested group, `tr`, style theo thứ tự Lottie; trim path simultaneous (`m:1`) và individual (`m:2`); merge paths (`mm:1..5`: Merge, Add/Union, Subtract/Difference, Intersect, Exclude/XOR) |
-| Layer style | Một Inner Shadow sắc cạnh (`sy[0].ty:2`): tham số tĩnh, Multiply, không blur/choke/noise. Áp trên alpha của layer sau transform, giữ nguyên alpha khi đổi màu bóng. |
-| Layer effects | `ADBE Fill` (`ef.ty:21`): thay RGB của toàn layer và nhân alpha, màu/opacity có thể animate; không chọn mask, invert hay feather. `ADBE Set Matte3` (`ef.ty:28`): ghép alpha không đảo từ shape layer theo `ind` tĩnh trong cùng composition, giữ lượt vẽ bình thường của nguồn; hỗ trợ tham chiếu chính layer đó, không nối chuỗi. |
-| Geometry | `sh`: open/closed cubic Bézier; `rc`: rectangle + corner radius; `el`: ellipse; `sr`: star & regular polygon (points, inner/outer radius & roundness); `rc`, `el` và `sr` hỗ trợ hướng đảo `d:3` |
-| Paint | `fl`/`st`: solid RGB, opacity, fill rule, stroke width/cap/join/miter; `gf`/`gs`: linear/radial gradient với stop màu/opacity động và radial focal point (`h`/`a`); stroke dash/gap/offset động |
-| Transform | Anchor, spatial position Bézier, split x/y, rotation, scale đều hoặc không đều, opacity, skew/axis động; 2D |
-| Keyframe | Static, hold, linear, temporal cubic Bézier; easing theo component trên một số point property |
-| Morph | Cùng số vertex; nội suy v/i/o; closure có thể đổi tại keyframe |
-| Controls | `ADBE Layer Control`; expression tham chiếu scale, rotation hoặc opacity qua `content(...)` trong cùng layer; tham chiếu Bézier path theo tên qua `thisComp.layer(...).content(...).path` trong cùng composition |
-| Playback | Source FPS, cap FPS của cache, subframe (opt-in), seek ngược, composition ip khác 0 |
-| Layout | contain/cover/none/scaleDown/fitWidth/fitHeight/fill; Canvas transform áp dụng cả lên stroke |
+| Layer | Shape (`ty:4`), null (`ty:3`), solid (`ty:1`), precomp (`ty:0`); stacking, parent transform, hidden, `ip`/`op`; 2D layer-level blend modes (`bm:0..16`); normal and inverted alpha/luma mattes from the immediately preceding layer (`tt:1..4`); layer masks (`hasMask`, `masksProperties`: Add `'a'`, Subtract `'s'`, Intersect `'i'`, Difference `'f'`, None `'n'`, invert `inv`, opacity, and expansion `x`) |
+| Precomp | Child timeline with start offset `st` and non-zero stretch `sr`; static or animated time remapping `tm` (in seconds) replacing offset/stretch calculation |
+| Group | `gr`, nested groups, `tr`, Lottie-order styles; simultaneous (`m:1`) and individual (`m:2`) trim paths; merge paths (`mm:1..5`: Merge, Add/Union, Subtract/Difference, Intersect, Exclude/XOR) |
+| Layer style | Single sharp-edged Inner Shadow (`sy[0].ty:2`): static parameters, Multiply, no blur/choke/noise. Applied to the transformed layer's alpha, preserving alpha while tinting the shadow. |
+| Layer effects | `ADBE Fill` (`ef.ty:21`): replaces the entire layer's RGB and multiplies alpha, with optional animated color/opacity; no mask selection, invert, or feather. `ADBE Set Matte3` (`ef.ty:28`): non-inverted alpha matte from a shape layer referenced by static `ind` in the same composition while keeping the source's normal draw pass; self-reference supported, chaining not supported. |
+| Geometry | `sh`: open/closed cubic Bézier; `rc`: rectangle + corner radius; `el`: ellipse; `sr`: star & regular polygon (points, inner/outer radius & roundness); reversed direction `d:3` supported on `rc`, `el`, and `sr` |
+| Paint | `fl`/`st`: solid RGB, opacity, fill rule, stroke width/cap/join/miter; `gf`/`gs`: linear/radial gradients with animated color/opacity stops and radial focal point (`h`/`a`); animated stroke dash/gap/offset |
+| Transform | Anchor, spatial Bézier position, split x/y, rotation, uniform or non-uniform scale, opacity, animated skew/axis; 2D |
+| Keyframe | Static, hold, linear, temporal cubic Bézier; per-component easing on supported point properties |
+| Morph | Matching vertex count; `v`/`i`/`o` interpolation; path closure may change at keyframes |
+| Controls | `ADBE Layer Control`; expressions referencing `scale`, `rotation`, or `opacity` via `content(...)` within the same layer; Bézier path references by name via `thisComp.layer(...).content(...).path` within the same composition |
+| Playback | Source FPS, cache FPS cap, subframe rendering (opt-in), reverse seek, non-zero composition `ip` |
+| Layout | `contain`/`cover`/`none`/`scaleDown`/`fitWidth`/`fitHeight`/`fill`; Canvas transform also scales strokes |
 
-Với software RLE, boolean Merge Paths (mode 2–5) được tính trên coverage của
-fill. Biên khử răng cưa có thể khác Canvas; stroke và trim vẫn dựa vào contour.
-Intersect chỉ có một toán hạng giữ nguyên path còn lại, như trong một số
-sticker Noto đã bake hình học.
-Software RLE áp dụng cả 17 layer blend mode. Các mode 6, 7, 9 và 12–15
-dùng công thức Dart; blend mode ở cấp shape/group chưa được áp dụng.
-Mask expansion dùng một dải biên tròn trong tọa độ của mask, kết hợp với
-coverage gốc. Opacity của một mask clip đơn áp dụng sau khi ghép các paint
-trong layer.
+In the software RLE rasterizer, boolean Merge Paths (modes 2–5) are evaluated on
+fill coverage. Antialiased edge pixels may differ slightly from Canvas; strokes
+and trims continue to operate on contours. An Intersect with a single operand
+keeps the remaining path as-is, matching baked geometry found in some Noto
+stickers.
+Software RLE supports all 17 layer blend modes. Modes 6, 7, 9, and 12–15 use
+Dart formulas; shape/group-level blend modes are not applied.
+Mask expansion uses a circular boundary band in mask coordinates combined with
+the original coverage. Opacity on a single clip mask is applied after
+compositing the layer's paints.
 
-Expression được resolve sang track đã compile; compiler từ chối target thiếu,
-trùng tên hoặc tham chiếu vòng. Path tham chiếu dùng hình học nguồn tại cùng
-frame của composition, giữ transform, paint và modifier của đích.
-Parent opacity không nhân vào child
-qua quan hệ parent. Opacity thường áp dụng trên từng paint.
+Expressions are resolved into compiled tracks at compile time; the compiler
+rejects missing, duplicate, or cyclic targets. Path references share the source
+geometry at the same composition frame while keeping the target's own transform,
+paints, and modifiers.
+Parent opacity is not inherited by children through parenting; opacity is
+normally applied per paint.
 
-Các feature ngoài phạm vi gồm image/text/font, 3D, các visual effect ngoài bảng,
-repeater, JavaScript tùy ý, slot,
-matte không liền kề hoặc nối chuỗi, và morph đổi số vertex. Compiler chỉ nhận
-các field đã biết; một file dùng shape quen thuộc vẫn có thể bị từ chối vì
-feature ở layer, modifier hoặc asset khác.
+Out-of-scope features include images/text/fonts, 3D, visual effects outside the
+table above, repeaters, arbitrary JavaScript, slots, non-adjacent or chained
+mattes, and morphs with changing vertex counts. The compiler uses a strict
+whitelist of known fields; a file using familiar shapes may still be rejected if
+another layer, modifier, or asset uses an unsupported feature.
 
-## Kiểm tra coverage
+## Coverage Verification
 
-- Chạy `flutter test` để kiểm tra renderer với fixture của package.
-  `test/tgs_test.dart` kiểm tra compile và đối chiếu render với `lottie` 3.8.2
-  bằng [corpus TGS đi kèm](../test/fixtures/README.md).
-- `test/path_reference_test.dart` kiểm tra tham chiếu path.
-  `test/rlottie_features_test.dart` có thêm đối chiếu với rlottie khi có native oracle.
+- Run `flutter test` to verify the renderer against the package fixtures.
+  `test/tgs_test.dart` validates compilation and compares rendered output
+  against `lottie` 3.8.2 using the [bundled TGS corpus](../test/fixtures/README.md).
+- `test/path_reference_test.dart` tests path references.
+  `test/rlottie_features_test.dart` adds comparisons against `rlottie` when a
+  native oracle is available.

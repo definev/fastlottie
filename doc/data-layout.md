@@ -1,44 +1,52 @@
-# Bố cục dữ liệu: SoA ở nơi có lợi
+# Data Layout: Selective Structure-of-Arrays (SoA)
 
-Bước tối ưu này dựa trên cách dữ liệu được đọc: tìm segment chỉ cần thời gian,
-nội suy cần toàn bộ vector của hai đầu, còn render cần giữ thứ tự scene. Không
-chuyển mọi object thành SoA.
+This optimization pass is driven by actual memory-access patterns: segment
+lookup only touches timestamps, interpolation reads the full vector at both
+endpoints, and rendering must preserve scene draw order. Not every object is
+converted to SoA.
 
-Census ngày 11/11/2026 của 1.087 file TGS trong corpus đo: 50.389
-property động, 342.517 key; không có end tường minh trong corpus này. 453 file có
-stroke. Track hai key phổ biến nhất (8.594 track), kế đến bốn key (7.095) và ba
-key (6.441). Vì nhiều track nhỏ, giảm số object/buffer giữ lại quan trọng hơn
-việc tách từng tọa độ thành một mảng riêng.
+A census on 2026-11-11 across 1,087 TGS files in the measurement corpus found
+50,389 animated properties and 342,517 keyframes, with no explicit end values in
+the corpus. 453 files contain strokes. Two-keyframe tracks are the most common
+(8,594 tracks), followed by four-keyframe (7,095) and three-keyframe (6,441)
+tracks. Because most tracks are small, reducing the number of retained heap
+objects and buffers matters more than splitting every coordinate into separate
+arrays.
 
-| Vùng | Bố cục | Quyết định |
+| Area | Layout | Decision |
 | --- | --- | --- |
-| Keyframe runtime | `Keyframes`: thời gian `Float64List`, ba cột metadata trong `Int32List`, slab giá trị `Float32List` | Thay `List<_Key>` và các buffer nhỏ được giữ lại sau compile |
-| Giá trị vector/morph | Các component của một key liền nhau | Consumer đọc cả vector; stride làm tròn tới 4 floats khi bật SIMD, bỏ padding khi hash |
-| Temporal easing | Các tuple `(x1,y1,x2,y2)` Float64 liền nhau | Bốn control luôn được đọc cùng nhau; không tách thành bốn cột |
-| Spatial curve/tangent | Payload tùy chọn | Track không có tangent không cấp phát hai mảng này |
-| Stroke software | Scratch SoA x/y/tx/ty riêng cho từng workspace | Tái dùng qua contour/frame, tăng capacity theo lũy thừa hai; normal suy ra từ tangent |
-| Polygon, scanline cells | SoA có sẵn | Giữ nguyên |
-| RLE spans, pixel BGRA | AoS đóng gói có sẵn | Các field được đọc cùng nhau; phù hợp SWAR và truyền ảnh |
-| Scene graph, cache entries | Object có sẵn | Giữ thứ tự layer, matte, alias DAG, ownership và eviction |
+| Runtime keyframes | `Keyframes`: `Float64List` times, three metadata columns in `Int32List`, `Float32List` value slab | Replaces `List<_Key>` and small per-key buffers retained after compilation |
+| Vector/morph values | Components of each keyframe stored contiguously | Consumers read the entire vector; stride is rounded to 4 floats when SIMD is enabled, with padding excluded from hashing |
+| Temporal easing | Contiguous `Float64` `(x1, y1, x2, y2)` tuples | All four control values are always read together; not split into four columns |
+| Spatial curve/tangents | Optional payload | Tracks without spatial tangents do not allocate these two arrays |
+| Software strokes | Per-workspace SoA `x`/`y`/`tx`/`ty` scratch buffers | Reused across contours/frames, growing by powers of two; normals derived from tangents |
+| Polygons, scanline cells | Existing SoA | Kept as-is |
+| RLE spans, BGRA pixels | Existing packed AoS | Fields are read together; well suited to SWAR and image transfer |
+| Scene graph, cache entries | Existing objects | Preserves layer order, mattes, alias DAG, ownership, and eviction |
 
-Compiler đọc header để tính kích thước buffer, sau đó ghi trực tiếp keyframe
-và easing vào các cột `TypedData`. Fork chia sẻ toàn bộ `Keyframes`; cursor, last-frame
-memo và output vẫn riêng cho player. Không thêm public interface hoặc dependency.
-Các mảng chỉ được ghi trong compile (bao gồm chuẩn hóa RGB), sau đó chỉ đọc.
+The compiler reads headers to size buffers up front, then writes keyframes and
+easing directly into `TypedData` columns. Forking shares the entire `Keyframes`
+object; cursor, last-frame memo, and output buffers remain per-player. No public
+API or dependencies were added. Arrays are written only during compilation
+(including RGB normalization) and are read-only afterward.
 
-Times và easing giữ Float64; tọa độ giữ Float32 như trước. End bị thiếu trỏ tới
-start của key kế tiếp, không sao chép dữ liệu. End tường minh được lưu riêng để
-bảo toàn discontinuity và chuỗi hash cache cũ. Hold, component easing, spatial
-Bézier, gamma và scalar tail SIMD vẫn được xử lý. Test khóa content key của ba
-fixture trước đổi layout để phát hiện việc vô tình làm mất hiệu lực cache đĩa.
+Times and easing remain `Float64`; coordinates remain `Float32` as before.
+Omitted end values point directly to the next key's start without duplicating
+data. Explicit end values are stored separately to preserve discontinuities and
+existing cache hash keys. Hold keyframes, per-component easing, spatial Béziers,
+gamma correction, and SIMD scalar tails are all preserved. Tests lock the
+content keys of three fixtures from before the layout change to catch accidental
+disk-cache invalidation.
 
-## Đo và kiểm tra
+## Benchmarks and Verification
 
-`tool/benchmark_data_layout.py` trích nguyên implementation của track, polygon và
-stroke từ hai snapshot, thêm driver rồi biên dịch Dart AOT. Không có bản sao
-kernel cần bảo trì. Driver kiểm tra checksum hai phiên bản bằng nhau, đo 15 batch
-và chạy ba process riêng cho RSS. RSS gồm VM/allocator và là stress test 100.000
-track RGB × 8 key, không phải số byte heap của một sticker hay toàn bộ ứng dụng.
+`tool/benchmark_data_layout.py` extracts the exact track, polygon, and stroke
+implementations from two snapshots, wraps them in a driver, and compiles to Dart
+AOT — with no separate kernel copy to maintain. The driver checks that checksums
+match across both versions, measures 15 batches, and runs three separate
+processes for RSS. RSS includes VM/allocator overhead and is a stress test of
+100,000 RGB tracks × 8 keyframes, not the heap footprint of a single sticker or
+typical app.
 
 ```sh
 python3 tool/benchmark_data_layout.py \
@@ -50,48 +58,54 @@ flutter test
 dart analyze lib test/packed_track_test.dart
 ```
 
-Driver track dùng 256 track × 8 key, implicit/explicit end, hold, linear/eased,
-forward/backward seeks và endpoints; 4.096 vòng/batch. Stroke dùng 64 contour,
-các cap/join và scratch giữ lại giữa các vòng. Đây là benchmark kernel, không
-suy ra FPS. `debugRenderSoftwareFrame` tạo workspace mới mỗi lần nên không dùng
-để đo lợi ích scratch giữ lại của worker.
+The track driver runs 256 tracks × 8 keyframes covering implicit/explicit ends,
+hold, linear/eased segments, forward/backward seeks, and endpoints across 4,096
+iterations per batch. The stroke driver runs 64 contours with caps/joins and
+reused scratch buffers across iterations. These are kernel microbenchmarks and
+do not translate directly into FPS. `debugRenderSoftwareFrame` allocates a new
+workspace per call and is not used to measure the worker's retained-scratch
+gains.
 
 Apple M5, macOS 27.2, Dart/Flutter release AOT. Raw samples:
-[kernels](data-layout-kernels.json), [release trước](data-layout-release-before.json),
-[release sau](data-layout-release-after.json). Hai snapshot dùng cùng compiler
-ngoài các thay đổi layout, cùng fixtures và benchmark runner.
+[kernels](data-layout-kernels.json),
+[release before](data-layout-release-before.json),
+[release after](data-layout-release-after.json). Both snapshots use the same
+compiler aside from the layout changes, along with identical fixtures and
+benchmark runners.
 
-| Kernel | Trước | Sau | Thay đổi |
+| Kernel | Before | After | Change |
 | --- | ---: | ---: | ---: |
-| Track scalar, 1 giá trị (ns/sample) | 13,8 | 12,8 | −7% |
-| Track scalar, 3 giá trị (ns/sample) | 14,0 | 14,0 | ~0% |
-| Track scalar, 42 giá trị (ns/sample) | 28,7 | 32,4 | +13% |
-| Track SIMD, 42 giá trị (ns/sample) | 21,5 | 22,1 | +3% |
-| Track SIMD, 768 giá trị (ns/sample) | 135,4 | 138,6 | +2% |
-| Stroke, 64 contour (µs/batch iteration) | 39,9 | 33,5 | −16% |
-| RSS stress track (MiB, median 3 process) | 257,5 | 120,3 | −53% |
+| Track scalar, 1 value (ns/sample) | 13.8 | 12.8 | −7% |
+| Track scalar, 3 values (ns/sample) | 14.0 | 14.0 | ~0% |
+| Track scalar, 42 values (ns/sample) | 28.7 | 32.4 | +13% |
+| Track SIMD, 42 values (ns/sample) | 21.5 | 22.1 | +3% |
+| Track SIMD, 768 values (ns/sample) | 135.4 | 138.6 | +2% |
+| Stroke, 64 contours (µs/batch iteration) | 39.9 | 33.5 | −16% |
+| RSS track stress test (MiB, median of 3 processes) | 257.5 | 120.3 | −53% |
 
-Lợi ích chính của keyframe packing là memory; chi phí lookup theo offset có thể
-làm một số vector nội suy chậm hơn. Chênh lệch vài ns còn dao động giữa các lượt
-chạy. Lợi ích stroke đến từ scratch tái sử dụng; chỉ có bốn buffer tăng capacity
-khi gặp contour lớn hơn, thay vì sáu danh sách mới cho mỗi contour.
+The primary win of keyframe packing is memory; offset-based lookup can make some
+vector interpolations slightly slower, and single-nanosecond deltas vary across
+runs. Stroke gains come from scratch reuse: only four buffers grow when a
+larger contour appears, rather than allocating six new lists per contour.
 
-| Flutter release fixture | Parse + compile trước → sau (µs median) | Uncached warm record trước → sau (µs/frame median) |
+| Flutter release fixture | Parse + compile before → after (µs median) | Uncached warm record before → after (µs/frame median) |
 | --- | ---: | ---: |
-| static | 26 → 23 | 1,88 → 1,75 |
-| icon | 25 → 22 | 2,13 → 1,92 |
-| many_shapes | 1177 → 1111 | 52,00 → 44,83 |
-| morph | 1338 → 1189 | 18,42 → 17,21 |
+| `static` | 26 → 23 | 1.88 → 1.75 |
+| `icon` | 25 → 22 | 2.13 → 1.92 |
+| `many_shapes` | 1177 → 1111 | 52.00 → 44.83 |
+| `morph` | 1338 → 1189 | 18.42 → 17.21 |
 
-Đây là một cặp lượt đo trên máy phát triển. `morph` settled record gần như
-không đổi (18,75 → 18,92 µs); một số lượt visible FrameTiming thiếu mẫu do
-surface không hoạt động. Không suy rộng số này thành cải thiện GPU, FPS hay
-hiệu năng mobile. `flutter test`: 95 pass, 3 skip; differential test so 959 TGS
-với lottie và không có mẫu vượt ngưỡng. `flutter analyze`: không có lỗi.
+These figures represent a single pair of runs on a development machine. `morph`
+settled record was effectively unchanged (18.75 → 18.92 µs), and some visible
+`FrameTiming` runs lacked samples when the surface was inactive. Do not
+extrapolate these figures to GPU, FPS, or mobile performance. `flutter test`:
+95 passed, 3 skipped; differential tests compared 959 TGS files against `lottie`
+with zero samples exceeding threshold. `flutter analyze`: no errors.
 
-## Cơ hội tiếp theo
+## Future Opportunities
 
-Có thể gom cột visibility `ip/op/flags` và lập draw list bỏ permanent hidden/null
-layer. Cần đo trước: phần lớn scene nhỏ, còn thứ tự matte và parent chain vẫn
-quan trọng. Cache world transform/ancestor chain có thể hiệu quả hơn việc đổi
-layout object đơn thuần. Chưa thay đổi vùng này.
+Visibility columns (`ip`/`op`/`flags`) could be packed and a draw list built to
+skip permanently hidden or null layers. Measure first: most scenes are small,
+and matte ordering and parent chains still matter. Caching world transforms or
+ancestor chains may yield larger gains than object layout changes alone. This
+area has not been changed yet.
