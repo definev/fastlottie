@@ -10,7 +10,7 @@ Add `fastlottie` to your `pubspec.yaml` and declare any local animations you wan
 dependencies:
   flutter:
     sdk: flutter
-  fastlottie: ^0.1.0
+  fastlottie: ^1.0.0
 
 flutter:
   assets:

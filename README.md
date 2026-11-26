@@ -58,7 +58,7 @@ Or add it directly to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  fastlottie: ^0.1.0
+  fastlottie: ^1.0.0
 ```
 
 ### 2. Declare your animation assets

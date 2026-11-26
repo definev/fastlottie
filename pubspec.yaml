@@ -1,6 +1,6 @@
 name: fastlottie
 description: "Faster than native — the Lottie renderer Flutter deserves. High-performance 2D Lottie (.json) and Telegram sticker (.tgs) renderer for Flutter."
-version: 0.1.0
+version: 1.0.0
 repository: https://github.com/definev/fastlottie
 issue_tracker: https://github.com/definev/fastlottie/issues
 

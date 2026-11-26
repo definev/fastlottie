@@ -1,4 +1,4 @@
-## Unreleased
+## 1.0.0
 
 - Organize renderer internals by responsibility and split the public entry
   point into focused libraries. Imports from `package:fastlottie/src/` need
