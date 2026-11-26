@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="FastLottie logo" width="148" />
+  <img src="doc/logo.svg" alt="FastLottie logo" width="148" />
 </p>
 
 <h1 align="center">FastLottie</h1>
@@ -16,8 +16,8 @@
   <a href="#quick-start">Quick Start</a> ·
   <a href="#performance-at-a-glance">Benchmarks</a> ·
   <a href="#usage-guide">Usage Guide</a> ·
-  <a href="docs/supported-ops.md">Supported Features</a> ·
-  <a href="docs/architecture.md">Architecture</a>
+  <a href="doc/supported-ops.md">Supported Features</a> ·
+  <a href="doc/architecture.md">Architecture</a>
 </p>
 
 ---
@@ -329,19 +329,19 @@ try {
 }
 ```
 
-See [Supported Features](docs/supported-ops.md) for the complete specification.
+See [Supported Features](doc/supported-ops.md) for the complete specification.
 
 ---
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — End-to-end pipeline, worker sharding, Mini-Strips, and `.flcache` format
-- [Supported Features](docs/supported-ops.md) — Complete list of supported Lottie / TGS operators and constraints
-- [Shared Raster Cache & LoD](docs/lod-cache.md) — Memory budgets, `resolutionScale`, and `maximumFrameRate`
-- [Full-Loop Raster Preparation & DPR](docs/dpr-raster.md) — Memory math and usage guide for `prepareRaster`
-- [Playback Tuning & Visibility](docs/playback-experiments.md) — Progressive startup, 64-bit upload deduplication, and `FastLottiePlaybackScope`
-- [Native Raster & Warm Playback](docs/native-playback.md) — Native C/SIMD kernels and 16×16 tile playback
-- [Data Layout & SIMD](docs/data-layout.md) — Columnar `TypedData` tracks and `Float32x4` interpolation
+- [Architecture](doc/architecture.md) — End-to-end pipeline, worker sharding, Mini-Strips, and `.flcache` format
+- [Supported Features](doc/supported-ops.md) — Complete list of supported Lottie / TGS operators and constraints
+- [Shared Raster Cache & LoD](doc/lod-cache.md) — Memory budgets, `resolutionScale`, and `maximumFrameRate`
+- [Full-Loop Raster Preparation & DPR](doc/dpr-raster.md) — Memory math and usage guide for `prepareRaster`
+- [Playback Tuning & Visibility](doc/playback-experiments.md) — Progressive startup, 64-bit upload deduplication, and `FastLottiePlaybackScope`
+- [Native Raster & Warm Playback](doc/native-playback.md) — Native C/SIMD kernels and 16×16 tile playback
+- [Data Layout & SIMD](doc/data-layout.md) — Columnar `TypedData` tracks and `Float32x4` interpolation
 - [Minimal Example](example/README.md) — Smallest runnable Flutter integration
 
 ## Development

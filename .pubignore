@@ -27,3 +27,6 @@ migrate_working_dir/
 !/tool/build_web_worker.dart
 /rlottie-master/
 /thorvg-main/
+/video/
+
+video

@@ -58,7 +58,7 @@ flowchart TB
 
 ## 2. Ba Đường ống Kết xuất & Quy tắc Chọn Đường
 
-Khi [`FastLottiePlayer.draw`](file:///Users/vsf/source/github.com/definev/fastlottie/lib/src/flutter/player.dart#L325-L476) được gọi, hệ thống chọn một trong ba đường kết xuất theo thứ tự ưu tiên sau:
+Khi [`FastLottiePlayer.draw`](../lib/src/flutter/player.dart#L325-L476) được gọi, hệ thống chọn một trong ba đường kết xuất theo thứ tự ưu tiên sau:
 
 | Đường ống | Khi nào được chọn? | Cơ chế hoạt động | Đánh đổi (Trade-off) |
 | :--- | :--- | :--- | :--- |
@@ -67,7 +67,7 @@ Khi [`FastLottiePlayer.draw`](file:///Users/vsf/source/github.com/definev/fastlo
 | **Tier C: Direct Vector Canvas & `ui.Picture` LRU** | `usePipeline: false`, hoặc `useFrameRate: false` (subframe mượt), hoặc cold miss khi `allowUiVectorFallback: true` | Vẽ trực tiếp lên `ui.Canvas` bằng đường vẽ vector; nếu không dùng `rasterCache` và `useFrameRate: true`, lưu tối đa `120` `ui.Picture` / `100.000` lệnh. | Độ nét vector tuyệt đối ở mọi tỉ lệ và hỗ trợ subframe, nhưng tốn CPU/GPU của UI thread nếu nhiều sticker phức tạp chạy cùng lúc. |
 
 ### Chính sách khi Cache Miss trên Tier B (Tránh giật UI khi cuộn)
-Trong [`_RasterCoordinator.lookup`](file:///Users/vsf/source/github.com/definev/fastlottie/lib/src/flutter/raster_coordinator.dart#L246-L414), khi frame mục tiêu chưa sẵn sàng:
+Trong [`_RasterCoordinator.lookup`](../lib/src/flutter/raster_coordinator.dart#L246-L414), khi frame mục tiêu chưa sẵn sàng:
 1. **Đã có Front Buffer (`renderingImage != null`):** Coordinator **giữ nguyên slot ảnh hợp lệ gần nhất** (`lastRenderingSlot`) và phát lệnh render strip mới ở nền — **không** rơi về vẽ vector trên UI thread để tránh khựng nhịp cuộn.
 2. **Cold Miss hoàn toàn (`renderingImage == null`):**
    - Nếu caller truyền `coldFallback` -> vẽ `coldFallback(canvas, target)`.
@@ -185,7 +185,7 @@ Xem thông số benchmark chi tiết tại [data-layout.md](data-layout.md).
 
 ### 4.3. Trình Kết xuất Phần mềm & Tăng tốc Native C / Wasm
 
-Vì `dart:ui` (`Canvas`, `Path`, `Picture`) không thể chạy trên background isolate hay Web Worker, `fastlottie` tự triển khai đầy đủ pipeline vector 2D trong [`lib/src/raster/`](file:///Users/vsf/source/github.com/definev/fastlottie/lib/src/raster/raster_core.dart) và tăng tốc các vòng lặp nóng bằng C/SIMD (trên Native qua `hook/build.dart` + FFI, trên Web qua Wasm). Bản Dart luôn đóng vai trò chuẩn tham chiếu và fallback khi vượt ngưỡng an toàn.
+Vì `dart:ui` (`Canvas`, `Path`, `Picture`) không thể chạy trên background isolate hay Web Worker, `fastlottie` tự triển khai đầy đủ pipeline vector 2D trong [`lib/src/raster/`](../lib/src/raster/raster_core.dart) và tăng tốc các vòng lặp nóng bằng C/SIMD (trên Native qua `hook/build.dart` + FFI, trên Web qua Wasm). Bản Dart luôn đóng vai trò chuẩn tham chiếu và fallback khi vượt ngưỡng an toàn.
 
 1. **Làm phẳng Bézier thích ứng & Fused Fill (`path_flattening.dart`, `native/fastlottie_geometry.c`):**
    - Chọn sai số phẳng theo hệ số phóng đại ma trận hiện hành: `localFlatness = (0.25 / maxScale).clamp(0.005, 1.5)` (hoặc `0.25 px` trong device space khi fused), chia đôi đệ quy De Casteljau tối đa 10 cấp vào `PolyPath` dạng Struct-of-Arrays (`Float64List vx, vy`, `Int32List contourStart, contourEnd`, `Uint8List contourClosed`).
@@ -206,11 +206,11 @@ Vì `dart:ui` (`Canvas`, `Path`, `Picture`) không thể chạy trên background
 
 ### 4.4. Kiến trúc Mini-Strip, Quản lý VRAM & Chống Tràn Hàng đợi
 
-Cài đặt tại [`raster_cache.dart`](file:///Users/vsf/source/github.com/definev/fastlottie/lib/src/flutter/raster_cache.dart) và [`raster_coordinator.dart`](file:///Users/vsf/source/github.com/definev/fastlottie/lib/src/flutter/raster_coordinator.dart).
+Cài đặt tại [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) và [`raster_coordinator.dart`](../lib/src/flutter/raster_coordinator.dart).
 
 - **Đóng gói Strip Dọc (`K` frames trong 1 `ui.Image`):**
   - Worker cấp phát 1 buffer duy nhất có chiều cao $H_{\text{strip}} = m \cdot H + (m - 1) \cdot \text{padY}$ và chỉ xóa đúng $(m - 1)$ **hàng đệm trong suốt `padY = 1`** giữa các slot (tránh rò màu biên khi GPU lọc song tuyến `FilterQuality.low` mà không phải xóa thừa toàn bộ strip vì mỗi slot đều được `tryReadFrame` hoặc `renderSceneSoftware` ghi đè đầy đủ).
-  - Toàn bộ $m$ frame đi qua **1 thông điệp IPC**, **1 `TransferableTypedData`** và **1 lần upload GPU `ui.decodeImageFromPixels`**. Khi vẽ, [`FastLottiePlayer.draw`](file:///Users/vsf/source/github.com/definev/fastlottie/lib/src/flutter/player.dart#L418-L429) chỉ cắt đúng `slotOffsetY` bằng `canvas.drawImageRect`.
+  - Toàn bộ $m$ frame đi qua **1 thông điệp IPC**, **1 `TransferableTypedData`** và **1 lần upload GPU `ui.decodeImageFromPixels`**. Khi vẽ, [`FastLottiePlayer.draw`](../lib/src/flutter/player.dart#L418-L429) chỉ cắt đúng `slotOffsetY` bằng `canvas.drawImageRect`.
   - Ngưỡng chọn $K$ mặc định theo kích thước 1 frame ($W \times H \times 4$), luôn chặn chiều cao strip $\le 4096\text{ px}$:
     - $\le 64\text{ KiB}$: $K = 4$ (hoặc gom trọn clip nếu `totalFrames <= 6`, khi đó chỉ giữ **1 buffer VRAM**, vòng lặp sau tốn **0 IPC, 0 GPU upload**).
     - $\le 256\text{ KiB}$: $K = 4$.
