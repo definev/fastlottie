@@ -309,7 +309,7 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
 | `lib/src/cache/snapshot_envelope.dart` | `packCompiledSnapshot` / `unpackCompiledSnapshot`: LZ4 envelope for `_SceneSnapshot`. |
 | `lib/src/platform/simd_io.dart` / `wasm.dart` / `web.dart` / `stub.dart` | Bindings for `NativeCoverageWorkspace`, `NativePixelBuffer`, `NativeSpansBuffer`, and C/Wasm blend/gradient/matte kernels. |
 | `lib/src/platform/geometry_kernel_io.dart` / `stub.dart` | Leaf FFI bindings for `flattenBezierNative` and `expandStrokeNative`. |
-| `lib/src/platform/c_library.dart` & `hook/*.dart` | Dart Native Assets hooks (`build.dart`, `link.dart`, `wasm.dart`) compiling C kernels with `-O3` and Wasm data assets. |
+| `lib/src/platform/c_library.dart`, `wasm_builder.dart` & `hook/*.dart` | Dart Native Assets hooks (`build.dart`, `link.dart`) compiling C kernels with `-O3` and Wasm data assets. |
 | `lib/src/platform/isolate_io.dart` / `stub.dart` | Worker isolate communication via `SendPort`/`ReceivePort` + `TransferableTypedData`. |
 | `lib/src/platform/platform_io.dart` / `stub.dart` | `PlatformFileHandle` (synchronous `RandomAccessFile`) and `PlatformDiskFs`. |
 | `lib/src/platform/raster_flutter_canvas.dart` / `no_canvas.dart` | Conditional import bridge decoupling `dart:ui` from `raster_core.dart`. |

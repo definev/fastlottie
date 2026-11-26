@@ -1,8 +1,9 @@
 import 'dart:io';
 
 import 'package:data_assets/data_assets.dart';
-import 'package:fastlottie/src/platform/c_library.dart';
 import 'package:hooks/hooks.dart';
+
+import 'c_library.dart';
 
 const wasmFileName = 'fastlottie_simd.wasm';
 

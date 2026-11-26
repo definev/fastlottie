@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import '../hook/wasm.dart';
+import 'package:fastlottie/src/platform/wasm_builder.dart';
 
 Future<void> main() async {
   final zig = findZig();
