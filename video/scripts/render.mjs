@@ -21,15 +21,15 @@ const cutArg = (args.find((a) => a.startsWith('--cut=')) || '--cut=intro').split
 const CUTS = {
   intro: {
     fps: 60,
-    durationSec: 55,
-    totalFrames: 55 * 60,
+    durationSec: 68,
+    totalFrames: 68 * 60,
     audio: path.join(ROOT, 'public/audio/soundtrack_55s.wav'),
     out: path.join(ROOT, 'out/fastlottie_intro.mp4'),
   },
   teaser: {
     fps: 60,
-    durationSec: 15,
-    totalFrames: 15 * 60,
+    durationSec: 18,
+    totalFrames: 18 * 60,
     audio: path.join(ROOT, 'public/audio/soundtrack_15s.wav'),
     out: path.join(ROOT, 'out/fastlottie_teaser_15s.mp4'),
   },

@@ -78,13 +78,13 @@
   <div class="controls">
     <button id="playBtn">Play</button>
     <select id="cutSel">
-      <option value="intro">55s Hero Trailer</option>
-      <option value="teaser">15s X Teaser</option>
+      <option value="intro">68s Hero Trailer</option>
+      <option value="teaser">18s X Teaser</option>
       <option value="hello">6.8s Apple "Hello" Lottie Reveal</option>
       <option value="fastlottie">8.2s Apple "Hello" Fastlottie Reveal</option>
     </select>
-    <input id="scrubber" type="range" min="0" max="3299" value="0" />
-    <span class="time" id="timeLbl">00.00s / 55.00s</span>
+    <input id="scrubber" type="range" min="0" max="4079" value="0" />
+    <span class="time" id="timeLbl">00.00s / 68.00s</span>
   </div>
 
   <script type="module">
@@ -103,8 +103,8 @@
     const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: isRender });
 
     const CUT_META = {
-      intro: { frames: 55 * 60, audio: '/public/audio/soundtrack_55s.wav', fn: renderIntroFrame },
-      teaser: { frames: 15 * 60, audio: '/public/audio/soundtrack_15s.wav', fn: renderTeaserFrame },
+      intro: { frames: 68 * 60, audio: '/public/audio/soundtrack_55s.wav', fn: renderIntroFrame },
+      teaser: { frames: 18 * 60, audio: '/public/audio/soundtrack_15s.wav', fn: renderTeaserFrame },
       hello: { frames: Math.round(6.8 * 60), audio: '/public/audio/soundtrack_hello_6_8s.wav', fn: renderHelloFrame },
       fastlottie: { frames: Math.round(8.2 * 60), audio: '/public/audio/soundtrack_fastlottie_8_2s.wav', fn: renderFastLottieFrame },
     };

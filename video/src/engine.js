@@ -281,11 +281,11 @@ export function drawPill(ctx, cx, cy, text, {
 // Ultra-crisp kinetic text with chromatic RGB split + optional specular sheen sweep!
 export function drawKineticText(ctx, text, x, y, {
   size = 96,
-  weight = 800,
+  weight = 700,
   color = C.text,
   align = 'center',
   font = FONT_SANS,
-  tracking = -0.03,
+  tracking = 0,
   glow = null,
   glowBlur = 28,
   glitchPx = 0,

@@ -1,163 +1,280 @@
-import {
-  W, H, C, FONT_MONO,
-  clamp, lerp, norm, easeOutExpo,
-  spring, cameraShake,
-  drawBackdrop, drawCard, drawPill, drawKineticText, drawGlitchOverlay,
-  drawSprite, drawShockwave, drawFlash, drawTopHud, drawFilmGrain,
-} from './engine.js';
-
 /**
- * 15-Second Ultra-Viral Dark High-Impact X / Twitter Autoplay Cut (V2 Studio Polish).
- *   0.0 - 3.0s : "24 STICKERS. 120 HZ." instant hook + 6x4 live flaming phoenix burst
- *   3.0 - 8.0s : Split-screen Apple M5 (lottie-ios 3.27 GiB RAM explosion vs FastLottie 209 MiB flatline!)
- *   8.0 - 12.0s: Real Pixel 7a 90 Hz (1.38 ms vs 100% jank on Native lottie-android)
- *  12.0 - 15.0s: FASTLOTTIE chrome-emerald specular lockup + GitHub handle
+ * 18-Second Dark-to-Light Apple Keynote Viral Cut for FastLottie (1080p 60fps).
+ *   0.00 -  2.45s : Matte Obsidian hook — "24 stickers. 120 Hz." + 24 live FastLottie phoenixes
+ *   2.45 -  8.09s : Apple M5 split-screen — Dark Native Swift (3.27 GiB @ 2.45s) vs Ceramic FastLottie (209 MiB @ 4.45s)
+ *   8.09 - 12.63s : Full Ceramic White — Pixel 7a 90 Hz (1.38 ms · 0.0% jank vs C++ & Kotlin)
+ *  12.63 - 18.00s : Showstopper FL -> Fastlottie calligraphy unfold finale + slogan
  */
+import {
+  W, H, FONT_MONO,
+  clamp, lerp, norm, easeOutExpo, easeOutCubic, easeInOutCubic,
+  spring, drawKineticText, drawSprite,
+} from './engine.js';
+import {
+  K,
+  drawObsidianBackdrop, drawCeramicBackdrop,
+  drawStudioCard, drawStudioPill, drawStudioHud,
+  drawFastLottieMorph,
+} from './brand_kit.js';
+
+function makeBlueBrandGrad(ctx, x0, y0, x1, y1) {
+  const g = ctx.createLinearGradient(x0, y0, x1, y1);
+  g.addColorStop(0, K.cyan);
+  g.addColorStop(0.55, K.blue);
+  g.addColorStop(1, K.royal);
+  return g;
+}
+
 export function renderTeaserFrame(ctx, frame, sprites) {
   const t = frame / 60;
 
-  if (t < 3.0) {
-    const shake = cameraShake(t, 0.05, 0.35, 16);
-    ctx.save();
-    ctx.translate(shake.x, shake.y);
-    drawBackdrop(ctx, t, { accent: t > 2.2 ? C.red : C.blue, accentAlpha: 0.26, gridSpeed: 1.8 });
+  // =========================================================================
+  // 0.00s - 2.45s : MATTE OBSIDIAN KEYNOTE HOOK
+  // =========================================================================
+  if (t < 2.45) {
+    drawObsidianBackdrop(ctx, t, {
+      accent: t > 1.75 ? K.red : K.blue,
+      accentAlpha: t > 1.75 ? 0.16 : 0.14,
+    });
 
+    // 24 live phoenix sprites breathing softly in an airy perimeter grid
+    const gridAlpha = 0.28 * easeOutCubic(norm(t, 0.0, 0.55));
     for (let i = 0; i < 24; i++) {
-      const col = i % 6, row = Math.floor(i / 6);
-      drawSprite(ctx, sprites, 'phoenix', 100 + col * 295, 95 + row * 245, 165, t, {
-        phase: i * 0.08, alpha: 0.36, frameWindow: [0, 26],
+      const col = i % 6;
+      const row = Math.floor(i / 6);
+      drawSprite(ctx, sprites, 'phoenix', 100 + col * 295, 95 + row * 245, 160, t, {
+        phase: i * 0.08, alpha: gridAlpha, frameWindow: [0, 26],
       });
     }
-    const plate = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, 680);
-    plate.addColorStop(0, 'rgba(6,9,17,0.88)');
-    plate.addColorStop(1, 'rgba(6,9,17,0)');
+
+    // Soft center vignette plate for effortless mobile legibility
+    const plate = ctx.createRadialGradient(W / 2, H / 2, 60, W / 2, H / 2, 720);
+    plate.addColorStop(0, 'rgba(8, 11, 18, 0.90)');
+    plate.addColorStop(0.7, 'rgba(8, 11, 18, 0.52)');
+    plate.addColorStop(1, 'rgba(8, 11, 18, 0)');
     ctx.fillStyle = plate;
     ctx.fillRect(0, 0, W, H);
 
-    const p1 = spring(t - 0.05, { stiffness: 320, damping: 18 });
-    drawKineticText(ctx, '24 STICKERS.  120 HZ.', W / 2, H * 0.43, {
-      size: 132, weight: 900, color: C.text, scale: lerp(1.3, 1.0, p1), glow: C.blueGlow,
+    const p1 = spring(t - 0.04, { stiffness: 280, damping: 22 });
+    drawKineticText(ctx, '24 stickers.  120 Hz.', W / 2, H * 0.44, {
+      size: 136, weight: 760, color: K.darkText, tracking: -0.006,
+      scale: lerp(1.12, 1.0, clamp(p1)), alpha: clamp(p1 * 1.4),
     });
-    drawKineticText(ctx, 'NATIVE SWIFT vs FLUTTER FASTLOTTIE', W / 2, H * 0.59, {
-      size: 42, weight: 800, color: C.blueBright, font: FONT_MONO, tracking: 0.08, alpha: clamp(spring(t - 0.45)),
+
+    const p2 = spring(t - 0.38, { stiffness: 240, damping: 22 });
+    drawStudioPill(ctx, W / 2, H * 0.60, 'NATIVE SWIFT  vs  FLUTTER FASTLOTTIE', {
+      light: false,
+      bg: 'rgba(15, 22, 36, 0.92)',
+      border: t > 1.75 ? K.redBorder : 'rgba(148, 197, 255, 0.24)',
+      color: t > 1.75 ? '#FDA4AF' : '#BAE6FD',
+      fontSize: 22, height: 50, padX: 28,
+      logoBadge: true,
     });
-    if (t > 2.3) drawGlitchOverlay(ctx, t, norm(t, 2.3, 3.0) * 0.8);
-    ctx.restore();
-    drawFilmGrain(ctx, t);
+    if (p2 < 1) {
+      // Smooth reveal fade
+      ctx.save();
+      ctx.fillStyle = `rgba(8, 11, 18, ${1 - clamp(p2)})`;
+      ctx.fillRect(W / 2 - 400, H * 0.60 - 36, 800, 72);
+      ctx.restore();
+    }
     return;
   }
 
-  if (t < 8.0) {
-    const dt = t - 3.0;
-    const shake = cameraShake(t, 3.0, 0.5, 24);
-    ctx.save();
-    ctx.translate(shake.x, shake.y);
-    ctx.fillStyle = C.bg;
-    ctx.fillRect(0, 0, W, H);
-    drawTopHud(ctx, 'APPLE M5 · 120 HZ · 24× STICKERS', 'RELEASE BENCHMARK', C.blueBright);
+  // =========================================================================
+  // 2.45s - 8.09s : APPLE M5 SPLIT-SCREEN (DARK NATIVE vs CERAMIC FASTLOTTIE)
+  // =========================================================================
+  if (t < 8.09) {
+    const dt = t - 2.45;
+    drawObsidianBackdrop(ctx, t, {
+      accent: t >= 4.45 ? K.blue : K.red,
+      accentAlpha: 0.14,
+      centerX: t >= 4.45 ? 0.72 : 0.28,
+    });
+    drawStudioHud(ctx, 'APPLE M5 · 120 HZ · 24× STICKERS', 'RELEASE BENCHMARK', {
+      light: false, accent: K.cyan, showMiniLogo: true,
+    });
 
-    drawCard(ctx, 64, 108, 864, 904, {
-      fill: 'rgba(20, 9, 12, 0.94)', border: 'rgba(239, 68, 68, 0.6)', glow: 'rgba(239,68,68,0.28)', glowBlur: 46,
+    // LEFT: Dark Obsidian Native Swift Meltdown Card
+    const lEnter = easeOutExpo(norm(dt, 0, 0.38));
+    const lx = lerp(-60, 68, lEnter);
+    drawStudioCard(ctx, lx, 112, 860, 896, {
+      light: false,
+      fill: K.redDarkBg,
+      border: K.redBorder,
+      shadowColor: 'rgba(225, 29, 72, 0.22)',
+      shadowBlur: 44,
     });
-    drawPill(ctx, 496, 174, 'NATIVE SWIFT · lottie-ios 4.6.1', {
-      bg: 'rgba(239,68,68,0.2)', border: C.red, color: '#FCA5A5', fontSize: 22, dotColor: C.red,
+    drawStudioPill(ctx, lx + 430, 178, 'NATIVE SWIFT · lottie-ios 4.6.1', {
+      light: false, bg: 'rgba(225,29,72,0.18)', border: K.redBorder, color: '#FDA4AF',
+      fontSize: 20, dotColor: K.redBright,
     });
-    drawKineticText(ctx, '0 CA / 24 MAIN-THREAD FALLBACK', 496, 238, { size: 24, weight: 800, color: C.redBright, font: FONT_MONO });
-    const ram = lerp(180, 3271, easeOutExpo(norm(dt, 0, 0.85)));
-    drawKineticText(ctx, ram >= 1000 ? `${(ram / 1000).toFixed(2)} GiB` : `${Math.round(ram)} MiB`, 496, 430, {
-      size: 162, weight: 900, color: '#FFFFFF', glow: C.red, glowBlur: 55,
-      glitchPx: dt < 0.7 ? (1 - dt / 0.7) * 16 : 0,
+    drawKineticText(ctx, '0 CA / 24 MAIN-THREAD FALLBACK', lx + 430, 240, {
+      size: 22, weight: 700, color: '#FB7185', font: FONT_MONO, tracking: 0.04,
     });
-    drawKineticText(ctx, 'PHYSICAL RAM', 496, 540, { size: 28, weight: 800, color: C.redBright, font: FONT_MONO, tracking: 0.1 });
-    drawKineticText(ctx, '56.7% JANK  ·  72.2% CPU', 496, 620, { size: 38, weight: 900, color: '#FCA5A5', font: FONT_MONO });
+
+    const ram = lerp(180, 3271, easeOutExpo(norm(dt, 0.05, 0.95)));
+    drawKineticText(ctx, ram >= 1000 ? `${(ram / 1000).toFixed(2)} GiB` : `${Math.round(ram)} MiB`, lx + 430, 428, {
+      size: 162, weight: 760, color: '#FFFFFF', tracking: 0.0,
+    });
+    drawKineticText(ctx, 'PHYSICAL RAM', lx + 430, 536, {
+      size: 24, weight: 700, color: '#FB7185', font: FONT_MONO, tracking: 0.12,
+    });
+    drawKineticText(ctx, '56.7% JANK  ·  72.2% CPU', lx + 430, 616, {
+      size: 34, weight: 700, color: '#FECDD3', font: FONT_MONO,
+    });
     for (let i = 0; i < 6; i++) {
-      drawSprite(ctx, sprites, 'phoenix', 110 + i * 130, 740, 120, t, { stutterFps: 6, phase: i * 0.12 });
+      drawSprite(ctx, sprites, 'phoenix', lx + 44 + i * 130, 738, 120, t, {
+        stutterFps: 6, phase: i * 0.12,
+      });
     }
 
-    const rEnter = spring(t - 4.6, { stiffness: 320, damping: 18 });
-    ctx.save();
-    ctx.globalAlpha = clamp(rEnter * 1.4);
-    const rx = lerp(W + 120, 992, clamp(rEnter));
-    drawCard(ctx, rx, 108, 864, 904, {
-      fill: 'rgba(7, 16, 32, 0.94)', border: C.blueBright, glow: 'rgba(2,125,253,0.38)', glowBlur: 48,
-    });
-    drawPill(ctx, rx + 432, 174, 'FLUTTER + FASTLOTTIE', {
-      bg: 'rgba(2,125,253,0.22)', border: C.blueBright, color: '#E0F2FE', fontSize: 22, dotColor: C.blue,
-    });
-    drawKineticText(ctx, '1× SHARED LZ4 STRIP CACHE', rx + 432, 238, { size: 24, weight: 800, color: C.blueBright, font: FONT_MONO });
-    drawKineticText(ctx, '209 MiB', rx + 432, 430, { size: 162, weight: 900, color: C.blueBright, glow: C.blueGlow, glowBlur: 54 });
-    drawKineticText(ctx, '15× LESS RAM  ·  5× LOWER CPU', rx + 432, 540, { size: 28, weight: 800, color: '#BAE6FD', font: FONT_MONO, tracking: 0.06 });
-    drawKineticText(ctx, '0.0% JANK  ·  13.6% CPU', rx + 432, 620, { size: 40, weight: 900, color: '#FFFFFF', font: FONT_MONO });
-    for (let i = 0; i < 6; i++) {
-      drawSprite(ctx, sprites, 'phoenix', rx + 46 + i * 130, 740, 120, t, { phase: i * 0.12, frameWindow: [0, 26] });
+    // RIGHT: Radiant Apple Ceramic White FastLottie Card sliding smoothly in at t = 4.45s!
+    if (t >= 4.45) {
+      const rSpring = spring(t - 4.45, { stiffness: 260, damping: 22 });
+      const rx = lerp(W + 80, 992, clamp(rSpring));
+      ctx.save();
+      ctx.globalAlpha = clamp(rSpring * 1.5);
+      drawStudioCard(ctx, rx, 112, 860, 896, {
+        light: true,
+        fill: '#F9FBFF',
+        border: 'rgba(18, 148, 236, 0.34)',
+        shadowColor: 'rgba(18, 148, 236, 0.28)',
+        shadowBlur: 52,
+      });
+      drawStudioPill(ctx, rx + 430, 178, 'FLUTTER + FASTLOTTIE', {
+        light: true, bg: K.blueSoftBg, border: K.blueBorder, color: K.blueText,
+        fontSize: 20, logoBadge: true,
+      });
+      drawKineticText(ctx, '1× SHARED LZ4 STRIP CACHE', rx + 430, 240, {
+        size: 22, weight: 700, color: K.inkMuted, font: FONT_MONO, tracking: 0.04,
+      });
+      const blueGrad = makeBlueBrandGrad(ctx, -260, -70, 260, 80);
+      drawKineticText(ctx, '209 MiB', rx + 430, 428, {
+        size: 162, weight: 760, color: blueGrad, tracking: 0.0,
+      });
+      drawKineticText(ctx, '15× LESS RAM  ·  5× LOWER CPU', rx + 430, 536, {
+        size: 25, weight: 700, color: K.goldText, font: FONT_MONO, tracking: 0.05,
+      });
+      drawKineticText(ctx, '0.0% JANK  ·  13.6% CPU', rx + 430, 616, {
+        size: 36, weight: 760, color: K.ink, font: FONT_MONO,
+      });
+      for (let i = 0; i < 6; i++) {
+        drawSprite(ctx, sprites, 'phoenix', rx + 44 + i * 130, 738, 120, t, {
+          phase: i * 0.12, frameWindow: [0, 26],
+        });
+      }
+      ctx.restore();
     }
-    ctx.restore();
-
-    drawFlash(ctx, t, 3.0, { dur: 0.25, color: C.red, peak: 0.55 });
-    drawFlash(ctx, t, 4.6, { dur: 0.25, color: C.blue, peak: 0.45 });
-    ctx.restore();
-    drawFilmGrain(ctx, t);
     return;
   }
 
-  if (t < 12.0) {
-    const dt = t - 8.0;
-    drawBackdrop(ctx, t, { accent: C.blue, accentAlpha: 0.26, gridSpeed: 1.9 });
-    drawTopHud(ctx, 'GOOGLE PIXEL 7a · ANDROID 17 · 90 HZ', '16 UNIQUE LOTTIE STICKERS', C.blueBright);
+  // =========================================================================
+  // 8.09s - 12.63s : FULL APPLE CERAMIC WHITE — PIXEL 7a 90 HZ PROOF
+  // =========================================================================
+  if (t < 12.63) {
+    const dt = t - 8.09;
+    const enter = easeOutCubic(norm(dt, 0, 0.35));
+    drawCeramicBackdrop(ctx, t, { goldBloom: 0.04, blueBloom: 0.055 });
+    drawStudioHud(ctx, 'GOOGLE PIXEL 7a · ANDROID 17 · 90 HZ', '16 UNIQUE LOTTIE STICKERS', {
+      light: true, showMiniLogo: true,
+    });
 
-    drawCard(ctx, 84, 146, 620, 784, { fill: 'rgba(7, 16, 30, 0.92)', border: 'rgba(84,197,248,0.52)', glow: 'rgba(2,125,253,0.26)' });
+    // Left: Crisp frosted ceramic 4x4 live sticker showcase
+    drawStudioCard(ctx, 84, 134, 624, 804, {
+      light: true, fill: K.lightCardStrong, border: K.blueBorder,
+    });
     for (let i = 0; i < 16; i++) {
-      drawSprite(ctx, sprites, `emoji_${i}`, 128 + (i % 4) * 136, 224 + Math.floor(i / 4) * 150, 120, t, { phase: i * 0.18 });
+      drawSprite(ctx, sprites, `emoji_${i}`, 130 + (i % 4) * 136, 206 + Math.floor(i / 4) * 154, 122, t, {
+        phase: i * 0.18,
+      });
     }
-    drawKineticText(ctx, '16 STICKERS · 90.0 FPS LOCKED', 394, 875, { size: 22, weight: 800, color: C.blueBright, font: FONT_MONO });
-
-    const rx = 780;
-    const p = spring(dt, { stiffness: 300, damping: 18 });
-    drawKineticText(ctx, '1.38 ms', rx, 310, {
-      size: 168, weight: 900, color: C.blueBright, align: 'left', glow: C.blueGlow, scale: lerp(1.18, 1.0, p),
+    drawStudioPill(ctx, 396, 876, '16 STICKERS · 90.0 FPS LOCKED', {
+      light: true, bg: K.blueSoftBg, border: K.blueBorder, color: K.blueText,
+      fontSize: 18, height: 42, dotColor: K.blue,
     });
-    drawKineticText(ctx, 'MEDIAN FRAME TIME  ·  0.0% JANK (PREWARM)', rx, 425, { size: 29, weight: 800, color: C.text, align: 'left', font: FONT_MONO });
 
-    drawCard(ctx, rx, 490, 1050, 440, { fill: 'rgba(11, 16, 28, 0.94)', border: 'rgba(148,197,255,0.14)' });
+    // Right: Monumental 1.38 ms metric + clean horizontal comparison bars
+    const rx = 782;
+    const p = spring(dt, { stiffness: 280, damping: 21 });
+    const blueGrad = makeBlueBrandGrad(ctx, 0, -70, 520, 70);
+    drawKineticText(ctx, '1.38 ms', rx, 286, {
+      size: 168, weight: 760, color: blueGrad, align: 'left', tracking: 0.0,
+      scale: lerp(1.08, 1.0, clamp(p)), alpha: enter,
+    });
+    drawKineticText(ctx, 'MEDIAN FRAME TIME  ·  0.0% JANK (PREWARM)', rx, 396, {
+      size: 26, weight: 700, color: K.inkSub, align: 'left', font: FONT_MONO, alpha: enter,
+    });
+
+    drawStudioCard(ctx, rx, 464, 1054, 474, { light: true, fill: K.lightCardStrong });
     const rows = [
-      ['Flutter + FastLottie', '1.38 ms', '0.0–0.7% jank', C.blueBright, 0.12],
-      ['Native C++ dotlottie-android', '10.96 ms', '62.9% jank', C.amber, 0.72],
-      ['Native Kotlin lottie-android HW', '25.60 ms', '100% jank', C.redBright, 1.0],
+      ['Flutter + FastLottie', '1.38 ms', '0.0–0.7% jank', K.blue, 0.10, true],
+      ['Native C++ dotlottie-android', '10.96 ms', '62.9% jank', K.gold, 0.64, false],
+      ['Native Kotlin lottie-android HW', '25.60 ms', '100% jank', K.red, 1.0, false],
     ];
-    rows.forEach(([name, ms, jank, col, frac], idx) => {
-      const y = 556 + idx * 124;
-      const g = easeOutExpo(norm(dt, 0.2 + idx * 0.12, 0.95 + idx * 0.12));
-      drawKineticText(ctx, name, rx + 36, y, { size: 24, weight: 800, color: C.text, align: 'left' });
-      drawKineticText(ctx, `${ms}  ·  ${jank}`, rx + 1014, y, { size: 22, weight: 800, color: col, align: 'right', font: FONT_MONO });
-      ctx.fillStyle = col;
+    rows.forEach(([name, ms, jank, col, frac, isWinner], idx) => {
+      const y = 532 + idx * 136;
+      const g = easeOutExpo(norm(dt, 0.15 + idx * 0.10, 0.85 + idx * 0.10));
+      drawKineticText(ctx, name, rx + 40, y, {
+        size: 24, weight: isWinner ? 760 : 700, color: isWinner ? K.ink : K.inkSub, align: 'left',
+      });
+      drawKineticText(ctx, `${ms}  ·  ${jank}`, rx + 1014, y, {
+        size: 22, weight: 700, color: isWinner ? K.blueText : col === K.gold ? K.goldText : K.red,
+        align: 'right', font: FONT_MONO,
+      });
+
+      // Subtle neutral track behind bar
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.055)';
       ctx.beginPath();
-      ctx.roundRect(rx + 36, y + 26, Math.max(30, 978 * frac * g), 32, 8);
+      ctx.roundRect(rx + 40, y + 28, 974, 34, 10);
+      ctx.fill();
+
+      const bw = Math.max(36, 974 * frac * g);
+      if (isWinner) {
+        const bg = ctx.createLinearGradient(rx + 40, y, rx + 40 + bw, y);
+        bg.addColorStop(0, K.cyan);
+        bg.addColorStop(1, K.royal);
+        ctx.fillStyle = bg;
+      } else {
+        ctx.fillStyle = col;
+      }
+      ctx.beginPath();
+      ctx.roundRect(rx + 40, y + 28, bw, 34, 10);
       ctx.fill();
     });
-    drawFilmGrain(ctx, t);
     return;
   }
 
-  const dt = t - 12.0;
-  const p = spring(dt, { stiffness: 300, damping: 18 });
-  drawBackdrop(ctx, t, { accent: C.blue, accentAlpha: 0.30, gridSpeed: 1.2 });
-  drawShockwave(ctx, W / 2, H * 0.48, dt / 1.0, { color: C.blueBright, maxR: 1200, width: 22 });
-  drawSprite(ctx, sprites, 'phoenix', W / 2 - 96, 148, 192, t, { glow: 'rgba(249,115,22,0.45)', frameWindow: [0, 26] });
-
-  const grad = ctx.createLinearGradient(-480, -85, 480, 90);
-  grad.addColorStop(0, '#FFFFFF');
-  grad.addColorStop(0.42, '#E0F2FE');
-  grad.addColorStop(0.76, '#54C5F8');
-  grad.addColorStop(1, '#027DFD');
-
-  drawKineticText(ctx, 'FASTLOTTIE', W / 2, 476, {
-    size: 188, weight: 900, color: grad, tracking: -0.04, scale: lerp(1.35, 1.0, p),
-    glow: C.blueGlow, glowBlur: 56, sheenPos: norm(dt, 0.3, 1.4),
+  // =========================================================================
+  // 12.63s - 18.00s : APPLE "HELLO" FINALE — FL LOGO UNFOLDS INTO FASTLOTTIE!
+  // =========================================================================
+  const dt = t - 12.63;
+  const fadeOutEnd = t > 17.50 ? 1 - easeInOutCubic(norm(t, 17.50, 18.00)) : 1;
+  drawCeramicBackdrop(ctx, t, {
+    goldBloom: 0.055 * easeOutCubic(norm(dt, 0, 1.2)),
+    blueBloom: 0.060 * easeOutCubic(norm(dt, 0.4, 1.8)),
   });
-  drawKineticText(ctx, 'Built in Dart. Faster than Native where it hurts.', W / 2, 616, { size: 46, weight: 800, color: C.text });
-  drawPill(ctx, W / 2, 744, 'github.com/definev/fastlottie', {
-    bg: 'rgba(2,125,253,0.20)', border: C.blueBright, color: '#E0F2FE', fontSize: 28, height: 62, padX: 36, dotColor: C.blue,
+
+  // Compact FL emblem reveals center-stage, then glides apart into the complete calligraphic
+  // "Fastlottie" wordmark + specular sweep!
+  const unfoldP = norm(dt, 0.04, 3.65);
+  const settleScale = lerp(1.02, 0.88, easeInOutCubic(norm(dt, 0.8, 3.4)));
+  ctx.save();
+  ctx.globalAlpha = fadeOutEnd;
+  drawFastLottieMorph(ctx, {
+    mode: 'unfold',
+    progress: unfoldP,
+    cx: W / 2,
+    cy: H * 0.45,
+    scale: settleScale,
   });
-  drawFlash(ctx, t, 12.0, { dur: 0.3, color: '#BAE6FD', peak: 0.65 });
-  drawFilmGrain(ctx, t);
+
+  // Clean breathable slogan directly beneath
+  const subP = spring(dt - 2.65, { stiffness: 220, damping: 22 });
+  if (subP > 0.01) {
+    drawKineticText(ctx, 'Faster than native — the Lottie renderer Flutter deserves', W / 2, lerp(H * 0.72, H * 0.695, clamp(subP)), {
+      size: 42, weight: 600, color: K.inkSub, tracking: 0.0,
+      alpha: clamp(subP) * fadeOutEnd,
+    });
+  }
+  ctx.restore();
 }
