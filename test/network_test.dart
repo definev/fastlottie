@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:fastlottie/fastlottie.dart';
+import 'package:fastlottie/src/network/network_io.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,6 +12,116 @@ import 'fastlottie_test.dart' show bytes, fixture;
 class _PassthroughHttpOverrides extends HttpOverrides {}
 
 void main() {
+  setUp(() {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _PassthroughHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previous);
+  });
+
+  test('rejecting a large response closes only its connection', () async {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = null;
+    addTearDown(() => HttpOverrides.global = previous);
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    final rejectedConnection = Completer<void>();
+    var connections = 0;
+    server.listen((socket) {
+      addTearDown(socket.destroy);
+      final reject = connections++ == 0;
+      socket.listen(
+        (_) {
+          socket.write(
+            reject
+                ? 'HTTP/1.1 200 OK\r\nContent-Length: 4096\r\n\r\n'
+                : 'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n'
+                      'Connection: close\r\n\r\n{}',
+          );
+          if (!reject) unawaited(socket.close());
+        },
+        onDone: () {
+          if (reject) rejectedConnection.complete();
+          socket.destroy();
+        },
+      );
+    });
+    final uri = Uri.parse('http://127.0.0.1:${server.port}/');
+    await expectLater(
+      FastLottieComposition.fetchNetworkBytes(uri, maximumBytes: 64),
+      throwsA(isA<FastLottieNetworkException>()),
+    );
+    await rejectedConnection.future.timeout(const Duration(seconds: 2));
+    expect((await FastLottieComposition.fetchNetworkBytes(uri)).bytes, [
+      123,
+      125,
+    ]);
+  });
+
+  test('stalled headers and a stalled response body both time out', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      if (request.uri.path == '/body') {
+        final response = request.response..contentLength = 5;
+        response.write('a');
+        await response.flush();
+      }
+    });
+    for (final (path, phase) in [('/headers', 'headers'), ('/body', 'data')]) {
+      await expectLater(
+        platformFetchLottieBytes(
+          Uri.parse('http://127.0.0.1:${server.port}$path'),
+          responseTimeout: const Duration(milliseconds: 150),
+        ),
+        throwsA(
+          isA<FastLottieNetworkException>().having(
+            (error) => error.message,
+            'message',
+            contains(phase),
+          ),
+        ),
+      );
+    }
+  });
+
+  test(
+    'loadNetwork skips or replaces a raw cache entry that cannot compile',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'fastlottie_bad_source_',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      var valid = false;
+      var hits = 0;
+      server.listen((request) async {
+        hits++;
+        request.response.add(
+          valid ? bytes(fixture('icon')) : '<html>'.codeUnits,
+        );
+        await request.response.close();
+      });
+      final uri = Uri.parse('http://127.0.0.1:${server.port}/');
+      Future<FastLottieComposition> load() => FastLottieComposition.loadNetwork(
+        uri,
+        sourceCacheDirectory: directory.path,
+      );
+
+      await expectLater(load(), throwsFormatException);
+      expect(directory.listSync(), isEmpty);
+      await FastLottieComposition.fetchNetworkBytes(
+        uri,
+        sourceCacheDirectory: directory.path,
+      );
+      expect(directory.listSync(), hasLength(1));
+      valid = true;
+      final composition = await load();
+      expect((await load()).contentKey, composition.contentKey);
+      expect(hits, 3);
+    },
+  );
+
   test('FastLottieComposition.loadNetwork fetches TGS, caches raw payload on disk, and cancels sockets cleanly', () async {
     final previous = HttpOverrides.current;
     HttpOverrides.global = _PassthroughHttpOverrides();
