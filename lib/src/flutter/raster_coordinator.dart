@@ -113,9 +113,9 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   void onEntryReleased(_RasterEntry entry) {
     _forgetDuplicate(entry);
     if (entry.inFlightStripStart >= 0) {
-      workerPool.cancelInFlight(entry.entryKey);
+      workerPool.cancelInFlight(entry);
     }
-    if (entry.retired) {
+    if (entry.retired && entry.workerShard != null) {
       workerPool.releaseEntryShard(entry.entryKey);
     }
     if (entry.queuedForRaster) {
@@ -131,7 +131,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   void onEntryDemoted(_RasterEntry entry) {
     _forgetDuplicate(entry);
     if (entry.inFlightStripStart >= 0) {
-      workerPool.cancelInFlight(entry.entryKey);
+      workerPool.cancelInFlight(entry);
     }
     if (entry.pendingStripStart >= 0) {
       if (entry.desiredFrameIndex >= 0 &&
@@ -248,7 +248,11 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         player._rasterRejectedKey = null;
       }
     }
-    if (entry.renderingImage != null || entry.retired) return;
+    if (entry.renderingImage != null ||
+        entry.retired ||
+        entry.rasterError != null) {
+      return;
+    }
     workerPool.touchDiskEntry(entry.entryKey);
     if (entry.inFlightStripStart < 0) {
       final total = entry.totalFrames;
@@ -296,6 +300,10 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       }
     }
     if (entry == null) {
+      cache.misses++;
+      return (null, null, 0);
+    }
+    if (entry.rasterError != null) {
       cache.misses++;
       return (null, null, 0);
     }
@@ -478,7 +486,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
             entry.inFlightStripCount,
             stripStart,
           )) {
-        workerPool.cancelInFlight(entry.entryKey);
+        workerPool.cancelInFlight(entry);
       }
       entry.pendingStripStart = stripStart;
       entry.pendingStripCount = stripCount;
@@ -545,6 +553,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         !cache._enabled ||
         cache.lastError != null ||
         entry.retired ||
+        entry.rasterError != null ||
         entry.users.isEmpty) {
       return;
     }
@@ -564,23 +573,27 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     _activeWorkerShards[shard] = (_activeWorkerShards[shard] ?? 0) + 1;
     _activeJobs++;
 
-    workerPool.dispatchStrip(
-      context: entry,
-      shard: shard,
-      dispatchedGen: dispatchedGen,
-      scene: c.sceneTemplate,
-      sourceBytes: c.workerSource,
-      contentKey: c.contentKey,
-      entryKey: entry.entryKey,
-      stripStart: stripStart,
-      stripCount: stripCount,
-      startFrame: c.startFrame,
-      frameStep: effectiveStep,
-      width: pw,
-      height: ph,
-      totalFrames: entry.sourceFrames,
-      poster: entry.poster,
-    );
+    try {
+      workerPool.dispatchStrip(
+        context: entry,
+        shard: shard,
+        dispatchedGen: dispatchedGen,
+        scene: c.sceneTemplate,
+        sourceBytes: c.workerSource,
+        contentKey: c.contentKey,
+        entryKey: entry.entryKey,
+        stripStart: stripStart,
+        stripCount: stripCount,
+        startFrame: c.startFrame,
+        frameStep: effectiveStep,
+        width: pw,
+        height: ph,
+        totalFrames: entry.sourceFrames,
+        poster: entry.poster,
+      );
+    } catch (error) {
+      onStripError(entry, error);
+    }
   }
 
   @override
@@ -605,6 +618,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     required int fpHi,
     required int fpLo,
   }) {
+    entry.retriedWorkerFailure = false;
     cache
       .._workerRenderMicros += renderMicros
       .._nativeKernelCalls += kernelCalls
@@ -740,7 +754,12 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   }
 
   @override
-  void onBrowserWorkerFallback(_RasterEntry entry) {
+  void onWorkerInterrupted(_RasterEntry entry, Object error) {
+    if (entry.retriedWorkerFailure) {
+      onStripError(entry, error);
+      return;
+    }
+    entry.retriedWorkerFailure = true;
     if (entry.pendingStripStart < 0) {
       final desired = entry.desiredFrameIndex;
       final start =
@@ -761,8 +780,11 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   @override
   void onStripError(_RasterEntry entry, Object error) {
     _finishJob(entry, scheduleFollowup: false);
-    if (!_disposed && cache.lastError == null) {
-      cache._failed(error);
+    if (!_disposed && !entry.retired) {
+      entry.rasterError = error;
+      scheduleMicrotask(() {
+        if (!_disposed && !entry.retired) _notifyUsers(entry);
+      });
     }
   }
 
@@ -964,6 +986,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         cache._enabled &&
         cache.lastError == null &&
         !entry.retired &&
+        entry.rasterError == null &&
         entry.users.isNotEmpty &&
         nextPending >= 0 &&
         !_coversStrip(

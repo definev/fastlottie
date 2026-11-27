@@ -577,6 +577,23 @@ external int _cancelLoad(int slot);
 bool _hasCancelAtomic = true;
 bool get isNativeCancelSupported => isSimdSupported && _hasCancelAtomic;
 
+@ffi.Native<ffi.Int32 Function(ffi.Int32)>(
+  assetId: 'package:fastlottie/fastlottie_simd.dart',
+  symbol: 'fastlottie_cancel_claim',
+  isLeaf: true,
+)
+external int _cancelClaim(int slot);
+
+bool nativeCancelSlotClaim(int slot) {
+  if (!isNativeCancelSupported) return false;
+  try {
+    return _cancelClaim(slot) != 0;
+  } on ArgumentError {
+    _hasCancelAtomic = false;
+    return false;
+  }
+}
+
 void nativeCancelSlotStore(int slot, int token) {
   if (!isNativeCancelSupported) return;
   try {

@@ -1,16 +1,30 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie/src/flutter/composition.dart'
     show CompositionPlayback;
+import 'package:fastlottie/src/platform/compile_pool_io.dart';
+import 'package:fastlottie/src/platform/isolate_io.dart';
+import 'package:fastlottie/src/platform/simd_io.dart';
 import 'package:fastlottie/src/worker/worker_pool.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show fixture, render;
+
+int _exitCompileWorker(List<int> _, FastLottieOptions _, bool _) =>
+    Isolate.exit();
+
+int _compileByteCount(List<int> bytes, FastLottieOptions _, bool _) =>
+    bytes.length;
+
+void _crashRasterWorker(WorkerEndpoint endpoint) {
+  endpoint.messages.listen((_) => throw StateError('Worker failure'));
+}
 
 void _record(
   FastLottiePlayer player,
@@ -817,6 +831,87 @@ void main() {
     },
   );
 
+  test(
+    'isolate exit errors complete requests and compile pool recovers',
+    () async {
+      final worker = startWorkerHandle(_crashRasterWorker);
+      addTearDown(worker.dispose);
+      final workerError = expectLater(
+        worker.messages,
+        emitsInOrder([emitsError(isA<RemoteError>()), emitsDone]),
+      );
+      worker.send(true);
+      await workerError.timeout(const Duration(seconds: 3));
+      await expectLater(
+        runInCompilePool(
+          [],
+          const FastLottieOptions(),
+          false,
+          _exitCompileWorker,
+        ).timeout(const Duration(seconds: 3)),
+        throwsStateError,
+      );
+      expect(
+        await runInCompilePool(
+          [1],
+          const FastLottieOptions(),
+          false,
+          _compileByteCount,
+        ),
+        1,
+      );
+    },
+  );
+
+  test(
+    'cancelling one strip preserves another strip with the same cache key',
+    () async {
+      if (!isNativeCancelSupported || !isIsolatePoolSupported) return;
+      final composition = FastLottieComposition.fromJson(fixture('icon'));
+      final pool =
+          RasterWorkerPool<Completer<({Uint8List bytes, int fpHi, int fpLo})>>(
+            listener: _StripTestListener(),
+            workerCount: 1,
+            maximumCompressedMemoryBytes: 1024 * 1024,
+            maximumDiskBytes: 0,
+          );
+      addTearDown(pool.dispose);
+      const key = 'shared';
+      final shard = pool.shardForKey(key);
+      final cancelled = Completer<({Uint8List bytes, int fpHi, int fpLo})>();
+      final kept = Completer<({Uint8List bytes, int fpHi, int fpLo})>();
+      final cancellation = expectLater(
+        cancelled.future,
+        throwsA(isA<StateError>()),
+      );
+      for (final context in [cancelled, kept]) {
+        pool.dispatchStrip(
+          context: context,
+          shard: shard,
+          dispatchedGen: 0,
+          scene: composition.sceneTemplate,
+          sourceBytes: null,
+          contentKey: composition.contentKey,
+          entryKey: key,
+          stripStart: 0,
+          stripCount: 2,
+          startFrame: composition.startFrame,
+          frameStep: 1,
+          width: 16,
+          height: 16,
+          totalFrames: composition.frameCount,
+          poster: false,
+        );
+      }
+      pool.cancelInFlight(cancelled);
+      expect(
+        (await kept.future.timeout(const Duration(seconds: 3))).bytes,
+        isNotEmpty,
+      );
+      await cancellation.timeout(const Duration(seconds: 3));
+    },
+  );
+
   test('worker strips clear only gutter rows without stale leaks and emit 64-bit fingerprints', () async {
     final comp = FastLottieComposition.fromJson(fixture('icon'));
     const w = 32, h = 24, stripCount = 4;
@@ -948,10 +1043,15 @@ final class _StripTestListener
   void onStripCancelled(
     Completer<({Uint8List bytes, int fpHi, int fpLo})> context,
     int dispatchedGen,
-  ) {}
+  ) {
+    if (!context.isCompleted) {
+      context.completeError(StateError('Strip cancelled'));
+    }
+  }
 
   @override
-  void onBrowserWorkerFallback(
+  void onWorkerInterrupted(
     Completer<({Uint8List bytes, int fpHi, int fpLo})> context,
-  ) {}
+    Object error,
+  ) => onStripError(context, error);
 }

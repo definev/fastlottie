@@ -71,3 +71,5 @@ WorkerHandle startWorkerHandle(
   void Function(WorkerEndpoint) entry, {
   String debugName = 'fastlottie.worker',
 }) => _StubWorkerHandle(entry);
+
+Future<void> workerHandleExited(WorkerHandle handle) => Future<void>.value();

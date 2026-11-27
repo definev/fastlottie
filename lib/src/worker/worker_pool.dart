@@ -68,7 +68,7 @@ abstract interface class RasterWorkerListener<T> {
 
   void onStripCancelled(T context, int dispatchedGen);
 
-  void onBrowserWorkerFallback(T context);
+  void onWorkerInterrupted(T context, Object error);
 }
 
 final class _PendingRequest<T> {
@@ -90,7 +90,6 @@ final class _PendingRequest<T> {
     required this.totalFrames,
     required this.poster,
     this.cancelSlot = -1,
-    this.cancelToken = 0,
   });
 
   final int reqId;
@@ -110,7 +109,6 @@ final class _PendingRequest<T> {
   final int totalFrames;
   final bool poster;
   final int cancelSlot;
-  final int cancelToken;
   bool retried = false;
 }
 
@@ -145,6 +143,7 @@ final class RasterWorkerPool<T> {
 
   final _handles = <WorkerHandle>[];
   final _subs = <StreamSubscription<Object?>>[];
+  final _failedShards = <int>{};
   final _registeredScenes = <Set<String>>[];
   final _workerRamBytes = <int>[];
   final _workerRamLimits = <int>[];
@@ -152,16 +151,17 @@ final class RasterWorkerPool<T> {
   final _shardEntryCounts = <int>[];
   final _entryShard = <String, int>{};
   final _entryWeight = <String, int>{};
-  final _entryCancelSlot = <String, int>{};
-  final _entryCancelToken = <String, int>{};
+  final _entryShardRefs = <String, int>{};
+  final _pendingByContext = Map<T, _PendingRequest<T>>.identity();
   final _pendingRequests = <int, _PendingRequest<T>>{};
 
   static int _globalNextSlot = 0;
-  static int _globalNextToken = 1;
+  static const int _claimedCancelToken = 1;
+  static const int _cancelledToken = 2;
 
   // Host-tracked disk cache LRU across all shards.
   final _diskLru = <String, int>{};
-  final _pendingDiskDeletes = <String>{};
+  final _pendingDiskDeletes = <String, int>{};
   String? _lastTouchedDiskKey;
   int _diskBytes = 0;
   int _compressedRamBytes = 0;
@@ -223,7 +223,13 @@ final class RasterWorkerPool<T> {
   int shardForKey(String entryKey, {int weight = 1}) {
     _ensureStarted();
     final existing = _entryShard[entryKey];
+    _entryShardRefs.update(entryKey, (count) => count + 1, ifAbsent: () => 1);
     if (existing != null && existing < _handles.length) {
+      if (!_entryWeight.containsKey(entryKey)) {
+        _entryWeight[entryKey] = weight;
+        _shardActiveWeight[existing] += weight;
+        _shardEntryCounts[existing]++;
+      }
       return existing;
     }
     final count = _handles.length;
@@ -256,6 +262,13 @@ final class RasterWorkerPool<T> {
   }
 
   void releaseEntryShard(String entryKey) {
+    final refs = _entryShardRefs[entryKey];
+    if (refs == null) return;
+    if (refs > 1) {
+      _entryShardRefs[entryKey] = refs - 1;
+      return;
+    }
+    _entryShardRefs.remove(entryKey);
     final shard = _entryShard[entryKey];
     final weight = _entryWeight.remove(entryKey);
     if (shard != null && weight != null && shard < _shardActiveWeight.length) {
@@ -265,21 +278,43 @@ final class RasterWorkerPool<T> {
       );
       _shardEntryCounts[shard] = math.max(0, _shardEntryCounts[shard] - 1);
     }
+    _forgetIdleShard(entryKey);
   }
 
-  int _cancelSlotFor(String entryKey) =>
-      _entryCancelSlot.putIfAbsent(entryKey, () => (_globalNextSlot++) & 255);
+  void _forgetIdleShard(String key) {
+    if (_entryShardRefs.containsKey(key) ||
+        _diskLru.containsKey(key) ||
+        _pendingDiskDeletes.containsKey(key) ||
+        _pendingRequests.values.any((request) => request.entryKey == key)) {
+      return;
+    }
+    _entryShard.remove(key);
+  }
 
-  /// Atomically invalidates any in-flight native strip for [entryKey] so the
+  int _claimCancelSlot() {
+    final start = _globalNextSlot++ & 255;
+    for (var offset = 0; offset < 256 && isNativeCancelSupported; offset++) {
+      final slot = (start + offset) & 255;
+      if (nativeCancelSlotClaim(slot)) return slot;
+    }
+    return -1;
+  }
+
+  /// Atomically invalidates the in-flight native strip for [context] so the
   /// worker aborts remaining frames instead of burning CPU/LZ4 on stale pixels.
-  void cancelInFlight(String entryKey) {
-    if (!isNativeCancelSupported || !isIsolatePoolSupported) return;
-    final slot = _entryCancelSlot[entryKey];
-    if (slot == null) return;
-    var token = (_globalNextToken++) & 0x7fffffff;
-    if (token == 0) token = (_globalNextToken++) & 0x7fffffff;
-    _entryCancelToken[entryKey] = token;
-    nativeCancelSlotStore(slot, token);
+  void cancelInFlight(T context) {
+    final slot = _pendingByContext[context]?.cancelSlot ?? -1;
+    if (slot >= 0) nativeCancelSlotStore(slot, _cancelledToken);
+  }
+
+  _PendingRequest<T>? _takeRequest(int id) {
+    final request = _pendingRequests.remove(id);
+    if (request == null) return null;
+    if (identical(_pendingByContext[request.context], request)) {
+      _pendingByContext.remove(request.context);
+    }
+    if (request.cancelSlot >= 0) nativeCancelSlotStore(request.cancelSlot, 0);
+    return request;
   }
 
   bool isInlineShard(int shard) => !isBrowserRasterWorker(_handles[shard]);
@@ -296,49 +331,66 @@ final class RasterWorkerPool<T> {
   StreamSubscription<Object?> _listen(int shard, WorkerHandle handle) =>
       handle.messages.listen(
         (message) => _handleWorkerMessage(shard, message),
-        onError: (Object error) {
-          if (isBrowserRasterWorker(handle)) {
-            _fallbackFromBrowser(shard, handle);
-          }
-        },
+        onError: (Object error) => _replaceWorker(shard, handle, error),
       );
 
-  void _fallbackFromBrowser(int shard, WorkerHandle failed) {
+  void _replaceWorker(int shard, WorkerHandle failed, Object error) {
     if (_disposed || !identical(_handles[shard], failed)) return;
+    final browserFallback = isBrowserRasterWorker(failed);
     unawaited(_subs[shard].cancel());
     failed.dispose();
-    final handle = _inlineOrNativeHandle(shard);
-    _handles[shard] = handle;
-    _subs[shard] = _listen(shard, handle);
     _registeredScenes[shard].clear();
-    _updateWorkerRam(shard, 0);
-    handle.send((
-      opConfigure,
-      diskDirectory: null,
-      maximumDiskBytes: 0,
-      maximumRamBytes: maximumCompressedMemoryBytes ~/ _handles.length,
-      deduplicateUploads: deduplicateImageUploads,
-    ));
+    _compressedRamBytes -= _workerRamBytes[shard];
+    _workerRamBytes[shard] = 0;
+    if (browserFallback) {
+      _restartShard(shard);
+    } else {
+      // A persistent startup failure must not cause an idle respawn loop.
+      _failedShards.add(shard);
+      final missedDeletes = _pendingDiskDeletes.entries
+          .where((entry) => entry.value == shard)
+          .map((entry) => entry.key)
+          .toList();
+      for (final key in missedDeletes) {
+        _evictKeyOnShard(key);
+      }
+    }
     final interrupted = _pendingRequests.values
         .where((request) => request.shard == shard)
         .toList();
     for (final request in interrupted) {
-      _pendingRequests.remove(request.reqId);
-      listener.onBrowserWorkerFallback(request.context);
+      _takeRequest(request.reqId);
+      _forgetIdleShard(request.entryKey);
+      listener.onWorkerInterrupted(request.context, error);
     }
   }
 
+  void _restartShard(int shard) {
+    final handle = _inlineOrNativeHandle(shard);
+    _handles[shard] = handle;
+    _subs[shard] = _listen(shard, handle);
+    handle.send((
+      opConfigure,
+      diskDirectory: maximumDiskBytes > 0 ? _diskDir : null,
+      maximumDiskBytes: maximumDiskBytes,
+      maximumRamBytes: _workerRamLimits[shard],
+      deduplicateUploads: deduplicateImageUploads,
+    ));
+  }
+
   void _registerScene(_PendingRequest<T> request) {
-    final scenes = _registeredScenes[request.shard];
-    scenes.remove(request.contentKey);
-    if (scenes.length >= maxWorkerScenes) scenes.remove(scenes.first);
-    scenes.add(request.contentKey);
     final handle = _handles[request.shard];
     if (isBrowserRasterWorker(handle)) {
+      final bytes = request.sourceBytes;
+      if (bytes == null) {
+        throw StateError(
+          'Browser raster worker requires composition source bytes',
+        );
+      }
       handle.send((
         opRegisterScene,
         contentKey: request.contentKey,
-        bytes: request.sourceBytes!,
+        bytes: bytes,
         useSimd: request.scene.options.useSimd,
       ));
     } else {
@@ -348,6 +400,10 @@ final class RasterWorkerPool<T> {
         scene: isIsolatePoolSupported ? request.scene : request.scene.fork(),
       ));
     }
+    final scenes = _registeredScenes[request.shard];
+    scenes.remove(request.contentKey);
+    if (scenes.length >= maxWorkerScenes) scenes.remove(scenes.first);
+    scenes.add(request.contentKey);
   }
 
   void _sendRequest(_PendingRequest<T> request) {
@@ -373,7 +429,7 @@ final class RasterWorkerPool<T> {
           totalFrames: request.totalFrames,
           poster: request.poster,
           cancelSlot: request.cancelSlot,
-          cancelToken: request.cancelToken,
+          cancelToken: _claimedCancelToken,
         ));
       } else {
         handle.send((
@@ -421,6 +477,9 @@ final class RasterWorkerPool<T> {
     _diskBytes = 0;
     _lastTouchedDiskKey = null;
     _pendingDiskDeletes.clear();
+    for (final key in _entryShard.keys.toList()) {
+      _forgetIdleShard(key);
+    }
     if (next != null && isDiskCacheSupported) {
       _scanExistingDiskFiles(next);
     }
@@ -498,17 +557,18 @@ final class RasterWorkerPool<T> {
         fpHi: final int fpHi,
         fpLo: final int fpLo,
       ):
-        final pending = _pendingRequests.remove(reqId);
+        final pending = _takeRequest(reqId);
         if (pending == null) return;
         final bgra = unpackBytesFromIsolate(packed);
         _updateWorkerRam(shard, workerRam);
         if (entryDiskBytes > 0) {
-          if (!_pendingDiskDeletes.contains(entryKey)) {
+          if (!_pendingDiskDeletes.containsKey(entryKey)) {
             _recordDiskWrite(entryKey, entryDiskBytes);
           }
-        } else if (!_pendingDiskDeletes.contains(entryKey)) {
+        } else if (!_pendingDiskDeletes.containsKey(entryKey)) {
           touchDiskEntry(entryKey);
         }
+        _forgetIdleShard(entryKey);
         listener.onStripReady(
           pending.context,
           pending.dispatchedGen,
@@ -550,17 +610,18 @@ final class RasterWorkerPool<T> {
         fpHi: final int fpHi,
         fpLo: final int fpLo,
       ):
-        final pending = _pendingRequests.remove(reqId);
+        final pending = _takeRequest(reqId);
         if (pending == null) return;
         final bgra = unpackBytesFromIsolate(packed);
         _updateWorkerRam(shard, workerRam);
         if (entryDiskBytes > 0) {
-          if (!_pendingDiskDeletes.contains(entryKey)) {
+          if (!_pendingDiskDeletes.containsKey(entryKey)) {
             _recordDiskWrite(entryKey, entryDiskBytes);
           }
-        } else if (!_pendingDiskDeletes.contains(entryKey)) {
+        } else if (!_pendingDiskDeletes.containsKey(entryKey)) {
           touchDiskEntry(entryKey);
         }
+        _forgetIdleShard(entryKey);
         listener.onStripReady(
           pending.context,
           pending.dispatchedGen,
@@ -587,8 +648,9 @@ final class RasterWorkerPool<T> {
         requestId: final int reqId,
         message: final String message,
       ):
-        final pending = _pendingRequests.remove(reqId);
+        final pending = _takeRequest(reqId);
         if (pending == null) return;
+        _forgetIdleShard(pending.entryKey);
         listener.onStripError(pending.context, StateError(message));
       case (
         repSceneMissing,
@@ -598,7 +660,8 @@ final class RasterWorkerPool<T> {
         final pending = _pendingRequests[reqId];
         if (pending == null) return;
         if (pending.retried) {
-          _pendingRequests.remove(reqId);
+          _takeRequest(reqId);
+          _forgetIdleShard(pending.entryKey);
           listener.onStripError(
             pending.context,
             StateError('Missing worker scene for $contentKey'),
@@ -606,16 +669,23 @@ final class RasterWorkerPool<T> {
           return;
         }
         pending.retried = true;
-        _registerScene(pending);
-        _sendRequest(pending);
+        try {
+          _registerScene(pending);
+          _sendRequest(pending);
+        } catch (error) {
+          _takeRequest(reqId);
+          _forgetIdleShard(pending.entryKey);
+          listener.onStripError(pending.context, error);
+        }
       case (
         repStripCancelled,
         requestId: final int reqId,
         workerRamBytes: final int workerRam,
       ):
-        final pending = _pendingRequests.remove(reqId);
+        final pending = _takeRequest(reqId);
         _updateWorkerRam(shard, workerRam);
         if (pending == null) return;
+        _forgetIdleShard(pending.entryKey);
         listener.onStripCancelled(pending.context, pending.dispatchedGen);
       case (
         repDeleted,
@@ -625,6 +695,7 @@ final class RasterWorkerPool<T> {
         _updateWorkerRam(shard, workerRam);
         if (entryKey.isNotEmpty) {
           _pendingDiskDeletes.remove(entryKey);
+          _forgetIdleShard(entryKey);
         }
     }
   }
@@ -724,13 +795,19 @@ final class RasterWorkerPool<T> {
   }
 
   void _evictKeyOnShard(String entryKey) {
-    _pendingDiskDeletes.add(entryKey);
     if (_started) {
-      final shard = _entryShard[entryKey] ?? _shardForKey(entryKey, _handles.length);
-      _handles[shard].send((opDeleteDisk, entryKey: entryKey));
-    } else if (_diskDir != null && isDiskCacheSupported) {
+      final shard =
+          _entryShard[entryKey] ?? _shardForKey(entryKey, _handles.length);
+      if (!_failedShards.contains(shard)) {
+        _pendingDiskDeletes[entryKey] = shard;
+        _handles[shard].send((opDeleteDisk, entryKey: entryKey));
+        return;
+      }
+    }
+    if (_diskDir != null && isDiskCacheSupported) {
       PlatformDiskFs.deleteFile(joinPath(_diskDir!, '$entryKey.flcache'));
       _pendingDiskDeletes.remove(entryKey);
+      _forgetIdleShard(entryKey);
     }
   }
 
@@ -752,18 +829,12 @@ final class RasterWorkerPool<T> {
     required bool poster,
   }) {
     if (_disposed) return;
+    if (_failedShards.remove(shard)) _restartShard(shard);
     final reqId = _nextReqId++;
     debugDispatchCount++;
-    var cancelSlot = -1;
-    var cancelToken = 0;
-    if (stripCount > 1 && isNativeCancelSupported && isIsolatePoolSupported) {
-      cancelSlot = _cancelSlotFor(entryKey);
-      var nextToken = (_globalNextToken++) & 0x7fffffff;
-      if (nextToken == 0) nextToken = (_globalNextToken++) & 0x7fffffff;
-      cancelToken = nextToken;
-      _entryCancelToken[entryKey] = cancelToken;
-      nativeCancelSlotStore(cancelSlot, cancelToken);
-    }
+    final cancelSlot = stripCount > 1 && isIsolatePoolSupported
+        ? _claimCancelSlot()
+        : -1;
     final request = _pendingRequests[reqId] = _PendingRequest<T>(
       reqId: reqId,
       shard: shard,
@@ -782,8 +853,8 @@ final class RasterWorkerPool<T> {
       totalFrames: totalFrames,
       poster: poster,
       cancelSlot: cancelSlot,
-      cancelToken: cancelToken,
     );
+    _pendingByContext[context] = request;
     // A cold entry (or any entry when disk caching is disabled) needs vector
     // pixels, so send its scene with the first request to avoid a round trip.
     // For existing disk files, let the worker check its pixels first.
@@ -791,10 +862,15 @@ final class RasterWorkerPool<T> {
         maximumDiskBytes > 0 &&
         _diskDir != null &&
         _diskLru.containsKey(entryKey);
-    if (!mayHitDisk && !_registeredScenes[shard].contains(contentKey)) {
-      _registerScene(request);
+    try {
+      if (!mayHitDisk && !_registeredScenes[shard].contains(contentKey)) {
+        _registerScene(request);
+      }
+      _sendRequest(request);
+    } catch (_) {
+      _takeRequest(reqId);
+      rethrow;
     }
-    _sendRequest(request);
   }
 
   void clearMemoryCaches() {
@@ -810,7 +886,18 @@ final class RasterWorkerPool<T> {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    for (final request in _pendingRequests.values) {
+      if (request.cancelSlot < 0) continue;
+      final slot = request.cancelSlot;
+      nativeCancelSlotStore(slot, _cancelledToken);
+      unawaited(
+        workerHandleExited(_handles[request.shard]).then((_) {
+          nativeCancelSlotStore(slot, 0);
+        }),
+      );
+    }
     _pendingRequests.clear();
+    _pendingByContext.clear();
     _lastTouchedDiskKey = null;
     for (final sub in _subs) {
       sub.cancel();
@@ -827,13 +914,12 @@ final class RasterWorkerPool<T> {
     _shardEntryCounts.clear();
     _entryShard.clear();
     _entryWeight.clear();
-    _entryCancelSlot.clear();
-    _entryCancelToken.clear();
+    _entryShardRefs.clear();
     _compressedRamBytes = 0;
 
     final dir = _diskDir;
     if (dir != null && isDiskCacheSupported && _pendingDiskDeletes.isNotEmpty) {
-      for (final victim in _pendingDiskDeletes) {
+      for (final victim in _pendingDiskDeletes.keys) {
         PlatformDiskFs.deleteFile(joinPath(dir, '$victim.flcache'));
       }
       _pendingDiskDeletes.clear();

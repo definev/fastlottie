@@ -815,6 +815,8 @@ class _RasterEntry {
 
   final users = <FastLottiePlayer>{};
   bool retired = false;
+  Object? rasterError;
+  bool retriedWorkerFailure = false;
   int lastTouched = 0;
 
   // Ping-pong double-buffer strip state.
