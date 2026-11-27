@@ -337,6 +337,8 @@ class _Layer {
 
   late final bool hasAnySpatialTransform =
       !transform.isSpatialIdentity || (parent?.hasAnySpatialTransform ?? false);
+  late final bool usesNonNormalBlend =
+      blendMode != 0 || (child?.hasNonNormalBlend ?? false);
 
   Rect? _cachedWorldBounds;
   double _lastWorldBoundsFrame = double.nan;

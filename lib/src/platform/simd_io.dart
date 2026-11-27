@@ -56,7 +56,7 @@ external void _nativeClearPixelsAsset(ffi.Pointer<ffi.Uint32> dst, int count);
   )
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
-  symbol: 'fastlottie_fill_solid_spans',
+  symbol: 'fastlottie_fill_solid_spans_v2',
   isLeaf: true,
 )
 external void _nativeFillSolidSpansAsset(
@@ -109,7 +109,7 @@ external void _blendRect(
   )
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
-  symbol: 'fastlottie_blend_solid',
+  symbol: 'fastlottie_blend_solid_v2',
   isLeaf: true,
 )
 external void _blendSolid(
@@ -187,7 +187,7 @@ external void _compositeMatte(
   )
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
-  symbol: 'fastlottie_gradient_spans',
+  symbol: 'fastlottie_gradient_spans_v2',
   isLeaf: true,
 )
 external void _gradientSpans(
@@ -614,7 +614,7 @@ bool _initLib() {
         );
     _nativeFillSolidSpans = lib
         .lookupFunction<_NativeFillSolidSpans, _DartFillSolidSpans>(
-          'fastlottie_fill_solid_spans',
+          'fastlottie_fill_solid_spans_v2',
           isLeaf: true,
         );
     return true;

@@ -89,10 +89,6 @@ class FastLottieRasterCache {
       diskCacheDirectory: diskCacheDirectory,
       workerCount: workerCount,
     );
-    if (SchedulerBinding.instance case final WidgetsBinding binding) {
-      _lifecycleObserver = _RasterCacheLifecycleObserver(this);
-      binding.addObserver(_lifecycleObserver!);
-    }
   }
 
   /// Budget for retained raster bytes and reserved buffer space.
@@ -400,6 +396,7 @@ class FastLottieRasterCache {
 
   _RasterEntry? _acquire(FastLottiePlayer player, Size size) {
     if (_disposed || lastError != null) return null;
+    _ensureLifecycleObserver();
     _admissionAttempts++;
     final c = player.composition;
     final poster = player.rasterMode == FastLottieRasterMode.poster;
@@ -626,7 +623,21 @@ class FastLottieRasterCache {
 
   void _prewarm(FastLottiePlayer player, Size size) {
     if (_disposed || !_enabled || lastError != null) return;
+    _ensureLifecycleObserver();
     _coordinator.prewarm(player, size);
+  }
+
+  void _ensureLifecycleObserver() {
+    if (_disposed || _lifecycleObserver != null) return;
+    try {
+      if (SchedulerBinding.instance case final WidgetsBinding binding) {
+        final observer = _RasterCacheLifecycleObserver(this);
+        binding.addObserver(observer);
+        _lifecycleObserver = observer;
+      }
+    } on FlutterError {
+      // Flutter binding is not initialized yet; retry on next cache use.
+    }
   }
 
   void _failed(Object error) {
@@ -688,6 +699,7 @@ class FastLottieRasterCache {
         _disposalHead >= _disposalQueue.length) {
       return;
     }
+    _ensureLifecycleObserver();
     _disposalScheduled = true;
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _disposalScheduled = false;

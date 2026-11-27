@@ -54,6 +54,7 @@ class _Compiler {
   static const int _maxGroupDepth = 64;
   static final Paint _lumaBackdropPaint = Paint()
     ..color = const Color(0xFF000000);
+  static final Paint _matteIsolationPaint = Paint();
 
   final FastLottieOptions options;
   late double width, height, start, end, fps;
@@ -64,6 +65,7 @@ class _Compiler {
   late final bool isStatic = layers.every(
     (l) => l.isStatic && l.ip <= start && l.op >= end,
   );
+  late final bool hasNonNormalBlend = layers.any((l) => l.usesNonNormalBlend);
   List<int>? _commandBudget;
 
   void _chargeCommands(int count, _JsonPath path) {
@@ -450,7 +452,7 @@ class _Compiler {
         }
         layer.matte = source;
         source.isMatteSource = true;
-        commands += 4;
+        _chargeCommands(4, _JsonPath.layers.index(i).field('tt'));
       }
     }
     for (final entry in setMattes.entries) {
@@ -469,7 +471,7 @@ class _Compiler {
       // Set Matte samples a source without consuming its ordinary draw.
       // A self reference samples the layer before its own matte.
       target.matte = source;
-      commands += 4;
+      _chargeCommands(4, at);
     }
     for (var i = 0; i < layers.length; i++) {
       if (rawLayers[i]['td'] == 1 && !layers[i].isMatteSource) {
@@ -570,6 +572,7 @@ class _Compiler {
         targetRect,
         matteRect,
       )!.inflate(1.0).intersect(bounds);
+      final isolateLumaMatte = layer.matteType >= 3 && matte.usesNonNormalBlend;
       canvas.saveLayer(layerBounds, layer.contentPaint);
       layer.draw(canvas, frame, alpha);
       canvas.saveLayer(layerBounds, layer.mattePaint);
@@ -578,6 +581,11 @@ class _Compiler {
         // premultiplied RGB (mAlpha * straightRGB) with alpha == 1, preserving
         // subpixel anti-aliasing and matte opacity fades.
         canvas.drawRect(layerBounds, _lumaBackdropPaint);
+        if (isolateLumaMatte) {
+          // Draw non-normal matte blend modes against transparent first so
+          // modes such as multiply do not blend with the synthetic black backdrop.
+          canvas.saveLayer(layerBounds, _matteIsolationPaint);
+        }
       }
       matte.draw(
         canvas,
@@ -585,6 +593,7 @@ class _Compiler {
         matteParentAlpha,
         alphaOnly: layer.matteType < 3,
       );
+      if (isolateLumaMatte) canvas.restore();
       canvas.restore();
       canvas.restore();
     }
@@ -995,7 +1004,7 @@ class _Compiler {
             0,
           ], separateEasing: true);
           final radius = _track(m['r'], p.field('r'), 1, [0]);
-          commands += 8;
+          _chargeCommands(8, p);
           if (!hidden) {
             sources.add(
               _Shape(_Primitive(type == 'el', pos, size, radius, m['d'] == 3)),
@@ -1044,7 +1053,7 @@ class _Compiler {
                     ? _track(m['is'], p.field('is'), 1, [0])
                     : Track.constant([0.0]))
               : null;
-          commands += 12;
+          _chargeCommands(12, p);
           if (!hidden) {
             sources.add(
               _Shape(
@@ -1088,6 +1097,7 @@ class _Compiler {
             final shapes = <_Shape>[];
             void collect(List<_PathSource> items) {
               for (final source in items) {
+                _chargeCommands(1, p);
                 if (source is _Shape) shapes.add(source);
                 if (source is _Group) collect(source.sources);
               }
@@ -1099,7 +1109,7 @@ class _Compiler {
               shapes[n].content = _TrimPart(trim, n);
             }
           }
-          commands++;
+          _chargeCommands(1, p);
         case 'fl':
         case 'st':
         case 'gf':
@@ -1162,6 +1172,8 @@ class _Compiler {
           final opacity = _track(m['o'], p.field('o'), 1, [100]);
           final width = _track(m['w'], p.field('w'), 1, [1]);
           if (!hidden) {
+            // Account for the copied source-reference list before allocating it.
+            _chargeCommands(sources.length + 2, p);
             draws.add(
               _Style(
                 List.of(sources),
@@ -1179,8 +1191,9 @@ class _Compiler {
                 dash: dash,
               ),
             );
+          } else {
+            _chargeCommands(2, p);
           }
-          commands += 2;
         case 'mm':
           check(m, p, const {'ty', 'nm', 'mn', 'ix', 'hd', 'mm', 'bm', 'cix'});
           final mode = m['mm'] ?? 1;
@@ -1188,6 +1201,7 @@ class _Compiler {
             fail(p.field('mm'), 'Shape op mm mode $mode');
           }
           if (!hidden && sources.isNotEmpty) {
+            _chargeCommands(sources.length + 1, p);
             final operands = sources.where((s) {
               return s is! _Group || s.hasPathContent;
             }).toList();
@@ -1202,10 +1216,10 @@ class _Compiler {
                 incomplete ? operands.single : _MergePathSource(operands, mode),
               );
             }
-          } else if (hidden) {
-            sources.clear();
+          } else {
+            if (hidden) sources.clear();
+            _chargeCommands(1, p);
           }
-          commands++;
         default:
           fail(p.field('ty'), 'Shape op $type');
       }

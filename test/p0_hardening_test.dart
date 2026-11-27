@@ -39,12 +39,14 @@ Map<String, dynamic> _shapeLayer(
   Map<String, dynamic>? ks,
   int tt = 0,
   int td = 0,
+  int bm = 0,
   List<Map<String, dynamic>>? sy,
 }) => {
   'ty': 4,
   'ind': ind,
   if (tt != 0) 'tt': tt,
   if (td != 0) 'td': td,
+  if (bm != 0) 'bm': bm,
   'ip': 0,
   'op': 60,
   'st': 0,
@@ -720,5 +722,245 @@ void main() {
         expect(FastLottieRasterCache.debugSharedDefaultCache, isNull);
       },
     );
+  });
+
+  group('PR #3 review regressions', () {
+    test('luma matte with multiply blend mode (bm: 1) preserves white matte on Canvas and software', () async {
+      for (final (tt, opacity, expectedAlpha) in [
+        (3, 100, 255),
+        (4, 100, 0),
+        (3, 50, 128),
+      ]) {
+        final doc = _docWithLayers([
+          _shapeLayer(
+            1,
+            [
+              rectangle(128, 128, 200, 200),
+              fill([1, 1, 1]),
+            ],
+            td: 1,
+            bm: 1, // Multiply
+            ks: {
+              'a': constant([0, 0]),
+              'p': constant([0, 0]),
+              's': constant([100, 100]),
+              'r': constant(0),
+              'o': constant(opacity),
+            },
+          ),
+          _shapeLayer(2, [
+            rectangle(128, 128, 200, 200),
+            fill([0.2, 0.7, 0.4]),
+          ], tt: tt),
+        ]);
+        final comp = FastLottieComposition.fromJson(doc);
+        final native = FastLottieSoftwareSession(
+          comp,
+          pixelWidth: 256,
+          pixelHeight: 256,
+          preferNative: true,
+        );
+        final dart = FastLottieSoftwareSession(
+          comp,
+          pixelWidth: 256,
+          pixelHeight: 256,
+          preferNative: false,
+        );
+        final player = FastLottiePlayer(comp, cache: FastLottieCache.none);
+        addTearDown(() {
+          native.dispose();
+          dart.dispose();
+          player.dispose();
+        });
+
+        final nativePx = native.renderFrame(0);
+        final dartPx = dart.renderFrame(0);
+        expect(nativePx, orderedEquals(dartPx));
+
+        final canvasRgba = await render(
+          (c) => player.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256), 0),
+        );
+        final center = 128 * 256 + 128;
+        expect(
+          dartPx[center] >>> 24,
+          closeTo(expectedAlpha, 2),
+          reason: 'software tt=$tt o=$opacity',
+        );
+        expect(
+          canvasRgba[center * 4 + 3],
+          closeTo(expectedAlpha, 2),
+          reason: 'Canvas tt=$tt o=$opacity',
+        );
+      }
+
+      // Precomp luma matte whose internal child layer uses bm: 1 (multiply).
+      final precompDoc = _docWithLayers(
+        [
+          {
+            'ty': 0,
+            'ind': 1,
+            'refId': 'matte_comp',
+            'td': 1,
+            'w': 256,
+            'h': 256,
+            'ip': 0,
+            'op': 60,
+            'st': 0,
+            'ks': {
+              'a': constant([0, 0]),
+              'p': constant([0, 0]),
+              's': constant([100, 100]),
+              'r': constant(0),
+              'o': constant(100),
+            },
+          },
+          _shapeLayer(2, [
+            rectangle(128, 128, 200, 200),
+            fill([0.9, 0.2, 0.2]),
+          ], tt: 3),
+        ],
+        assets: [
+          {
+            'id': 'matte_comp',
+            'layers': [
+              _shapeLayer(1, [
+                rectangle(128, 128, 200, 200),
+                fill([1, 1, 1]),
+              ], bm: 1),
+            ],
+          },
+        ],
+      );
+      final precomp = FastLottieComposition.fromJson(precompDoc);
+      final prePlayer = FastLottiePlayer(precomp, cache: FastLottieCache.none);
+      addTearDown(prePlayer.dispose);
+      final preCanvas = await render(
+        (c) => prePlayer.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256), 0),
+      );
+      expect(preCanvas[(128 * 256 + 128) * 4 + 3], 255);
+    });
+
+    test('contentKey distinguishes Trim Paths mode 2 when an unstroked sibling path changes length', () async {
+      Map<String, dynamic> trimMode2Doc(double secondLineLen, {bool swap = false}) {
+        Map<String, dynamic> line(double y, double len) => {
+          'ty': 'sh',
+          'ks': constant({
+            'c': false,
+            'v': [
+              [20.0, y],
+              [20.0 + len, y],
+            ],
+            'i': [
+              [0.0, 0.0],
+              [0.0, 0.0],
+            ],
+            'o': [
+              [0.0, 0.0],
+              [0.0, 0.0],
+            ],
+          }),
+        };
+        final stroke = {
+          'ty': 'st',
+          'c': constant([1, 0, 0]),
+          'o': constant(100),
+          'w': constant(12),
+          'lc': 1,
+          'lj': 1,
+        };
+        final trim = {
+          'ty': 'tm',
+          's': constant(0),
+          'e': constant(25),
+          'o': constant(0),
+          'm': 2,
+        };
+        final shapes = swap
+            ? <Map<String, dynamic>>[
+                line(120, secondLineLen),
+                stroke,
+                line(60, 100),
+                trim,
+              ]
+            : <Map<String, dynamic>>[
+                line(60, 100),
+                stroke,
+                line(120, secondLineLen),
+                trim,
+              ];
+        return scene(shapes);
+      }
+
+      final compShort = FastLottieComposition.fromJson(trimMode2Doc(100));
+      final compLong = FastLottieComposition.fromJson(trimMode2Doc(300));
+      final compSwapped = FastLottieComposition.fromJson(
+        trimMode2Doc(100, swap: true),
+      );
+
+      expect(compShort.contentKey, isNot(compLong.contentKey));
+      expect(compShort.contentKey, isNot(compSwapped.contentKey));
+
+      // Confirm rendered pixels genuinely differ between compShort and compLong
+      // on both software renderer and Canvas (25% of 200px = 50px vs 25% of 400px = 100px).
+      final softShort = FastLottieSoftwareSession(
+        compShort,
+        pixelWidth: 256,
+        pixelHeight: 256,
+      );
+      final softLong = FastLottieSoftwareSession(
+        compLong,
+        pixelWidth: 256,
+        pixelHeight: 256,
+      );
+      final playerShort = FastLottiePlayer(compShort, cache: FastLottieCache.none);
+      final playerLong = FastLottiePlayer(compLong, cache: FastLottieCache.none);
+      addTearDown(() {
+        softShort.dispose();
+        softLong.dispose();
+        playerShort.dispose();
+        playerLong.dispose();
+      });
+      final shortPx = softShort.renderFrame(0);
+      final longPx = softLong.renderFrame(0);
+      expect(shortPx.any((p) => p != 0), isTrue);
+      expect(shortPx, isNot(orderedEquals(longPx)));
+      final shortCanvas = await render(
+        (c) => playerShort.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256), 0),
+      );
+      final longCanvas = await render(
+        (c) => playerLong.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256), 0),
+      );
+      expect(shortCanvas, isNot(orderedEquals(longCanvas)));
+    });
+
+    test('compiler budget accounts for quadratic List.of(sources) reference copies', () {
+      // 1,000 shapes + 250 fills = 1,250 items (< 200k), yet 1,000 * 250 = 250,000
+      // source references would otherwise be allocated unchecked.
+      final shapes = <Map<String, dynamic>>[
+        for (var i = 0; i < 1000; i++) rectangle(10, 10, 10, 10),
+        for (var i = 0; i < 250; i++) fill([1, 0, 0]),
+      ];
+      expect(
+        () => FastLottieComposition.fromJson(scene(shapes)),
+        throwsA(isA<UnsupportedLottieException>()),
+      );
+
+      // Same for repeated Trim Paths walking all accumulated shapes.
+      final trimBomb = <Map<String, dynamic>>[
+        for (var i = 0; i < 500; i++) rectangle(10, 10, 10, 10),
+        for (var i = 0; i < 500; i++)
+          {
+            'ty': 'tm',
+            's': constant(0),
+            'e': constant(50),
+            'o': constant(0),
+            'm': 1,
+          },
+      ];
+      expect(
+        () => FastLottieComposition.fromJson(scene(trimBomb)),
+        throwsA(isA<UnsupportedLottieException>()),
+      );
+    });
   });
 }

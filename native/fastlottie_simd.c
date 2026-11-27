@@ -84,13 +84,17 @@ static inline uint32_t blend_src_over(uint32_t s, uint32_t d) {
     return src_over_ia(s, d, 255 - sa);
 }
 
+FL_EXPORT int32_t fastlottie_wasm_abi_version(void) {
+    return 2;
+}
+
 FL_EXPORT void fastlottie_clear_pixels(uint32_t* dst, int32_t count) {
     if (dst && count > 0) {
         memset(dst, 0, (size_t)count * sizeof(uint32_t));
     }
 }
 
-FL_EXPORT void fastlottie_fill_solid_spans(
+FL_EXPORT void fastlottie_fill_solid_spans_v2(
     uint32_t* dst,
     int32_t dst_len,
     int32_t dstOriginX,
@@ -806,7 +810,7 @@ FL_EXPORT void fastlottie_blend_rect(
     }
 }
 
-FL_EXPORT void fastlottie_blend_solid(
+FL_EXPORT void fastlottie_blend_solid_v2(
     uint32_t *dst, int32_t dst_len, int32_t origin_x, int32_t origin_y,
     int32_t stride, const int32_t *spans, int32_t count,
     uint32_t color, int32_t mode
@@ -1051,7 +1055,7 @@ static void gradient_linear_src_over(
     const double len_sq = gx * gx + gy * gy;
     if (!(len_sq > 1e-12)) {
         const uint32_t c = (opacity == 255) ? lut[0] : scale_premul_255(lut[0], opacity);
-        fastlottie_fill_solid_spans(dst, dst_len, ox, oy, stride, spans, count, c);
+        fastlottie_fill_solid_spans_v2(dst, dst_len, ox, oy, stride, spans, count, c);
         return;
     }
     const double inv_len_sq = 1.0 / len_sq;
@@ -1409,7 +1413,7 @@ static FL_ALWAYS_INLINE void gradient_spans_blend_impl(
     }
 }
 
-FL_EXPORT void fastlottie_gradient_spans(
+FL_EXPORT void fastlottie_gradient_spans_v2(
     uint32_t *dst, int32_t dst_len, int32_t ox, int32_t oy, int32_t stride,
     const int32_t *spans, int32_t count, const uint32_t *lut,
     uint32_t opacity, int32_t mode, int32_t radial,

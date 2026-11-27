@@ -9,9 +9,13 @@ String _computeCompositionContentKey(_Compiler c) {
 }
 
 final class _ContentKeyHasher {
-  _ContentKeyHasher(this._seen);
+  _ContentKeyHasher(
+    this._seen, [
+    Map<_Trim, (int, int, int, int)>? trimDigests,
+  ]) : _trimDigests = trimDigests ?? Map<_Trim, (int, int, int, int)>.identity();
 
   final Map<_Compiler, (int, int, int, int)> _seen;
+  final Map<_Trim, (int, int, int, int)> _trimDigests;
   final ByteData _floatBuf = ByteData(8);
   int _h1 = 0x811C9DC5;
   int _h2 = 0x9E3779B9;
@@ -187,15 +191,25 @@ final class _ContentKeyHasher {
       _mixInt(5);
       _mixInt(s.index);
       _mixInt(s.trim.inputs.length);
-      final hasInput = s.index >= 0 && s.index < s.trim.inputs.length;
-      _mixInt(hasInput ? 1 : 0);
-      if (hasInput) {
-        _mixSource(s.trim.inputs[s.index]);
+      _mixInt(s.trim.individual ? 1 : 0);
+      if (s.trim.individual) {
+        // Mode 2 (sequential/individual) computes cut positions from the
+        // cumulative length of all input paths in order.
+        final (t1, t2, t3, t4) = _hashTrimInputs(s.trim);
+        _mixInt(t1);
+        _mixInt(t2);
+        _mixInt(t3);
+        _mixInt(t4);
+      } else {
+        final hasInput = s.index >= 0 && s.index < s.trim.inputs.length;
+        _mixInt(hasInput ? 1 : 0);
+        if (hasInput) {
+          _mixSource(s.trim.inputs[s.index]);
+        }
       }
       _mixTrack(s.trim.start);
       _mixTrack(s.trim.end);
       _mixTrack(s.trim.offset);
-      _mixInt(s.trim.individual ? 1 : 0);
     } else if (s is _Group) {
       _mixInt(6);
       _mixTransform(s.transform);
@@ -212,6 +226,20 @@ final class _ContentKeyHasher {
         _mixSource(sub);
       }
     }
+  }
+
+  (int, int, int, int) _hashTrimInputs(_Trim trim) {
+    final cached = _trimDigests[trim];
+    if (cached != null) return cached;
+    final sub = _ContentKeyHasher(_seen, _trimDigests);
+    sub._mixInt(0x5452494d); // 'TRIM'
+    sub._mixInt(trim.inputs.length);
+    for (final input in trim.inputs) {
+      sub._mixSource(input);
+    }
+    final digest = (sub._h1, sub._h2, sub._h3, sub._h4);
+    _trimDigests[trim] = digest;
+    return digest;
   }
 
   void _mixDraw(_Draw d) {

@@ -19,17 +19,21 @@ extension type _WasmMemory(JSObject _) implements JSObject {
   external JSArrayBuffer get buffer;
 }
 
+const int wasmAbiVersion = 2;
+
 extension type _WasmExports(JSObject _) implements JSObject {
   external _WasmMemory get memory;
   @JS('_initialize')
   external void initialize();
+  @JS('fastlottie_wasm_abi_version')
+  external int abiVersion();
   external int malloc(int bytes);
   external void free(int address);
 
   @JS('fastlottie_clear_pixels')
   external void clearPixels(int dst, int count);
 
-  @JS('fastlottie_fill_solid_spans')
+  @JS('fastlottie_fill_solid_spans_v2')
   external void fillSolidSpans(
     int dst,
     int dstLen,
@@ -52,7 +56,7 @@ extension type _WasmExports(JSObject _) implements JSObject {
     int mode,
   );
 
-  @JS('fastlottie_blend_solid')
+  @JS('fastlottie_blend_solid_v2')
   external void blendSolid(
     int dst,
     int dstLen,
@@ -85,7 +89,7 @@ extension type _WasmExports(JSObject _) implements JSObject {
     int opacity,
   );
 
-  @JS('fastlottie_gradient_spans')
+  @JS('fastlottie_gradient_spans_v2')
   external void gradientSpans(
     int dst,
     int dstLen,
@@ -181,14 +185,15 @@ Future<void> initializeWasmKernels(Uint8List bytes) async {
   final exports = result.instance.exports;
   for (final name in const [
     '_initialize',
+    'fastlottie_wasm_abi_version',
     'malloc',
     'free',
     'fastlottie_clear_pixels',
-    'fastlottie_fill_solid_spans',
+    'fastlottie_fill_solid_spans_v2',
     'fastlottie_blend_rect',
-    'fastlottie_blend_solid',
+    'fastlottie_blend_solid_v2',
     'fastlottie_inner_shadow',
-    'fastlottie_gradient_spans',
+    'fastlottie_gradient_spans_v2',
     'fl_dense_new',
     'fl_dense_free',
     'fl_dense_trim',
@@ -199,6 +204,12 @@ Future<void> initializeWasmKernels(Uint8List bytes) async {
     }
   }
   exports.initialize();
+  final abi = exports.abiVersion();
+  if (abi != wasmAbiVersion) {
+    throw StateError(
+      'Incompatible FastLottie Wasm ABI: expected $wasmAbiVersion, got $abi',
+    );
+  }
   // Confirm the module exports readable memory before enabling the backend.
   if (exports.memory.buffer.toDart.lengthInBytes == 0) {
     throw StateError('FastLottie Wasm memory is empty');

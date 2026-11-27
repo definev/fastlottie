@@ -33,7 +33,7 @@ void main() {
   final dylib = ffi.DynamicLibrary.open(dylibPath);
   final nativeFill = dylib
       .lookupFunction<NativeFillSolidSpans, DartFillSolidSpans>(
-        'fastlottie_fill_solid_spans',
+        'fastlottie_fill_solid_spans_v2',
       );
 
   const width = 512;
