@@ -139,37 +139,81 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     if (cancelToken?.isCancelled ?? false) {
       throw const FastLottieNetworkCancelledException();
     }
-    request = await client.getUrl(uri);
-    if (aborted || (cancelToken?.isCancelled ?? false)) {
-      request.abort();
-      throw const FastLottieNetworkCancelledException();
-    }
-    if (!usesShared) {
-      request.headers.set(HttpHeaders.connectionHeader, 'close');
-    }
-    request.headers.set(
-      HttpHeaders.acceptHeader,
-      'application/x-tgsticker, application/json, */*',
-    );
-    final req = request;
-    headers?.forEach(req.headers.set);
-
-    final response = await request.close().timeout(
-      responseTimeout,
-      onTimeout: () {
-        const message = 'Timed out waiting for response headers';
-        final error = FastLottieNetworkException(uri, message);
-        req.abort(error);
-        throw error;
-      },
-    );
-    if (aborted || (cancelToken?.isCancelled ?? false)) {
-      await response.listen(null, onError: (Object _) {}).cancel();
-      throw const FastLottieNetworkCancelledException();
+    var url = uri;
+    var redirects = 0;
+    var requestHeaders = headers;
+    final visited = <Uri>{uri};
+    HttpClientResponse response;
+    while (true) {
+      final req = request = await client.getUrl(url);
+      if (aborted) {
+        // Observe the error from an abort before headers were requested.
+        req.done.ignore();
+        req.abort();
+        throw const FastLottieNetworkCancelledException();
+      }
+      req.followRedirects = false;
+      if (!usesShared) {
+        req.headers.set(HttpHeaders.connectionHeader, 'close');
+      }
+      req.headers.set(
+        HttpHeaders.acceptHeader,
+        'application/x-tgsticker, application/json, */*',
+      );
+      requestHeaders?.forEach(req.headers.set);
+      response = await req.close().timeout(
+        responseTimeout,
+        onTimeout: () {
+          final error = FastLottieNetworkException(
+            uri,
+            'Timed out waiting for response headers',
+          );
+          req.abort(error);
+          throw error;
+        },
+      );
+      if (aborted) {
+        await _cancelResponse(response);
+        throw const FastLottieNetworkCancelledException();
+      }
+      if (!response.isRedirect) break;
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      final status = response.statusCode;
+      await _cancelResponse(response);
+      if (location == null) {
+        throw FastLottieNetworkException(
+          uri,
+          'Redirect has no location',
+          statusCode: status,
+        );
+      }
+      final next = url.resolve(location);
+      if ((!next.isScheme('http') && !next.isScheme('https')) ||
+          (url.isScheme('https') && !next.isScheme('https'))) {
+        throw FastLottieNetworkException(
+          uri,
+          'Disallowed redirect scheme',
+          statusCode: status,
+        );
+      }
+      if (++redirects > req.maxRedirects || !visited.add(next)) {
+        throw FastLottieNetworkException(
+          uri,
+          'Redirect limit exceeded',
+          statusCode: status,
+        );
+      }
+      if (url.origin != next.origin && requestHeaders != null) {
+        requestHeaders = Map.of(requestHeaders)
+          ..removeWhere(
+            (name, _) => _sensitiveRedirectHeaders.contains(name.toLowerCase()),
+          );
+      }
+      url = next;
     }
     final status = response.statusCode;
     if (status < 200 || status >= 300) {
-      await response.listen(null, onError: (Object _) {}).cancel();
+      await _cancelResponse(response);
       throw FastLottieNetworkException(
         uri,
         'Unexpected HTTP status $status',
@@ -177,7 +221,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
       );
     }
     if (response.contentLength > maximumBytes) {
-      await response.listen(null, onError: (Object _) {}).cancel();
+      await _cancelResponse(response);
       throw FastLottieNetworkException(
         uri,
         'Response Content-Length (${response.contentLength}) exceeds $maximumBytes bytes',
@@ -266,6 +310,19 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     }
   }
 }
+
+const _sensitiveRedirectHeaders = {
+  HttpHeaders.authorizationHeader,
+  HttpHeaders.wwwAuthenticateHeader,
+  HttpHeaders.proxyAuthorizationHeader,
+  HttpHeaders.proxyAuthenticateHeader,
+  HttpHeaders.cookieHeader,
+  'cookie2',
+  HttpHeaders.hostHeader,
+};
+
+Future<void> _cancelResponse(HttpClientResponse response) =>
+    response.listen(null, onError: (Object _) {}).cancel();
 
 Future<void> platformCacheNetworkBytes(
   Uri uri,

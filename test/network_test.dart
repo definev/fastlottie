@@ -85,6 +85,51 @@ void main() {
   });
 
   test(
+    'redirects close their response body and protect request headers',
+    () async {
+      final first = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final second = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => first.close(force: true));
+      addTearDown(() => second.close(force: true));
+      first.listen((request) async {
+        final response = request.response;
+        if (request.uri.path == '/same-origin') {
+          response.write(
+            request.headers.value(HttpHeaders.authorizationHeader),
+          );
+          await response.close();
+          return;
+        }
+        response.statusCode = HttpStatus.found;
+        response.headers.set(
+          HttpHeaders.locationHeader,
+          request.uri.path == '/relative'
+              ? '/same-origin'
+              : 'http://127.0.0.1:${second.port}/target',
+        );
+        response.contentLength = 4096;
+        response.write('x');
+        await response.flush();
+      });
+      second.listen((request) async {
+        expect(request.headers.value(HttpHeaders.authorizationHeader), isNull);
+        request.response.write('ok');
+        await request.response.close();
+      });
+      for (final (path, body) in [
+        ('/relative', 'Bearer test'),
+        ('/cross', 'ok'),
+      ]) {
+        final result = await FastLottieComposition.fetchNetworkBytes(
+          Uri.parse('http://127.0.0.1:${first.port}$path'),
+          headers: {HttpHeaders.authorizationHeader: 'Bearer test'},
+        ).timeout(const Duration(seconds: 3));
+        expect(String.fromCharCodes(result.bytes), body);
+      }
+    },
+  );
+
+  test(
     'loadNetwork skips or replaces a raw cache entry that cannot compile',
     () async {
       final directory = Directory.systemTemp.createTempSync(
