@@ -105,6 +105,7 @@ bool get isNativeGradientSupported => false;
 bool get isNativeAdvancedBlendSupported => false;
 bool get isNativeCancelSupported => false;
 void nativeCancelSlotStore(int slot, int token) {}
+bool nativeCancelSlotClaim(int slot) => false;
 int nativeCancelSlotLoad(int slot) => 0;
 
 bool nativeInnerShadow(

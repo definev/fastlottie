@@ -20,7 +20,7 @@ Future<void> main(List<String> args) async {
       '--no-source-maps',
       '-o',
       output,
-      'bin/fastlottie_worker.dart',
+      'tool/web_worker_main.dart',
     ], workingDirectory: root.toFilePath());
     stdout.write(result.stdout);
     stderr.write(result.stderr);

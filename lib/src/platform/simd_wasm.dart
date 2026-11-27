@@ -167,6 +167,7 @@ bool get isNativeGradientSupported => isSimdSupported;
 bool get isNativeAdvancedBlendSupported => false;
 bool get isNativeCancelSupported => false;
 void nativeCancelSlotStore(int slot, int token) {}
+bool nativeCancelSlotClaim(int slot) => false;
 int nativeCancelSlotLoad(int slot) => 0;
 ({int calls, int copiedBytes}) readNativeKernelTelemetry() =>
     (calls: 0, copiedBytes: 0);

@@ -349,10 +349,12 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
       case (
         opConfigure,
         diskDirectory: final String? diskDir,
+        maximumDiskBytes: final int diskLimit,
         maximumRamBytes: final int ramLimit,
         deduplicateUploads: final bool deduplicateUploads,
       ):
         store.maximumRamBytes = ramLimit;
+        store.maximumDiskBytes = diskLimit;
         store.computeFingerprints = deduplicateUploads;
         store.setDiskDirectory(diskDir);
       case (

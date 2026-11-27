@@ -170,23 +170,59 @@ class FastLottieComposition {
     int maximumBytes = 16 * 1024 * 1024,
     FastLottieNetworkByteLoader? loader,
   }) async {
-    final Uint8List bytes;
-    if (loader != null) {
-      bytes = await loader(uri, headers: headers, cancelToken: cancelToken);
-    } else {
-      final result = await platformFetchLottieBytes(
-        uri,
-        headers: headers,
-        cancelToken: cancelToken,
-        sourceCacheDirectory: sourceCacheDirectory,
-        maximumBytes: maximumBytes,
+    void checkCancelled() {
+      if (cancelToken?.isCancelled ?? false) {
+        throw const FastLottieNetworkCancelledException();
+      }
+    }
+
+    Future<FastLottieComposition> compile(Uint8List bytes) async {
+      checkCancelled();
+      final composition = await FastLottieComposition.fromBytesAsync(
+        bytes,
+        options: options,
       );
-      bytes = result.bytes;
+      checkCancelled();
+      return composition;
     }
-    if (cancelToken?.isCancelled ?? false) {
-      throw const FastLottieNetworkCancelledException();
+
+    if (loader != null) {
+      return compile(
+        await loader(uri, headers: headers, cancelToken: cancelToken),
+      );
     }
-    return FastLottieComposition.fromBytesAsync(bytes, options: options);
+
+    final requestHeaders = headers == null ? null : Map.of(headers);
+    Future<FastLottieNetworkFetchResult> fetch(String? directory) =>
+        platformFetchLottieBytes(
+          uri,
+          headers: requestHeaders,
+          cancelToken: cancelToken,
+          sourceCacheDirectory: directory,
+          maximumBytes: maximumBytes,
+          cacheDownloadedBytes: false,
+        );
+    var result = await fetch(sourceCacheDirectory);
+    if (result.fromDiskCache) {
+      try {
+        return await compile(result.bytes);
+      } on FormatException {
+        // A raw cache entry may predate validation or come from a raw fetch.
+        result = await fetch(null);
+      }
+    }
+    final composition = await compile(result.bytes);
+    if (sourceCacheDirectory != null) {
+      await platformCacheNetworkBytes(
+        uri,
+        result.bytes,
+        directoryPath: sourceCacheDirectory,
+        headers: requestHeaders,
+        cancelToken: cancelToken,
+      );
+      checkCancelled();
+    }
+    return composition;
   }
 
   /// Authored canvas width.

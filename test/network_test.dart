@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:fastlottie/fastlottie.dart';
+import 'package:fastlottie/src/network/network_io.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -11,6 +12,254 @@ import 'fastlottie_test.dart' show bytes, fixture;
 class _PassthroughHttpOverrides extends HttpOverrides {}
 
 void main() {
+  setUp(() {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = _PassthroughHttpOverrides();
+    addTearDown(() => HttpOverrides.global = previous);
+  });
+
+  test('rejecting a large response closes only its connection', () async {
+    final previous = HttpOverrides.current;
+    HttpOverrides.global = null;
+    addTearDown(() => HttpOverrides.global = previous);
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    final rejectedConnection = Completer<void>();
+    var connections = 0;
+    server.listen((socket) {
+      addTearDown(socket.destroy);
+      final reject = connections++ == 0;
+      socket.listen(
+        (_) {
+          socket.write(
+            reject
+                ? 'HTTP/1.1 200 OK\r\nContent-Length: 4096\r\n\r\n'
+                : 'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n'
+                      'Connection: close\r\n\r\n{}',
+          );
+          if (!reject) unawaited(socket.close());
+        },
+        onDone: () {
+          if (reject) rejectedConnection.complete();
+          socket.destroy();
+        },
+      );
+    });
+    final uri = Uri.parse('http://127.0.0.1:${server.port}/');
+    await expectLater(
+      FastLottieComposition.fetchNetworkBytes(uri, maximumBytes: 64),
+      throwsA(isA<FastLottieNetworkException>()),
+    );
+    await rejectedConnection.future.timeout(const Duration(seconds: 2));
+    expect((await FastLottieComposition.fetchNetworkBytes(uri)).bytes, [
+      123,
+      125,
+    ]);
+  });
+
+  test('stalled headers and a stalled response body both time out', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      if (request.uri.path == '/body') {
+        final response = request.response..contentLength = 5;
+        response.write('a');
+        await response.flush();
+      }
+    });
+    for (final (path, phase) in [('/headers', 'headers'), ('/body', 'data')]) {
+      await expectLater(
+        platformFetchLottieBytes(
+          Uri.parse('http://127.0.0.1:${server.port}$path'),
+          responseTimeout: const Duration(milliseconds: 150),
+        ),
+        throwsA(
+          isA<FastLottieNetworkException>().having(
+            (error) => error.message,
+            'message',
+            contains(phase),
+          ),
+        ),
+      );
+    }
+  });
+
+  test(
+    'redirects close their response body and protect request headers',
+    () async {
+      final first = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final second = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => first.close(force: true));
+      addTearDown(() => second.close(force: true));
+      first.listen((request) async {
+        final response = request.response;
+        if (request.uri.path == '/same-origin') {
+          response.write(
+            request.headers.value(HttpHeaders.authorizationHeader),
+          );
+          await response.close();
+          return;
+        }
+        response.statusCode = HttpStatus.found;
+        response.headers.set(
+          HttpHeaders.locationHeader,
+          request.uri.path == '/relative'
+              ? '/same-origin'
+              : 'http://127.0.0.1:${second.port}/target',
+        );
+        response.contentLength = 4096;
+        response.write('x');
+        await response.flush();
+      });
+      second.listen((request) async {
+        expect(request.headers.value(HttpHeaders.authorizationHeader), isNull);
+        request.response.write('ok');
+        await request.response.close();
+      });
+      for (final (path, body) in [
+        ('/relative', 'Bearer test'),
+        ('/cross', 'ok'),
+      ]) {
+        final result = await FastLottieComposition.fetchNetworkBytes(
+          Uri.parse('http://127.0.0.1:${first.port}$path'),
+          headers: {HttpHeaders.authorizationHeader: 'Bearer test'},
+        ).timeout(const Duration(seconds: 3));
+        expect(String.fromCharCodes(result.bytes), body);
+      }
+    },
+  );
+
+  test(
+    'loadNetwork skips or replaces a raw cache entry that cannot compile',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'fastlottie_bad_source_',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      var valid = false;
+      var hits = 0;
+      server.listen((request) async {
+        hits++;
+        request.response.add(
+          valid ? bytes(fixture('icon')) : '<html>'.codeUnits,
+        );
+        await request.response.close();
+      });
+      final uri = Uri.parse('http://127.0.0.1:${server.port}/');
+      Future<FastLottieComposition> load() => FastLottieComposition.loadNetwork(
+        uri,
+        sourceCacheDirectory: directory.path,
+      );
+
+      await expectLater(load(), throwsFormatException);
+      expect(directory.listSync(), isEmpty);
+      await FastLottieComposition.fetchNetworkBytes(
+        uri,
+        sourceCacheDirectory: directory.path,
+      );
+      expect(directory.listSync(), hasLength(1));
+      valid = true;
+      final composition = await load();
+      expect((await load()).contentKey, composition.contentKey);
+      expect(hits, 3);
+    },
+  );
+
+  test(
+    'loadNetwork honours cancellation during cached compilation and header snapshot',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'fastlottie_cancel_cached_',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      String? seenHeader;
+      server.listen((request) async {
+        seenHeader = request.headers.value('x-token');
+        request.response.add(bytes(fixture('many_shapes')));
+        await request.response.close();
+      });
+      final uri = Uri.parse('http://127.0.0.1:${server.port}/');
+      final headers = {'X-Token': 'initial'};
+      final fetchFuture = FastLottieComposition.fetchNetworkBytes(
+        uri,
+        headers: headers,
+        sourceCacheDirectory: directory.path,
+      );
+      headers['X-Token'] = 'mutated';
+      await fetchFuture;
+      expect(seenHeader, 'initial');
+
+      final token = FastLottieCancelToken();
+      final loadFuture = FastLottieComposition.loadNetwork(
+        uri,
+        headers: const {'X-Token': 'initial'},
+        sourceCacheDirectory: directory.path,
+        cancelToken: token,
+      );
+      unawaited(Future<void>.microtask(token.cancel));
+      await expectLater(
+        loadFuture,
+        throwsA(isA<FastLottieNetworkCancelledException>()),
+      );
+    },
+  );
+
+  test(
+    'fragment redirect loops and disallowed redirect schemes are rejected',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      var loopHits = 0;
+      server.listen((request) async {
+        final response = request.response..statusCode = HttpStatus.found;
+        if (request.uri.path == '/loop') {
+          loopHits++;
+          response.headers.set(
+            HttpHeaders.locationHeader,
+            '/loop#hop$loopHits',
+          );
+        } else {
+          response.headers.set(
+            HttpHeaders.locationHeader,
+            'ftp://127.0.0.1/bad.tgs',
+          );
+        }
+        await response.close();
+      });
+
+      await expectLater(
+        FastLottieComposition.fetchNetworkBytes(
+          Uri.parse('http://127.0.0.1:${server.port}/loop'),
+        ),
+        throwsA(
+          isA<FastLottieNetworkException>().having(
+            (error) => error.message,
+            'message',
+            contains('Redirect limit exceeded'),
+          ),
+        ),
+      );
+      expect(loopHits, 1);
+
+      await expectLater(
+        FastLottieComposition.fetchNetworkBytes(
+          Uri.parse('http://127.0.0.1:${server.port}/scheme'),
+        ),
+        throwsA(
+          isA<FastLottieNetworkException>().having(
+            (error) => error.message,
+            'message',
+            contains('Disallowed redirect scheme'),
+          ),
+        ),
+      );
+    },
+  );
+
   test('FastLottieComposition.loadNetwork fetches TGS, caches raw payload on disk, and cancels sockets cleanly', () async {
     final previous = HttpOverrides.current;
     HttpOverrides.global = _PassthroughHttpOverrides();

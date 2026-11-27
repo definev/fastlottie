@@ -22,6 +22,17 @@
 
 static int32_t fl_cancel_slots[256];
 
+FL_EXPORT int32_t fastlottie_cancel_claim(int32_t slot) {
+    int32_t idx = slot & 255;
+#if defined(_MSC_VER)
+    return _InterlockedCompareExchange((volatile long *)&fl_cancel_slots[idx], 1, 0) == 0;
+#else
+    int32_t available = 0;
+    return __atomic_compare_exchange_n(&fl_cancel_slots[idx], &available, 1, 0,
+                                       __ATOMIC_ACQ_REL, __ATOMIC_RELAXED);
+#endif
+}
+
 FL_EXPORT void fastlottie_cancel_store(int32_t slot, int32_t token) {
     int32_t idx = slot & 255;
 #if defined(_MSC_VER)

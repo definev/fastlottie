@@ -39,6 +39,9 @@ final class _CompileWorker {
       _compileWorkerMain,
       hostReceive.sendPort,
       debugName: 'fastlottie.compile.$id',
+      errorsAreFatal: true,
+      onError: hostReceive.sendPort,
+      onExit: hostReceive.sendPort,
     ).then<void>(
       (_) {},
       onError: (Object error, StackTrace stack) => _failAndClose(error, stack),
@@ -51,6 +54,7 @@ final class _CompileWorker {
   late final StreamSubscription<Object?> _sub;
   SendPort? _sendPort;
   _CompileJob? _activeJob;
+  RemoteError? _remoteError;
   bool _closed = false;
 
   bool get isBusy => _activeJob != null;
@@ -65,29 +69,45 @@ final class _CompileWorker {
   }
 
   void _sendJob(SendPort port, _CompileJob job) {
-    final payload = job.bytes is Uint8List
-        ? TransferableTypedData.fromList([job.bytes as Uint8List])
-        : TransferableTypedData.fromList([Uint8List.fromList(job.bytes)]);
-    port.send((
-      _opCompile,
-      job.id,
-      payload,
-      job.options,
-      job.prepareForVector,
-      job.compile,
-    ));
+    try {
+      final payload = job.bytes is Uint8List
+          ? TransferableTypedData.fromList([job.bytes as Uint8List])
+          : TransferableTypedData.fromList([Uint8List.fromList(job.bytes)]);
+      port.send((
+        _opCompile,
+        job.id,
+        payload,
+        job.options,
+        job.prepareForVector,
+        job.compile,
+      ));
+    } catch (error, stack) {
+      _activeJob = null;
+      job.completer.completeError(error, stack);
+    }
   }
 
   void _onMessage(Object? message) {
     if (_closed) return;
+    if (message == null) {
+      final error = _remoteError;
+      _failAndClose(
+        error ?? StateError('Compile isolate exited'),
+        error?.stackTrace ?? StackTrace.current,
+      );
+      return;
+    }
+    if (message case [final String error, final String stack]) {
+      _remoteError = RemoteError(error, stack);
+      return;
+    }
     if (_sendPort == null && message is SendPort) {
       _sendPort = message;
       final job = _activeJob;
       if (job != null) {
         _sendJob(message, job);
-      } else {
-        pool._pump();
       }
+      pool._pump();
       return;
     }
     switch (message) {
@@ -168,7 +188,17 @@ void _compileWorkerMain(SendPort hostPort) {
           final result = compile(bytes, options, prepareForVector);
           hostPort.send((_repResult, id, result));
         } catch (error, stack) {
-          hostPort.send((_repError, id, error, stack.toString()));
+          final trace = stack.toString();
+          try {
+            hostPort.send((_repError, id, error, trace));
+          } on ArgumentError {
+            hostPort.send((
+              _repError,
+              id,
+              RemoteError(error.toString(), trace),
+              trace,
+            ));
+          }
         } finally {
           armIdleTimer();
         }

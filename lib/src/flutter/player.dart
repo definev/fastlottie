@@ -596,7 +596,9 @@ class FastLottiePlayer extends ChangeNotifier {
       devicePixelRatio: devicePixelRatio,
     );
     final entry = _rasterEntry;
-    if (entry == null || entry.renderingImage != null) {
+    if (entry == null ||
+        entry.renderingImage != null ||
+        entry.rasterError != null) {
       return Future<void>.value();
     }
     final completer = Completer<void>();
@@ -604,6 +606,7 @@ class FastLottiePlayer extends ChangeNotifier {
       if (_disposed ||
           _rasterEntry == null ||
           _rasterEntry!.renderingImage != null ||
+          _rasterEntry!.rasterError != null ||
           shared.lastError != null) {
         removeListener(onUpdate);
         if (!completer.isCompleted) completer.complete();

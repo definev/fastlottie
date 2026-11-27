@@ -308,6 +308,9 @@ On Web, `FastLottieRasterCache` automatically starts dedicated Web Workers (**2*
 
 - Serve the worker script from the **same origin** as your app; if Web Workers are unavailable, raster jobs fall back inline automatically.
 - For direct main-thread software rendering in JavaScript builds, call `await ensureSimdReady();` after `WidgetsFlutterBinding.ensureInitialized()` to load the C Wasm kernels. Flutter `--wasm` keeps inline rasterization in Dart memory by default (pass `enableOnDartWasm: true` only to opt in; browser worker acceleration works independently).
+- Web builds use the bundled C Wasm kernels by default. To compile custom kernels in a build hook, set `hooks.user_defines.fastlottie.zig` in your app's `pubspec.yaml` to the Zig executable path.
+
+Maintainers can verify the bundled worker with `dart run tool/build_web_worker.dart --check`. Use the same Dart SDK used to generate the bundle for a byte-for-byte comparison. The current bundle was built with Dart `3.15.0-95.0.dev`.
 
 ---
 

@@ -62,15 +62,27 @@ final class _IoWorkerHandle implements WorkerHandle {
     final hostReceive = ReceivePort();
     _hostReceive = hostReceive;
     _hostSub = hostReceive.listen((msg) {
+      if (msg == null) {
+        _onExit();
+        return;
+      }
+      if (msg case [final String error, final String stack]) {
+        _failure = RemoteError(error, stack);
+        return;
+      }
       if (_workerSendPort == null && msg is SendPort) {
         _workerSendPort = msg;
         if (_disposed) {
           msg.send(null);
-          _closeHostPort();
           return;
         }
-        for (final queued in _pendingPreHandshake) {
-          msg.send(queued);
+        try {
+          for (final queued in _pendingPreHandshake) {
+            msg.send(queued);
+          }
+        } catch (error) {
+          _failure = error;
+          msg.send(null);
         }
         _pendingPreHandshake.clear();
         return;
@@ -81,20 +93,25 @@ final class _IoWorkerHandle implements WorkerHandle {
       _ioWorkerBootstrap,
       _IoBootstrapArgs(hostReceive.sendPort, entry),
       debugName: debugName,
-    ).catchError((Object error, StackTrace stack) {
-      _closeHostPort();
-      if (!_disposed && !_messagesController.isClosed) {
-        _messagesController.addError(error, stack);
-      }
-      throw error;
-    }).ignore();
+      errorsAreFatal: true,
+      onError: hostReceive.sendPort,
+      onExit: hostReceive.sendPort,
+    ).then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {
+        _failure = error;
+        _onExit();
+      },
+    );
   }
 
   late final ReceivePort _hostReceive;
   late final StreamSubscription<Object?> _hostSub;
   final _messagesController = StreamController<Object?>();
+  final _exited = Completer<void>();
   final _pendingPreHandshake = <Object?>[];
   SendPort? _workerSendPort;
+  Object? _failure;
   bool _disposed = false;
 
   @override
@@ -111,9 +128,18 @@ final class _IoWorkerHandle implements WorkerHandle {
   @override
   Stream<Object?> get messages => _messagesController.stream;
 
-  void _closeHostPort() {
+  void _onExit() {
     _hostSub.cancel();
     _hostReceive.close();
+    _pendingPreHandshake.clear();
+    _workerSendPort = null;
+    if (!_exited.isCompleted) _exited.complete();
+    if (!_messagesController.isClosed) {
+      _messagesController.addError(
+        _failure ?? StateError('Raster isolate exited'),
+      );
+      unawaited(_messagesController.close());
+    }
   }
 
   @override
@@ -124,13 +150,13 @@ final class _IoWorkerHandle implements WorkerHandle {
     // Let the worker dispose its native workspace and file handles. If the
     // handshake is still pending, the listener delivers the stop signal then.
     final port = _workerSendPort;
-    if (port != null) {
-      port.send(null);
-      _closeHostPort();
-    }
-    _messagesController.close();
+    port?.send(null);
+    unawaited(_messagesController.close());
   }
 }
+
+Future<void> workerHandleExited(WorkerHandle handle) =>
+    (handle as _IoWorkerHandle)._exited.future;
 
 WorkerHandle startWorkerHandle(
   void Function(WorkerEndpoint) entry, {

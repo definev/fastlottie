@@ -134,7 +134,12 @@ class _Compiler {
     start = number(json['ip'], _JsonPath.root.field('ip'));
     end = number(json['op'], _JsonPath.root.field('op'));
     fps = number(json['fr'], _JsonPath.root.field('fr'));
-    if (width <= 0 || height <= 0 || fps <= 0 || end <= start) {
+    final frameSpan = end - start;
+    if (width <= 0 ||
+        height <= 0 ||
+        fps <= 0 ||
+        frameSpan <= 0 ||
+        frameSpan > 0x7fffffff) {
       fail(_JsonPath.root, 'Invalid bounds/timing');
     }
     final assets = assetModels ?? <String, Map<String, dynamic>>{};

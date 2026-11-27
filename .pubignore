@@ -18,15 +18,12 @@ migrate_working_dir/
 /build/
 /coverage/
 
-# Keep the package example guide and the Web build tools
+# Keep the package example guide and Wasm build tool
 /example/*
 !/example/README.md
 /test/
 /tool/*
 !/tool/build_wasm.dart
-!/tool/build_web_worker.dart
 /rlottie-master/
 /thorvg-main/
 /video/
-
-video

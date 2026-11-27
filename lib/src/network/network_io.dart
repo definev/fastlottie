@@ -30,8 +30,8 @@ int _mul32(int a, int b) {
   return (lo + (hi << 16)) & 0xFFFFFFFF;
 }
 
-String _hashUriKey(Uri uri) {
-  final bytes = utf8.encode(uri.toString());
+String _hashCacheKey(String key) {
+  final bytes = utf8.encode(key);
   var h1 = 0x811C9DC5;
   var h2 = 0x9E3779B9;
   var h3 = 0x85EBCA6B;
@@ -48,12 +48,27 @@ String _hashUriKey(Uri uri) {
   return '${hex32(h1)}${hex32(h2)}${hex32(h3)}${hex32(h4)}';
 }
 
-String _cacheFilePath(String directoryPath, Uri uri) {
+String _cacheFilePath(
+  String directoryPath,
+  Uri uri,
+  Map<String, String>? headers,
+) {
   final sep = Platform.pathSeparator;
   final clean = directoryPath.endsWith('/') || directoryPath.endsWith('\\')
       ? directoryPath.substring(0, directoryPath.length - 1)
       : directoryPath;
-  return '$clean$sep${_hashUriKey(uri)}.tgsbin';
+  var key = uri.toString();
+  if (headers != null && headers.isNotEmpty) {
+    final normalized = {
+      for (final entry in headers.entries) entry.key.toLowerCase(): entry.value,
+    };
+    final names = normalized.keys.toList()..sort();
+    key = jsonEncode([
+      key,
+      for (final name in names) [name, normalized[name]],
+    ]);
+  }
+  return '$clean$sep${_hashCacheKey(key)}.tgsbin';
 }
 
 Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
@@ -62,6 +77,8 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
   FastLottieCancelToken? cancelToken,
   String? sourceCacheDirectory,
   int maximumBytes = 16 * 1024 * 1024,
+  bool cacheDownloadedBytes = true,
+  Duration responseTimeout = const Duration(seconds: 30),
 }) async {
   if (maximumBytes <= 0) {
     throw ArgumentError.value(maximumBytes, 'maximumBytes');
@@ -70,10 +87,11 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     throw const FastLottieNetworkCancelledException();
   }
 
+  final initialHeaders = headers == null ? null : Map.of(headers);
   final hasDiskDir =
       sourceCacheDirectory != null && sourceCacheDirectory.isNotEmpty;
   final cachePath = hasDiskDir
-      ? _cacheFilePath(sourceCacheDirectory, uri)
+      ? _cacheFilePath(sourceCacheDirectory, uri, initialHeaders)
       : null;
   if (cachePath != null) {
     try {
@@ -122,29 +140,91 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     if (cancelToken?.isCancelled ?? false) {
       throw const FastLottieNetworkCancelledException();
     }
-    request = await client.getUrl(uri);
-    if (aborted || (cancelToken?.isCancelled ?? false)) {
-      request.abort();
-      throw const FastLottieNetworkCancelledException();
-    }
-    if (!usesShared) {
-      request.headers.set(HttpHeaders.connectionHeader, 'close');
-    }
-    request.headers.set(
-      HttpHeaders.acceptHeader,
-      'application/x-tgsticker, application/json, */*',
-    );
-    final req = request;
-    headers?.forEach(req.headers.set);
-
-    final response = await request.close();
-    if (aborted || (cancelToken?.isCancelled ?? false)) {
-      unawaited(response.drain<void>().catchError((Object _) {}));
-      throw const FastLottieNetworkCancelledException();
+    var url = uri;
+    var redirects = 0;
+    var requestHeaders = initialHeaders;
+    final visited = <Uri>{uri.removeFragment()};
+    HttpClientResponse response;
+    while (true) {
+      final req = request = await client.getUrl(url);
+      if (aborted) {
+        // Observe the error from an abort before headers were requested.
+        req.done.ignore();
+        req.abort();
+        throw const FastLottieNetworkCancelledException();
+      }
+      req.followRedirects = false;
+      if (!usesShared) {
+        req.headers.set(HttpHeaders.connectionHeader, 'close');
+      }
+      req.headers.set(
+        HttpHeaders.acceptHeader,
+        'application/x-tgsticker, application/json, */*',
+      );
+      requestHeaders?.forEach(req.headers.set);
+      response = await req.close().timeout(
+        responseTimeout,
+        onTimeout: () {
+          final error = FastLottieNetworkException(
+            uri,
+            'Timed out waiting for response headers',
+          );
+          req.abort(error);
+          throw error;
+        },
+      );
+      if (aborted) {
+        await _cancelResponse(response);
+        throw const FastLottieNetworkCancelledException();
+      }
+      if (!response.isRedirect) break;
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      final status = response.statusCode;
+      await _cancelResponse(response);
+      if (aborted || (cancelToken?.isCancelled ?? false)) {
+        throw const FastLottieNetworkCancelledException();
+      }
+      if (location == null) {
+        throw FastLottieNetworkException(
+          uri,
+          'Redirect has no location',
+          statusCode: status,
+        );
+      }
+      final next = url.resolve(location);
+      if ((!next.isScheme('http') && !next.isScheme('https')) ||
+          (url.isScheme('https') && !next.isScheme('https'))) {
+        throw FastLottieNetworkException(
+          uri,
+          'Disallowed redirect scheme',
+          statusCode: status,
+        );
+      }
+      if (++redirects > req.maxRedirects ||
+          !visited.add(next.removeFragment())) {
+        throw FastLottieNetworkException(
+          uri,
+          'Redirect limit exceeded',
+          statusCode: status,
+        );
+      }
+      final crossOrigin =
+          (!url.isScheme('http') && !url.isScheme('https')) ||
+          url.origin != next.origin;
+      if (crossOrigin && requestHeaders != null) {
+        requestHeaders = Map.of(requestHeaders)
+          ..removeWhere(
+            (name, _) => _sensitiveRedirectHeaders.contains(name.toLowerCase()),
+          );
+      }
+      url = next;
     }
     final status = response.statusCode;
     if (status < 200 || status >= 300) {
-      unawaited(response.drain<void>().catchError((Object _) {}));
+      await _cancelResponse(response);
+      if (aborted || (cancelToken?.isCancelled ?? false)) {
+        throw const FastLottieNetworkCancelledException();
+      }
       throw FastLottieNetworkException(
         uri,
         'Unexpected HTTP status $status',
@@ -152,7 +232,10 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
       );
     }
     if (response.contentLength > maximumBytes) {
-      unawaited(response.drain<void>().catchError((Object _) {}));
+      await _cancelResponse(response);
+      if (aborted || (cancelToken?.isCancelled ?? false)) {
+        throw const FastLottieNetworkCancelledException();
+      }
       throw FastLottieNetworkException(
         uri,
         'Response Content-Length (${response.contentLength}) exceeds $maximumBytes bytes',
@@ -163,75 +246,69 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     final builder = BytesBuilder(copy: false);
     var total = 0;
     final done = responseBody = Completer<Uint8List>();
-    subscription = response.listen(
-      (chunk) {
-        if (done.isCompleted) return;
-        if (aborted || (cancelToken?.isCancelled ?? false)) {
-          done.completeError(const FastLottieNetworkCancelledException());
-          unawaited(subscription?.cancel());
-          return;
-        }
-        total += chunk.length;
-        if (total > maximumBytes) {
-          done.completeError(
-            FastLottieNetworkException(
-              uri,
-              'Downloaded payload exceeds $maximumBytes bytes',
-              statusCode: status,
-            ),
-          );
-          unawaited(subscription?.cancel());
-          return;
-        }
-        builder.add(chunk);
-      },
-      onError: (Object error, StackTrace stack) {
-        if (done.isCompleted) return;
-        if (aborted || (cancelToken?.isCancelled ?? false)) {
-          done.completeError(const FastLottieNetworkCancelledException());
-        } else {
-          done.completeError(error, stack);
-        }
-      },
-      onDone: () {
-        if (done.isCompleted) return;
-        if (aborted || (cancelToken?.isCancelled ?? false)) {
-          done.completeError(const FastLottieNetworkCancelledException());
-        } else {
-          done.complete(builder.takeBytes());
-        }
-      },
-      cancelOnError: true,
-    );
+    subscription = response
+        .timeout(responseTimeout)
+        .listen(
+          (chunk) {
+            if (done.isCompleted) return;
+            if (aborted || (cancelToken?.isCancelled ?? false)) {
+              done.completeError(const FastLottieNetworkCancelledException());
+              unawaited(subscription?.cancel());
+              return;
+            }
+            total += chunk.length;
+            if (total > maximumBytes) {
+              done.completeError(
+                FastLottieNetworkException(
+                  uri,
+                  'Downloaded payload exceeds $maximumBytes bytes',
+                  statusCode: status,
+                ),
+              );
+              unawaited(subscription?.cancel());
+              return;
+            }
+            builder.add(chunk);
+          },
+          onError: (Object error, StackTrace stack) {
+            if (done.isCompleted) return;
+            if (aborted || (cancelToken?.isCancelled ?? false)) {
+              done.completeError(const FastLottieNetworkCancelledException());
+            } else if (error is TimeoutException) {
+              done.completeError(
+                FastLottieNetworkException(
+                  uri,
+                  'Timed out waiting for response data',
+                  statusCode: status,
+                ),
+                stack,
+              );
+            } else {
+              done.completeError(error, stack);
+            }
+          },
+          onDone: () {
+            if (done.isCompleted) return;
+            if (aborted || (cancelToken?.isCancelled ?? false)) {
+              done.completeError(const FastLottieNetworkCancelledException());
+            } else {
+              done.complete(builder.takeBytes());
+            }
+          },
+          cancelOnError: true,
+        );
 
     final bytes = await done.future;
-    if (cachePath != null && bytes.isNotEmpty) {
-      final dirPath = sourceCacheDirectory!;
-      final tmpPath = '$cachePath.tmp.$pid.${++_tmpSeq}';
-      final tmpFile = File(tmpPath);
-      try {
-        if (_createdCacheDirs.add(dirPath)) {
-          await Directory(dirPath).create(recursive: true);
-        }
-        try {
-          await tmpFile.writeAsBytes(bytes, flush: false);
-        } on PathNotFoundException {
-          await Directory(dirPath).create(recursive: true);
-          await tmpFile.writeAsBytes(bytes, flush: false);
-        }
-        try {
-          await tmpFile.rename(cachePath);
-        } on FileSystemException {
-          try {
-            await tmpFile.delete();
-          } on FileSystemException {
-            // Ignore non-fatal temp file cleanup errors.
-          }
-        }
-      } on FileSystemException {
-        _createdCacheDirs.remove(dirPath);
-        // Ignore non-fatal cache write errors.
-      }
+    if (cacheDownloadedBytes && cachePath != null) {
+      await _writeSourceCache(
+        cachePath,
+        sourceCacheDirectory!,
+        bytes,
+        cancelToken,
+      );
+    }
+    if (aborted || (cancelToken?.isCancelled ?? false)) {
+      throw const FastLottieNetworkCancelledException();
     }
     return FastLottieNetworkFetchResult(bytes, fromDiskCache: false);
   } on FastLottieNetworkCancelledException {
@@ -247,6 +324,70 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     cancelToken?.removeCancelListener(abort);
     if (!usesShared) {
       client.close(force: true);
+    }
+  }
+}
+
+const _sensitiveRedirectHeaders = {
+  HttpHeaders.authorizationHeader,
+  HttpHeaders.wwwAuthenticateHeader,
+  HttpHeaders.proxyAuthorizationHeader,
+  HttpHeaders.proxyAuthenticateHeader,
+  HttpHeaders.cookieHeader,
+  'cookie2',
+  HttpHeaders.hostHeader,
+};
+
+Future<void> _cancelResponse(HttpClientResponse response) =>
+    response.listen(null, onError: (Object _) {}).cancel();
+
+Future<void> platformCacheNetworkBytes(
+  Uri uri,
+  Uint8List bytes, {
+  required String directoryPath,
+  Map<String, String>? headers,
+  FastLottieCancelToken? cancelToken,
+}) {
+  if (directoryPath.isEmpty) return Future<void>.value();
+  return _writeSourceCache(
+    _cacheFilePath(directoryPath, uri, headers),
+    directoryPath,
+    bytes,
+    cancelToken,
+  );
+}
+
+Future<void> _writeSourceCache(
+  String path,
+  String directoryPath,
+  Uint8List bytes,
+  FastLottieCancelToken? cancelToken,
+) async {
+  if (bytes.isEmpty || (cancelToken?.isCancelled ?? false)) return;
+  final tmpFile = File('$path.tmp.$pid.${++_tmpSeq}');
+  var published = false;
+  try {
+    if (_createdCacheDirs.add(directoryPath)) {
+      await Directory(directoryPath).create(recursive: true);
+    }
+    try {
+      await tmpFile.writeAsBytes(bytes);
+    } on PathNotFoundException {
+      await Directory(directoryPath).create(recursive: true);
+      await tmpFile.writeAsBytes(bytes);
+    }
+    if (cancelToken?.isCancelled ?? false) return;
+    await tmpFile.rename(path);
+    published = true;
+  } on FileSystemException {
+    _createdCacheDirs.remove(directoryPath);
+  } finally {
+    if (!published) {
+      try {
+        await tmpFile.delete();
+      } on FileSystemException {
+        // The failed write may have left no temp file.
+      }
     }
   }
 }

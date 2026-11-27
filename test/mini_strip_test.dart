@@ -1,16 +1,30 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie/src/flutter/composition.dart'
     show CompositionPlayback;
+import 'package:fastlottie/src/platform/compile_pool_io.dart';
+import 'package:fastlottie/src/platform/isolate_io.dart';
+import 'package:fastlottie/src/platform/simd_io.dart';
 import 'package:fastlottie/src/worker/worker_pool.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show fixture, render;
+
+int _exitCompileWorker(List<int> _, FastLottieOptions _, bool _) =>
+    Isolate.exit();
+
+int _compileByteCount(List<int> bytes, FastLottieOptions _, bool _) =>
+    bytes.length;
+
+void _crashRasterWorker(WorkerEndpoint endpoint) {
+  endpoint.messages.listen((_) => throw StateError('Worker failure'));
+}
 
 void _record(
   FastLottiePlayer player,
@@ -817,6 +831,139 @@ void main() {
     },
   );
 
+  testWidgets(
+    'failed entry stays isolated and is not requeued when demoted',
+    (tester) async {
+      final original = FastLottieComposition.fromJson(fixture('icon'));
+      final blob = debugEncodeCompiledComposition(original);
+      final bd = ByteData.sublistView(blob);
+      final keySize = bd.getUint32(20, Endian.little);
+      final firstRecord = bd.getUint32(76 + keySize, Endian.little);
+      final corruptBlob = Uint8List.fromList(blob);
+      corruptBlob[firstRecord] ^= 0xff;
+      final corrupt = debugDecodeCompiledComposition(
+        corruptBlob,
+        deferPlayback: true,
+      ).composition;
+
+      // Budget fits one K=4 strip (33,536 B at 32x32) but cannot fit even a
+      // K=1 second entry (8,192 B) without demoting the first entry.
+      final cache = FastLottieRasterCache(
+        maximumBytes: 35000,
+        workerCount: 1,
+        allowUiVectorFallback: false,
+      );
+      final failed = FastLottiePlayer(
+        corrupt,
+        rasterCache: cache,
+        cache: FastLottieCache.none,
+      );
+      final healthy = FastLottiePlayer(
+        FastLottieComposition.fromJson(fixture('morph')),
+        rasterCache: cache,
+        cache: FastLottieCache.none,
+      );
+      addTearDown(() {
+        failed.dispose();
+        healthy.dispose();
+        cache.dispose();
+      });
+
+      _record(failed, 0, size: 32);
+      await _drain(tester, cache);
+      expect(cache.lastError, isNull);
+      expect(cache.debugEntryFramesPerStrip(failed), 4);
+      final dispatchesBeforeDemote = cache.workerDispatches;
+
+      _record(healthy, 0, size: 32);
+      await _drain(tester, cache);
+      expect(cache.debugEntryFramesPerStrip(failed), lessThan(4));
+      expect(cache.workerDispatches, dispatchesBeforeDemote + 1);
+      expect(cache.bytes, greaterThan(0));
+    },
+  );
+
+  test(
+    'isolate exit errors complete requests and compile pool recovers',
+    () async {
+      final worker = startWorkerHandle(_crashRasterWorker);
+      addTearDown(worker.dispose);
+      final workerError = expectLater(
+        worker.messages,
+        emitsInOrder([emitsError(isA<RemoteError>()), emitsDone]),
+      );
+      worker.send(true);
+      await workerError.timeout(const Duration(seconds: 3));
+      await expectLater(
+        runInCompilePool(
+          [],
+          const FastLottieOptions(),
+          false,
+          _exitCompileWorker,
+        ).timeout(const Duration(seconds: 3)),
+        throwsStateError,
+      );
+      expect(
+        await runInCompilePool(
+          [1],
+          const FastLottieOptions(),
+          false,
+          _compileByteCount,
+        ),
+        1,
+      );
+    },
+  );
+
+  test(
+    'cancelling one strip preserves another strip with the same cache key',
+    () async {
+      if (!isNativeCancelSupported || !isIsolatePoolSupported) return;
+      final composition = FastLottieComposition.fromJson(fixture('icon'));
+      final pool =
+          RasterWorkerPool<Completer<({Uint8List bytes, int fpHi, int fpLo})>>(
+            listener: _StripTestListener(),
+            workerCount: 1,
+            maximumCompressedMemoryBytes: 1024 * 1024,
+            maximumDiskBytes: 0,
+          );
+      addTearDown(pool.dispose);
+      const key = 'shared';
+      final shard = pool.shardForKey(key);
+      final cancelled = Completer<({Uint8List bytes, int fpHi, int fpLo})>();
+      final kept = Completer<({Uint8List bytes, int fpHi, int fpLo})>();
+      final cancellation = expectLater(
+        cancelled.future,
+        throwsA(isA<StateError>()),
+      );
+      for (final context in [cancelled, kept]) {
+        pool.dispatchStrip(
+          context: context,
+          shard: shard,
+          dispatchedGen: 0,
+          scene: composition.sceneTemplate,
+          sourceBytes: null,
+          contentKey: composition.contentKey,
+          entryKey: key,
+          stripStart: 0,
+          stripCount: 2,
+          startFrame: composition.startFrame,
+          frameStep: 1,
+          width: 16,
+          height: 16,
+          totalFrames: composition.frameCount,
+          poster: false,
+        );
+      }
+      pool.cancelInFlight(cancelled);
+      expect(
+        (await kept.future.timeout(const Duration(seconds: 3))).bytes,
+        isNotEmpty,
+      );
+      await cancellation.timeout(const Duration(seconds: 3));
+    },
+  );
+
   test('worker strips clear only gutter rows without stale leaks and emit 64-bit fingerprints', () async {
     final comp = FastLottieComposition.fromJson(fixture('icon'));
     const w = 32, h = 24, stripCount = 4;
@@ -948,10 +1095,15 @@ final class _StripTestListener
   void onStripCancelled(
     Completer<({Uint8List bytes, int fpHi, int fpLo})> context,
     int dispatchedGen,
-  ) {}
+  ) {
+    if (!context.isCompleted) {
+      context.completeError(StateError('Strip cancelled'));
+    }
+  }
 
   @override
-  void onBrowserWorkerFallback(
+  void onWorkerInterrupted(
     Completer<({Uint8List bytes, int fpHi, int fpLo})> context,
-  ) {}
+    Object error,
+  ) => onStripError(context, error);
 }

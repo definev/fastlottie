@@ -103,6 +103,7 @@ class BitstreamStore {
   BitstreamStore({
     String? diskCacheDirectory,
     this._maximumRamBytes = 4 * 1024 * 1024,
+    this.maximumDiskBytes = 128 * 1024 * 1024,
     this.maximumOpenFiles = 16,
     this.useNativeDecoder = true,
     this.useNativeEncoder = true,
@@ -121,6 +122,8 @@ class BitstreamStore {
   static const int version = 2;
   static const int headerSize = 32;
   static const int slotSize = 16;
+  // Each open file keeps a dense index in RAM as well as on disk.
+  static const int _maximumIndexBytes = 256 * 1024;
   static const int flagCompleted = 1 << 0;
   static const int flagPoster = 1 << 1;
 
@@ -373,6 +376,7 @@ class BitstreamStore {
   }
 
   final int maximumOpenFiles;
+  int maximumDiskBytes;
 
   /// Experimental FLC1 decode into caller-owned bytes. Unsupported targets
   /// and frames above the native leaf-call limit keep the Dart path.
@@ -583,23 +587,15 @@ class BitstreamStore {
     // 2. Disk `.flcache` check.
     final dir = _diskDir;
     if (dir == null || !isDiskCacheSupported) return false;
-    var file = _lookupOpenFile(entryKey, width, height, totalFrames, poster);
-    if (file == null) {
-      final path = joinPath(dir, '$entryKey.flcache');
-      if (!PlatformDiskFs.exists(path)) {
-        return false;
-      }
-      file = _openOrCreateFile(
-        entryKey: entryKey,
-        width: width,
-        height: height,
-        frameCount: totalFrames,
-        poster: poster,
-        createIfMissing: false,
-        resolvedPath: path,
-      );
-      if (file == null) return false;
-    }
+    final file = _openOrCreateFile(
+      entryKey: entryKey,
+      width: width,
+      height: height,
+      frameCount: totalFrames,
+      poster: poster,
+      createIfMissing: false,
+    );
+    if (file == null) return false;
 
     final offset = file.offsets[frameIndex];
     if (offset == 0) return false;
@@ -607,19 +603,21 @@ class BitstreamStore {
     final meta = file.metas[frameIndex];
     final isRaw = (meta >>> 31) != 0;
     final expectedCrc = meta & 0x7FFFFFFF;
-    final payloadStart = file.payloadStart;
-    final currentLen = file.handle.length;
-
-    if (offset < payloadStart ||
+    if (offset < file.payloadStart ||
         storedLen <= 0 ||
-        storedLen > expectedBytes ||
-        offset + storedLen > currentLen) {
+        storedLen > expectedBytes) {
       _clearCorruptSlot(file, frameIndex);
       return false;
     }
 
     final buf = _ensureIoScratch(storedLen);
-    if (!file.handle.readExactAt(offset, buf, storedLen)) {
+    try {
+      if (offset > file.handle.length - storedLen ||
+          !file.handle.readExactAt(offset, buf, storedLen)) {
+        _clearCorruptSlot(file, frameIndex);
+        return false;
+      }
+    } catch (_) {
       _clearCorruptSlot(file, frameIndex);
       return false;
     }
@@ -858,6 +856,7 @@ class BitstreamStore {
         frameCount: totalFrames,
         poster: poster,
         createIfMissing: true,
+        minimumPayloadBytes: payloadLen,
       );
       if (file != null) {
         diskSize = _appendFrameToDisk(
@@ -1153,8 +1152,16 @@ class BitstreamStore {
     required int frameCount,
     required bool poster,
     required bool createIfMissing,
-    String? resolvedPath,
+    int minimumPayloadBytes = 1,
   }) {
+    // Leave room for the frame payload. Check before multiplying or
+    // opening a file, since frameCount comes from the authored composition.
+    if (maximumDiskBytes <= headerSize + minimumPayloadBytes) return null;
+    final maxIndexBytes = math.min(
+      _maximumIndexBytes,
+      maximumDiskBytes - headerSize - minimumPayloadBytes,
+    );
+    if (frameCount <= 0 || frameCount > maxIndexBytes ~/ slotSize) return null;
     final existing = _lookupOpenFile(
       entryKey,
       width,
@@ -1166,12 +1173,8 @@ class BitstreamStore {
 
     final dir = _diskDir;
     if (dir == null) return null;
-    final path = resolvedPath ?? joinPath(dir, '$entryKey.flcache');
-    if (!createIfMissing &&
-        resolvedPath == null &&
-        !PlatformDiskFs.exists(path)) {
-      return null;
-    }
+    final path = joinPath(dir, '$entryKey.flcache');
+    if (!createIfMissing && !PlatformDiskFs.exists(path)) return null;
 
     final maxOpen = math.max(1, maximumOpenFiles);
     while (_openFiles.length >= maxOpen) {
@@ -1217,6 +1220,7 @@ class BitstreamStore {
             final lengths = Uint32List(frameCount);
             final metas = Uint32List(frameCount);
             var validCount = 0;
+            var wipedSlots = false;
             var maxEnd = payloadStart;
             for (var i = 0; i < frameCount; i++) {
               final s = i * slotSize;
@@ -1227,7 +1231,7 @@ class BitstreamStore {
               if (off >= payloadStart &&
                   l > 0 &&
                   l <= expectedBytes &&
-                  off + l <= len) {
+                  off <= len - l) {
                 offsets[i] = off;
                 lengths[i] = l;
                 metas[i] = m;
@@ -1236,6 +1240,7 @@ class BitstreamStore {
               } else {
                 // Wipe out-of-bounds truncated slot.
                 recoveredCorruptions++;
+                wipedSlots = true;
                 _slotScratch.fillRange(0, slotSize, 0);
                 handle.writeAt(headerSize + s, _slotScratch, 0, slotSize);
               }
@@ -1244,6 +1249,16 @@ class BitstreamStore {
               // Trim dangling incomplete frame tail left by an interrupted write.
               recoveredCorruptions++;
               handle.truncate(maxEnd);
+            }
+            final completed =
+                (flags & flagCompleted) != 0 && validCount == frameCount;
+            if (wipedSlots) {
+              final nextFlags =
+                  (flags & ~flagCompleted) | (completed ? flagCompleted : 0);
+              final hbd = ByteData.sublistView(_headerScratch);
+              hbd.setUint32(0, nextFlags, Endian.little);
+              hbd.setUint32(4, validCount, Endian.little);
+              handle.writeAt(20, _headerScratch, 0, 8);
             }
             final opened = _OpenFlCacheFile(
               entryKey: entryKey,
@@ -1254,8 +1269,7 @@ class BitstreamStore {
               frameCount: frameCount,
               uncompressedFrameBytes: expectedBytes,
               poster: poster,
-              completed:
-                  (flags & flagCompleted) != 0 && validCount == frameCount,
+              completed: completed,
               writtenCount: validCount,
               fileBytes: maxEnd,
               offsets: offsets,

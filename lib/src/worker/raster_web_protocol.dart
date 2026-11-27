@@ -43,6 +43,7 @@ JSUint8Array _transferBytes(Uint8List bytes, List<JSAny?> transfer) {
       (
         opConfigure,
         diskDirectory: final String? dir,
+        maximumDiskBytes: int _,
         maximumRamBytes: final int limit,
         deduplicateUploads: final bool deduplicateUploads,
       ) =>
@@ -215,6 +216,7 @@ final class WorkerMessage {
     opConfigure => (
       opConfigure,
       diskDirectory: _fields[1] == null ? null : s(1),
+      maximumDiskBytes: 0,
       maximumRamBytes: i(2),
       deduplicateUploads: _fields.length > 3 ? b(3) : true,
     ),
