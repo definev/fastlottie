@@ -176,6 +176,95 @@ void main() {
     }
   });
 
+  test('disk index over budget still allows RAM playback', () {
+    final dir = Directory.systemTemp.createTempSync('fastlottie_index_');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final store = BitstreamStore(
+      diskCacheDirectory: dir.path,
+      maximumDiskBytes: 4096,
+    );
+    addTearDown(store.dispose);
+    final scratch = Lz4Scratch();
+    final pixels = Uint8List(16 * 16 * 4);
+    for (final frames in [256, 0x7fffffffffffffff]) {
+      final key = formatBitstreamEntryKey('poster', 16, 16, frames);
+      final result = store.storeFrame(
+        entryKey: key,
+        width: 16,
+        height: 16,
+        totalFrames: frames,
+        poster: true,
+        frameIndex: 0,
+        srcBgra: pixels,
+        scratch: scratch,
+      );
+      expect(result.entryDiskBytes, 0);
+      expect(
+        store.tryReadFrame(
+          entryKey: key,
+          width: 16,
+          height: 16,
+          totalFrames: frames,
+          poster: true,
+          frameIndex: 0,
+          dstBgra: Uint8List(pixels.length),
+        ),
+        isTrue,
+      );
+    }
+    expect(dir.listSync(), isEmpty);
+  });
+
+  test('an out-of-range disk offset preserves the other cache slots', () {
+    final dir = Directory.systemTemp.createTempSync('fastlottie_offset_');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final pixels = Uint8List(16 * 16 * 4);
+    const key = 'offset';
+    final scratch = Lz4Scratch();
+    final writer = BitstreamStore(diskCacheDirectory: dir.path);
+    try {
+      for (var frame = 0; frame < 2; frame++) {
+        writer.storeFrame(
+          entryKey: key,
+          width: 16,
+          height: 16,
+          totalFrames: 2,
+          poster: false,
+          frameIndex: frame,
+          srcBgra: pixels,
+          scratch: scratch,
+        );
+      }
+    } finally {
+      writer.dispose();
+    }
+    final file = File('${dir.path}/$key.flcache');
+    final bytes = file.readAsBytesSync();
+    ByteData.sublistView(
+      bytes,
+    ).setUint64(BitstreamStore.headerSize, 0x7fffffffffffffff, Endian.little);
+    file.writeAsBytesSync(bytes);
+
+    final reader = BitstreamStore(diskCacheDirectory: dir.path);
+    addTearDown(reader.dispose);
+    bool read(int index) => reader.tryReadFrame(
+      entryKey: key,
+      width: 16,
+      height: 16,
+      totalFrames: 2,
+      poster: false,
+      frameIndex: index,
+      dstBgra: Uint8List(pixels.length),
+    );
+    expect(read(1), isTrue);
+    expect(
+      ByteData.sublistView(file.readAsBytesSync())
+          .getUint64(BitstreamStore.headerSize, Endian.little),
+      0,
+    );
+    expect(read(0), isFalse);
+  });
+
   test('BitstreamStore shares .flcache across poster and animation modes', () {
     final tempDir = Directory.systemTemp.createTempSync('fastlottie_poster_');
     addTearDown(() {

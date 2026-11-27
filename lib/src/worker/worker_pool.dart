@@ -210,6 +210,7 @@ final class RasterWorkerPool<T> {
       handle.send((
         opConfigure,
         diskDirectory: effectiveDiskDir,
+        maximumDiskBytes: maximumDiskBytes,
         maximumRamBytes: perWorkerRam,
         deduplicateUploads: deduplicateImageUploads,
       ));
@@ -314,6 +315,7 @@ final class RasterWorkerPool<T> {
     handle.send((
       opConfigure,
       diskDirectory: null,
+      maximumDiskBytes: 0,
       maximumRamBytes: maximumCompressedMemoryBytes ~/ _handles.length,
       deduplicateUploads: deduplicateImageUploads,
     ));
@@ -428,6 +430,7 @@ final class RasterWorkerPool<T> {
         _handles[i].send((
           opConfigure,
           diskDirectory: effective,
+          maximumDiskBytes: maximumDiskBytes,
           maximumRamBytes: _workerRamLimits[i],
           deduplicateUploads: deduplicateImageUploads,
         ));
@@ -672,12 +675,14 @@ final class RasterWorkerPool<T> {
     _handles[donor].send((
       opConfigure,
       diskDirectory: effectiveDiskDir,
+      maximumDiskBytes: maximumDiskBytes,
       maximumRamBytes: _workerRamLimits[donor],
       deduplicateUploads: deduplicateImageUploads,
     ));
     _handles[hotShard].send((
       opConfigure,
       diskDirectory: effectiveDiskDir,
+      maximumDiskBytes: maximumDiskBytes,
       maximumRamBytes: _workerRamLimits[hotShard],
       deduplicateUploads: deduplicateImageUploads,
     ));
