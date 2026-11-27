@@ -61,11 +61,11 @@ final class _BrowserRasterWorker implements WorkerHandle {
         final reply = WorkerMessage(event.data);
         if (reply.op == workerFailed) throw StateError(reply.s(1));
         if (!_ready) {
-          if (reply.op != workerReady || reply.i(1) != webWorkerVersion) {
+          if (reply.op != workerReady) {
             throw StateError('Incompatible FastLottie Web Worker');
           }
           _ready = true;
-          usesWasm = reply.b(2);
+          usesWasm = reply.b(1);
           _startup.cancel();
           for (final request in _queued) {
             _send(request);
@@ -95,11 +95,7 @@ final class _BrowserRasterWorker implements WorkerHandle {
     try {
       final url = await wasmUrl();
       if (_disposed) return;
-      final (data, transfer) = encodeWorkerMessage([
-        workerInit,
-        webWorkerVersion,
-        url,
-      ]);
+      final (data, transfer) = encodeWorkerMessage([workerInit, url]);
       _worker.postMessage(data, transfer);
     } catch (error, stack) {
       _fail(error, stack);

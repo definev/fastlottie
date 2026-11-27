@@ -5,11 +5,14 @@ import 'package:hooks/hooks.dart';
 
 import 'c_library.dart';
 
-const wasmFileName = 'fastlottie_simd_v2.wasm';
+const wasmFileName = 'fastlottie_simd.wasm';
 
 Future<void> buildWasmAsset(BuildInput input, BuildOutputBuilder output) async {
   final zig = input.userDefines.path('zig');
-  if (zig == null) return; // Flutter uses the prebuilt package asset by default.
+  if (zig == null) {
+    // Flutter uses the prebuilt package asset by default.
+    return;
+  }
 
   final asset = input.outputDirectory.resolve(wasmFileName);
   final sources = wasmSources(input.packageRoot);

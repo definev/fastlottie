@@ -77,12 +77,12 @@ void main() {
   );
 
   test('packed keyframes preserve deterministic prefix-free content keys', () {
-    // Recorded with prefix-free AST hashing (FLK2) + premultiplied luma matte.
-    // Includes eased transforms, explicit endpoints and wide SIMD morphs.
+    // Recorded with prefix-free AST hashing (FLK3) + unified transform scale
+    // easing, explicit precomp bounds/timeline, and reversed bezier hash.
     const expected = {
-      'icon': '710667ca9648cb6e3e2cf7f49c3a1360',
-      'many_shapes': '5ed4f76c28edea8112b3b12740efdd06',
-      'morph': '1752c3d18b2c84ca39fc6d825a015cd8',
+      'icon': '64572fab7d9564eeeb6c58e91bcff9ad',
+      'many_shapes': 'fae68c2f2598bde539cabd03361e4442',
+      'morph': '183d51180bd7b1cdf895efe558c17481',
     };
     const fused = bool.fromEnvironment(
       'FASTLOTTIE_FUSED_FILL',

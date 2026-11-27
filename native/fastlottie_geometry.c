@@ -40,16 +40,16 @@ static int cubic(FLPolyline *out, double x0, double y0, double x1,
                  double flatness_sq, int depth) {
   if (--out->remaining < 0) return -2;
   if (depth >= 10) return vertex(out, x3, y3);
-  const double dx1 = x1 - (2.0 * x0 + x3) / 3.0;
-  const double dy1 = y1 - (2.0 * y0 + y3) / 3.0;
-  const double dx2 = x2 - (x0 + 2.0 * x3) / 3.0;
-  const double dy2 = y2 - (y0 + 2.0 * y3) / 3.0;
+  const double dx1 = 3.0 * x1 - (2.0 * x0 + x3);
+  const double dy1 = 3.0 * y1 - (2.0 * y0 + y3);
+  const double dx2 = 3.0 * x2 - (x0 + 2.0 * x3);
+  const double dy2 = 3.0 * y2 - (y0 + 2.0 * y3);
   const double d1 = dx1 * dx1 + dy1 * dy1;
   const double d2 = dx2 * dx2 + dy2 * dy2;
   // A finite JSON number can overflow when stored in a Float32 track.
-  // Leave exceptional coordinates to Dart (whose math.max propagates NaN).
-  if (isnan(d1) || isnan(d2)) return -2;
-  if ((d1 > d2 ? d1 : d2) * 0.5625 <= flatness_sq)
+  // Leave non-finite coordinates to Dart so handling stays identical.
+  if (!isfinite(d1) || !isfinite(d2)) return -2;
+  if (d1 * 0.0625 <= flatness_sq && d2 * 0.0625 <= flatness_sq)
     return vertex(out, x3, y3);
   const double x01 = (x0 + x1) * 0.5, y01 = (y0 + y1) * 0.5;
   const double x12 = (x1 + x2) * 0.5, y12 = (y1 + y2) * 0.5;
@@ -178,7 +178,7 @@ static int stroke_join(FLStroke *out, const double *tx, const double *ty,
   const double bx = vx + hw * n1x, by = vy + hw * n1y;
   if (fabs(cross) < 1e-4 && dot > 0)
     return vertex(&out->points, (ax + bx) * 0.5, (ay + by) * 0.5);
-  if (cross >= 0) {
+  if (cross >= 0.0 && !(cross < 1e-4 && dot < -0.999)) {
     int r = vertex(&out->points, ax, ay);
     if (r)
       return r;

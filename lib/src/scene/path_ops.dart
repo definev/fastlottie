@@ -154,7 +154,7 @@ class _Dash {
     final count = intervals.length;
     var cycle = 0.0;
     for (var i = 0; i < count; i++) {
-      final v = math.max(i.isEven ? 1.0 : .1, intervals[i].scalar(frame));
+      final v = math.max(i.isEven ? 0.01 : .1, intervals[i].scalar(frame));
       _values[i] = v;
       cycle += v;
     }

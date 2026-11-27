@@ -84,10 +84,6 @@ static inline uint32_t blend_src_over(uint32_t s, uint32_t d) {
     return src_over_ia(s, d, 255 - sa);
 }
 
-FL_EXPORT int32_t fastlottie_wasm_abi_version(void) {
-    return 2;
-}
-
 FL_EXPORT void fastlottie_clear_pixels(uint32_t* dst, int32_t count) {
     if (dst && count > 0) {
         memset(dst, 0, (size_t)count * sizeof(uint32_t));
@@ -853,7 +849,7 @@ static inline int gradient_index_f32(float t) {
 #if defined(__clang__)
 #pragma clang fp contract(off)
 #endif
-    return t >= 1.0f ? 1023 : (int)((double)t * 1023.0 + 0.5);
+    return !(t < 1.0f) ? 1023 : (!(t > 0.0f) ? 0 : (int)((double)t * 1023.0 + 0.5));
 }
 
 static inline void gradient_sqrt4(
@@ -1195,8 +1191,6 @@ static void gradient_radial_src_over(
     const double nid = id * inv;
     const double nitx = (itx - sx) * inv;
     const double nity = (ity - sy) * inv;
-    const double step_sq = nia * nia + nib * nib;
-    const double step2 = 2.0 * step_sq;
     const int full_opacity = (opacity == 255);
     const uint32_t c_end_raw = lut[1023];
 
@@ -1209,19 +1203,17 @@ static void gradient_radial_src_over(
         if (len <= 0 || row_off < 0 || row_off + len > dst_len) continue;
         uint32_t* row = dst + row_off;
         const double px = x + 0.5, py = y + 0.5;
-        const double dx = nia * px + nic * py + nitx;
-        const double dy = nib * px + nid * py + nity;
-        double dsq = dx * dx + dy * dy;
-        double step1 = 2.0 * (dx * nia + dy * nib) + step_sq;
+        double dx = nia * px + nic * py + nitx;
+        double dy = nib * px + nid * py + nity;
         const int vector_end = len & ~3;
         int j = 0;
 
         if (full_opacity && cov == 256) {
             for (; j < vector_end; j += 4) {
-                const double s0 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
-                const double s1 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
-                const double s2 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
-                const double s3 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s0 = dx * dx + dy * dy; dx += nia; dy += nib;
+                const double s1 = dx * dx + dy * dy; dx += nia; dy += nib;
+                const double s2 = dx * dx + dy * dy; dx += nia; dy += nib;
+                const double s3 = dx * dx + dy * dy; dx += nia; dy += nib;
                 if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
                     gradient_store4_src_over_unscaled(
                         row + j, c_end_raw, c_end_raw, c_end_raw, c_end_raw
@@ -1239,20 +1231,20 @@ static void gradient_radial_src_over(
                 }
             }
             for (; j < len; ++j) {
-                const double q = dsq > 0.0 ? dsq : 0.0;
-                const int idx = q >= 1.0 ? 1023 : gradient_index(sqrt(q));
+                const double q = dx * dx + dy * dy;
+                const int idx = !(q < 1.0) ? 1023 : gradient_index(sqrt(q));
                 store_src_over(row + j, lut[idx]);
-                dsq += step1;
-                step1 += step2;
+                dx += nia;
+                dy += nib;
             }
         } else {
             const int has_op = !full_opacity;
             const int has_cov = (cov != 256);
             for (; j < vector_end; j += 4) {
-                const double s0 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
-                const double s1 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
-                const double s2 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
-                const double s3 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s0 = dx * dx + dy * dy; dx += nia; dy += nib;
+                const double s1 = dx * dx + dy * dy; dx += nia; dy += nib;
+                const double s2 = dx * dx + dy * dy; dx += nia; dy += nib;
+                const double s3 = dx * dx + dy * dy; dx += nia; dy += nib;
                 uint32_t c0, c1, c2, c3;
                 if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
                     c0 = c1 = c2 = c3 = c_end_raw;
@@ -1269,14 +1261,14 @@ static void gradient_radial_src_over(
                 );
             }
             for (; j < len; ++j) {
-                const double q = dsq > 0.0 ? dsq : 0.0;
-                const int idx = q >= 1.0 ? 1023 : gradient_index(sqrt(q));
+                const double q = dx * dx + dy * dy;
+                const int idx = !(q < 1.0) ? 1023 : gradient_index(sqrt(q));
                 uint32_t c = lut[idx];
                 if (has_op) c = scale_premul_255(c, opacity);
                 if (has_cov) c = scale_premul(c, cov);
                 store_src_over(row + j, c);
-                dsq += step1;
-                step1 += step2;
+                dx += nia;
+                dy += nib;
             }
         }
     }
@@ -1322,7 +1314,7 @@ static FL_ALWAYS_INLINE void gradient_spans_blend_impl(
     const double len_sq = gx * gx + gy * gy;
     const double inv_len_sq = !radial && len_sq > 1e-12 ? 1.0 / len_sq : 0;
     const double dtx = (ia * gx + ib * gy) * inv_len_sq;
-    double nia = 0, nib = 0, nic = 0, nid = 0, nitx = 0, nity = 0, step_sq = 0;
+    double nia = 0, nib = 0, nic = 0, nid = 0, nitx = 0, nity = 0;
     if (radial) {
         const double radius = sqrt(len_sq);
         const double inv = 1.0 / (radius > .001 ? radius : .001);
@@ -1332,9 +1324,7 @@ static FL_ALWAYS_INLINE void gradient_spans_blend_impl(
         nid = id * inv;
         nitx = (itx - sx) * inv;
         nity = (ity - sy) * inv;
-        step_sq = nia * nia + nib * nib;
     }
-    const double step2 = 2.0 * step_sq;
     const int full_opacity = (opacity == 255);
 
     for (int i = 0; i < count * 2; i += 2) {
@@ -1365,18 +1355,16 @@ static FL_ALWAYS_INLINE void gradient_spans_blend_impl(
                 }
             }
         } else {
-            const double dx = nia * px + nic * py + nitx;
-            const double dy = nib * px + nid * py + nity;
-            double dsq = dx * dx + dy * dy;
-            double step1 = 2.0 * (dx * nia + dy * nib) + step_sq;
+            double dx = nia * px + nic * py + nitx;
+            double dy = nib * px + nid * py + nity;
             const int vector_end = len & ~3;
             const int unscaled = full_opacity && cov == 256;
             int j = 0;
             for (; j < vector_end; j += 4) {
-                const double s0 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
-                const double s1 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
-                const double s2 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
-                const double s3 = dsq > 0.0 ? dsq : 0.0; dsq += step1; step1 += step2;
+                const double s0 = dx * dx + dy * dy; dx += nia; dy += nib;
+                const double s1 = dx * dx + dy * dy; dx += nia; dy += nib;
+                const double s2 = dx * dx + dy * dy; dx += nia; dy += nib;
+                const double s3 = dx * dx + dy * dy; dx += nia; dy += nib;
                 int idx[4];
                 if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
                     idx[0] = idx[1] = idx[2] = idx[3] = 1023;
@@ -1402,12 +1390,12 @@ static FL_ALWAYS_INLINE void gradient_spans_blend_impl(
                 }
             }
             for (; j < len; ++j) {
-                const double q = dsq > 0.0 ? dsq : 0.0;
-                const double t = q >= 1.0 ? 1.0 : sqrt(q);
+                const double q = dx * dx + dy * dy;
+                const double t = !(q < 1.0) ? 1.0 : sqrt(q);
                 const uint32_t c = unscaled ? lut[gradient_index(t)] : gradient_sample(lut, t, opacity, cov);
                 gradient_store_blend(row + j, c, mode, specialize_multiply);
-                dsq += step1;
-                step1 += step2;
+                dx += nia;
+                dy += nib;
             }
         }
     }

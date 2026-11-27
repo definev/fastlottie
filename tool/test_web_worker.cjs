@@ -1,7 +1,11 @@
-// Run from the repository root: node tool/test_web_worker.cjs [baseline-worker.js]
-// Runs the bundled browser worker with real transferable buffers and C Wasm.
+// Run from the repository root:
+//   node tool/test_web_worker.cjs [--bundled | --worker <path>] [--baseline <path>]
+// By default compiles tool/web_worker_main.dart into a temp directory so feature
+// PRs verify live JS worker behavior without committing noisy minified JS diffs.
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 
@@ -14,9 +18,8 @@ const bridge = `
   parentPort.on('message', data => self.onmessage({ data }));
 `;
 
-const WORKER_VERSION = 5;
-const WORKER_ASSET = 'lib/src/wasm/fastlottie_worker_v5.js';
-const WASM_ASSET = 'lib/src/wasm/fastlottie_simd_v2.wasm';
+const WORKER_ASSET = 'lib/src/wasm/fastlottie_worker.js';
+const WASM_ASSET = 'lib/src/wasm/fastlottie_simd.wasm';
 
 function startWorker(asset) {
   const worker = new Worker(bridge, { eval: true, workerData: asset });
@@ -46,8 +49,8 @@ async function smoke(asset, wasmBytes = fs.readFileSync(WASM_ASSET), expectedWas
 
   try {
     const wasm = wasmBytes.toString('base64');
-    const ready = await exchange([-1, WORKER_VERSION, `data:application/wasm;base64,${wasm}`]);
-    assert.deepEqual(ready, [-2, WORKER_VERSION, expectedWasm]);
+    const ready = await exchange([-1, `data:application/wasm;base64,${wasm}`]);
+    assert.deepEqual(ready, [-2, expectedWasm]);
 
     const width = 32;
     const height = 24;
@@ -97,31 +100,79 @@ async function smoke(asset, wasmBytes = fs.readFileSync(WASM_ASSET), expectedWas
   }
 }
 
-async function testVersionAndAbiMismatch(asset, expectedPixels) {
-  // 1. Outdated host handshake version must be rejected immediately.
+async function testInvalidInitAndAbiFallback(asset, expectedPixels) {
+  // 1. Invalid worker init message must be rejected cleanly.
   const { worker, exchange } = startWorker(asset);
   try {
     const wasm = fs.readFileSync(WASM_ASSET).toString('base64');
-    const failed = await exchange([-1, WORKER_VERSION - 1, `data:application/wasm;base64,${wasm}`]);
+    const failed = await exchange([-99, `data:application/wasm;base64,${wasm}`]);
     assert.equal(failed[0], -3);
   } finally {
     await worker.terminate();
   }
 
-  // 2. Incompatible Wasm module (missing ABI version / v2 exports) must fall
+  // 2. Incompatible Wasm module (missing required exports) must fall
   // back cleanly to Dart rasterization and match the Wasm pixel output.
   const emptyWasm = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
   const fallback = await smoke(asset, emptyWasm, false);
   assert.deepEqual(fallback, expectedPixels);
 }
 
+function parseArgs(argv) {
+  let bundled = false;
+  let workerPath = null;
+  let baseline = null;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--bundled') {
+      bundled = true;
+    } else if (arg === '--worker') {
+      workerPath = argv[++i];
+      if (!workerPath) throw new Error('Missing value for --worker');
+    } else if (arg === '--baseline') {
+      baseline = argv[++i];
+      if (!baseline) throw new Error('Missing value for --baseline');
+    } else if (!arg.startsWith('-') && baseline == null) {
+      baseline = arg;
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+  return { bundled, workerPath, baseline };
+}
+
+function buildTempWorker() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fastlottie-worker-test-'));
+  const output = path.join(dir, 'worker.js');
+  try {
+    execFileSync(
+      'dart',
+      ['run', 'tool/build_web_worker.dart', '--output', output],
+      { stdio: ['ignore', 'pipe', 'inherit'] },
+    );
+    return { dir, output };
+  } catch (error) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 async function main() {
-  const asset = path.resolve(WORKER_ASSET);
-  const actual = await smoke(asset);
-  await testVersionAndAbiMismatch(asset, actual);
-  const baseline = process.argv[2];
-  if (baseline) assert.deepEqual(actual, await smoke(path.resolve(baseline)));
-  console.log('Browser worker protocol, ABI fallback, and frame/strip pixel checks passed.');
+  const { bundled, workerPath, baseline } = parseArgs(process.argv.slice(2));
+  let tempBuild = null;
+  const asset = workerPath
+    ? path.resolve(workerPath)
+    : bundled
+      ? path.resolve(WORKER_ASSET)
+      : (tempBuild = buildTempWorker()).output;
+  try {
+    const actual = await smoke(asset);
+    await testInvalidInitAndAbiFallback(asset, actual);
+    if (baseline) assert.deepEqual(actual, await smoke(path.resolve(baseline)));
+    console.log('Browser worker protocol, ABI fallback, and frame/strip pixel checks passed.');
+  } finally {
+    if (tempBuild) fs.rmSync(tempBuild.dir, { recursive: true, force: true });
+  }
 }
 
 main().catch(error => {

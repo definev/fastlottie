@@ -110,5 +110,12 @@
     "mae": 0.6929359436035156,
     "badRatio": 0.011211395263671875,
     "interiorMae": 0.0
+  },
+  {
+    "asset": "NotoEmoji/emoji_u1f354.tgs",
+    "sample": 0.6,
+    "mae": 0.9644851684570312,
+    "badRatio": 0.014278411865234375,
+    "interiorMae": 0.0
   }
 ]

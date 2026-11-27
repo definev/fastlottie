@@ -302,7 +302,7 @@ void _renderCompilerInto(
     }
     final overlap = mx0 < mx1 && my0 < my1;
     if (!isDstOut && !overlap) continue;
-    if (isDstOut && !overlap && bm == 0) {
+    if (isDstOut && !overlap && bm == 0 && clipMask == null) {
       _renderLayerInto(
         layer,
         frame,
@@ -411,6 +411,25 @@ void _renderCompilerInto(
     }
 
     // Composite matte into layerBuf, and blend layerBuf onto dst.
+    if (clipMask != null) {
+      _compositeMatteWithClipMaskDart(
+        dst.typedList,
+        dstOriginX,
+        dstOriginY,
+        dstStride,
+        layerBufPlane.typedList,
+        matteBufPlane.typedList,
+        bw,
+        bh,
+        bx0,
+        by0,
+        isDstOut,
+        isLuma,
+        bm,
+        clipMask,
+      );
+      continue;
+    }
     if (bm == 0 &&
         useNative &&
         nativeCompositeMatte(
@@ -445,6 +464,70 @@ void _renderCompilerInto(
       isLuma,
       bm,
     );
+  }
+}
+
+void _compositeMatteWithClipMaskDart(
+  Uint32List target,
+  int dstOriginX,
+  int dstOriginY,
+  int dstStride,
+  Uint32List layerBuf,
+  Uint32List matteBuf,
+  int bw,
+  int bh,
+  int bx0,
+  int by0,
+  bool isDstOut,
+  bool isLuma,
+  int bm,
+  RleSpans clipMask,
+) {
+  final bx1 = bx0 + bw;
+  final by1 = by0 + bh;
+  final data = clipMask.data;
+  final count = clipMask.spanCount * 2;
+  for (var i = 0; i < count; i += 2) {
+    final w0 = data[i];
+    final y = w0 >>> 16;
+    if (y < by0) continue;
+    if (y >= by1) break;
+    final w1 = data[i + 1];
+    final sx = w0 & 0xFFFF;
+    final len = w1 >>> 8;
+    final xStart = sx < bx0 ? bx0 : sx;
+    final xEnd = sx + len > bx1 ? bx1 : sx + len;
+    if (xStart >= xEnd) continue;
+    final cov = (w1 & 0xFF) + 1;
+    final srcRow = (y - by0) * bw - bx0;
+    final dstRow = (y - dstOriginY) * dstStride - dstOriginX;
+    for (var x = xStart; x < xEnd; x++) {
+      final tPx = layerBuf[srcRow + x];
+      if (tPx == 0) continue;
+      final mPx = matteBuf[srcRow + x];
+      final int factor;
+      if (!isLuma) {
+        final mAlpha = mPx >>> 24;
+        factor = isDstOut ? (255 - mAlpha) : mAlpha;
+      } else {
+        final r = (mPx >>> 16) & 0xFF;
+        final g = (mPx >>> 8) & 0xFF;
+        final b = mPx & 0xFF;
+        final rawLum = (19595 * r + 38470 * g + 7471 * b + 32768) >>> 16;
+        final lum = rawLum > 255 ? 255 : rawLum;
+        factor = isDstOut ? (255 - lum) : lum;
+      }
+      if (factor == 0) continue;
+      var masked = factor == 255
+          ? tPx
+          : SwarBlender.scalePremul255(tPx, factor);
+      if (cov != 256) masked = SwarBlender.scalePremul(masked, cov);
+      if (masked == 0) continue;
+      final d = dstRow + x;
+      target[d] = bm == 0
+          ? SwarBlender.blendSrcOver(masked, target[d])
+          : SwarBlender.blendPixel(masked, target[d], bm);
+    }
   }
 }
 
@@ -780,9 +863,18 @@ void _renderLayerInto(
     final x1 = math.min(right, clipX1), y1 = math.min(bottom, clipY1);
     if (x0 >= x1 || y0 >= y1) return;
     // The style follows the layer transform, but still scales with the
-    // composition (including any enclosing precomp).
-    final dx = ma * shadow.dx + mc * shadow.dy;
-    final dy = mb * shadow.dx + md * shadow.dy;
+    // composition (including any enclosing precomp). Clamp to the maximum
+    // software viewport + 2 so fixed-point shifts cannot wrap dart2js 32-bit
+    // bitwise ops or trigger signed int32 overflow UB in native kernels.
+    const maxShadowOffset = 65537.0;
+    final rawDx = ma * shadow.dx + mc * shadow.dy;
+    final rawDy = mb * shadow.dx + md * shadow.dy;
+    final dx = rawDx.isFinite
+        ? rawDx.clamp(-maxShadowOffset, maxShadowOffset)
+        : 0.0;
+    final dy = rawDy.isFinite
+        ? rawDy.clamp(-maxShadowOffset, maxShadowOffset)
+        : 0.0;
     final shiftX = (dx * 256).round();
     final shiftY = (dy * 256).round();
     // dart2js `>>` returns an unsigned uint32 on negative operands; recover the
@@ -791,21 +883,54 @@ void _renderLayerInto(
     final stepY = (-shiftY >> 8).toSigned(32);
     final weightX = -shiftX & 255, weightY = -shiftY & 255;
     // Include alpha just outside the output clip when the shifted sample
-    // needs it. The unsigned span coordinates cannot address negative pixels.
-    final sx0 = math.max(0, math.max(left, math.min(x0, x0 + stepX)));
-    final sy0 = math.max(0, math.max(top, math.min(y0, y0 + stepY)));
-    final sx1 = math.min(
-      65535,
-      math.min(right, math.max(x1, x1 + stepX + (weightX == 0 ? 0 : 1))),
-    );
-    final sy1 = math.min(
-      65535,
-      math.min(bottom, math.max(y1, y1 + stepY + (weightY == 0 ? 0 : 1))),
-    );
-    final reuse = isolated && sx0 == x0 && sy0 == y0 && sx1 == x1 && sy1 == y1;
-    final w = sx1 - sx0, h = sy1 - sy0;
+    // needs it. Shift negative sample coordinates into non-negative scratch
+    // space so 16-bit RleSpans never clip the output window or forge x=0/y=0 edges.
+    final reqSx0 = math.min(x0, x0 + stepX);
+    final reqSy0 = math.min(y0, y0 + stepY);
+    final reqSx1 = math.max(x1, x1 + stepX + (weightX == 0 ? 0 : 1));
+    final reqSy1 = math.max(y1, y1 + stepY + (weightY == 0 ? 0 : 1));
+    var rawSx0 = math.min(x0, math.max(left, reqSx0));
+    var rawSy0 = math.min(y0, math.max(top, reqSy0));
+    var rawSx1 = math.max(x1, math.min(right, reqSx1));
+    var rawSy1 = math.max(y1, math.min(bottom, reqSy1));
+    if (rawSx1 - rawSx0 > 65535) {
+      rawSx0 = math.max(rawSx0, x1 - 65535);
+      rawSx1 = math.min(rawSx1, rawSx0 + 65535);
+    }
+    if (rawSy1 - rawSy0 > 65535) {
+      rawSy0 = math.max(rawSy0, y1 - 65535);
+      rawSy1 = math.min(rawSy1, rawSy0 + 65535);
+    }
+    if (rawSx0 >= 0 && rawSx1 > 65535) rawSx1 = 65535;
+    if (rawSy0 >= 0 && rawSy1 > 65535) rawSy1 = 65535;
+    const maxShadowScratchPixels = 16 * 1024 * 1024;
+    if ((rawSx1 - rawSx0) * (rawSy1 - rawSy0) > maxShadowScratchPixels) {
+      rawSx0 = x0;
+      rawSy0 = y0;
+      rawSx1 = x1;
+      rawSy1 = y1;
+    }
+    final shiftOffX = rawSx0 < 0 ? -rawSx0 : 0;
+    final shiftOffY = rawSy0 < 0 ? -rawSy0 : 0;
+    final renderSx0 = rawSx0 + shiftOffX;
+    final renderSy0 = rawSy0 + shiftOffY;
+    final renderSx1 = rawSx1 + shiftOffX;
+    final renderSy1 = rawSy1 + shiftOffY;
+    final reuse =
+        isolated &&
+        clipMask == null &&
+        shiftOffX == 0 &&
+        shiftOffY == 0 &&
+        rawSx0 == x0 &&
+        rawSy0 == y0 &&
+        rawSx1 == x1 &&
+        rawSy1 == y1;
+    final w = renderSx1 - renderSx0, h = renderSy1 - renderSy0;
     final plane = reuse ? dst : ws._acquireScratch(depth * 3 + 2, w * h);
-    final ox = reuse ? dstOriginX : sx0, oy = reuse ? dstOriginY : sy0;
+    final renderOx = reuse ? dstOriginX : renderSx0;
+    final renderOy = reuse ? dstOriginY : renderSy0;
+    final srcOx = reuse ? dstOriginX : rawSx0;
+    final srcOy = reuse ? dstOriginY : rawSy0;
     final stride = reuse ? dstStride : w;
     if (!reuse) {
       if (ws.preferNative) {
@@ -814,25 +939,27 @@ void _renderLayerInto(
         SwarBlender.clearPixels(plane.typedList, w * h);
       }
     }
+    // Render the unclipped silhouette (clipMask: null) so enclosing parent
+    // masks do not carve false inner-shadow borders; apply clipMask once on composite.
     _renderLayerInto(
       layer,
       frame,
       255,
       plane,
-      ox,
-      oy,
+      renderOx,
+      renderOy,
       stride,
-      sx0,
-      sy0,
-      sx1,
-      sy1,
+      renderSx0,
+      renderSy0,
+      renderSx1,
+      renderSy1,
       ma,
       mb,
       mc,
       md,
-      mtx,
-      mty,
-      clipMask,
+      mtx + shiftOffX,
+      mty + shiftOffY,
+      null,
       ws,
       reuse ? depth : depth + 1,
       stableTransform,
@@ -846,11 +973,12 @@ void _renderLayerInto(
     final opacity = SwarBlender.div255(alpha * maskAlpha);
     final skipTint = alphaOnly || (shiftX == 0 && shiftY == 0);
     if (!skipTint &&
+        clipMask == null &&
         blendMode == 0 &&
         nativeDst != null &&
         stride == w &&
-        ox == sx0 &&
-        oy == sy0 &&
+        srcOx == rawSx0 &&
+        srcOy == rawSy0 &&
         (!reuse || opacity == 255) &&
         nativeInnerShadow(
           nativeDst,
@@ -859,8 +987,8 @@ void _renderLayerInto(
           plane,
           w,
           h,
-          x0 - sx0,
-          y0 - sy0,
+          x0 - rawSx0,
+          y0 - rawSy0,
           x1 - x0,
           y1 - y0,
           stepX,
@@ -879,10 +1007,10 @@ void _renderLayerInto(
       opacity,
       blendMode,
       plane.typedList,
-      ox,
-      oy,
+      srcOx,
+      srcOy,
       stride,
-      (sx0, sy0, sx1, sy1),
+      (rawSx0, rawSy0, rawSx1, rawSy1),
       dst.typedList,
       dstOriginX,
       dstOriginY,
@@ -894,6 +1022,7 @@ void _renderLayerInto(
       weightY,
       reuse,
       skipTint,
+      clipMask,
     );
     return;
   }
@@ -1082,15 +1211,52 @@ void _renderLayerInto(
   }
 
   final group = layer.group;
+  final child = layer.child;
+  // Isolate layers carrying complex fractional-opacity masks (multi-mask,
+  // subtract, or inverted mask with < 100% opacity) so overlapping paints and
+  // precomp children are masked once as a unit, matching Canvas saveLayer(dstIn).
+  final isRotatedPrecompOnly =
+      group == null && child != null && !(cb.abs() < 1e-9 && cc.abs() < 1e-9);
+  final isolateComplexMask =
+      !isRotatedPrecompOnly &&
+      effectiveClipMask != null &&
+      masks != null &&
+      layer.hasActiveMasks &&
+      layer._hasComplexMaskOpacity(frame);
+  final NativePixelBuffer renderDst;
+  final int renderOx, renderOy, renderStride, renderBlend;
+  final RleSpans? renderClipMask;
+  if (isolateComplexMask) {
+    final w = effClipX1 - effClipX0;
+    final h = effClipY1 - effClipY0;
+    renderDst = ws._acquireScratch(depth * 3 + 2, w * h);
+    if (useNative) {
+      simdClearPixels(renderDst, w * h);
+    } else {
+      SwarBlender.clearPixels(renderDst.typedList, w * h);
+    }
+    renderOx = effClipX0;
+    renderOy = effClipY0;
+    renderStride = w;
+    renderBlend = 0;
+    renderClipMask = null;
+  } else {
+    renderDst = dst;
+    renderOx = dstOriginX;
+    renderOy = dstOriginY;
+    renderStride = dstStride;
+    renderBlend = blendMode;
+    renderClipMask = effectiveClipMask;
+  }
   if (group != null) {
     _renderGroupInto(
       group,
       frame,
       alpha,
-      dst,
-      dstOriginX,
-      dstOriginY,
-      dstStride,
+      renderDst,
+      renderOx,
+      renderOy,
+      renderStride,
       effClipX0,
       effClipY0,
       effClipX1,
@@ -1101,20 +1267,17 @@ void _renderLayerInto(
       cd,
       ctx,
       cty,
-      effectiveClipMask,
+      renderClipMask,
       ws,
       depth + 1,
       stable,
       useNative,
-      blendMode,
+      renderBlend,
     );
   }
 
-  final child = layer.child;
   if (child != null) {
-    final childFrame = layer.timeRemap != null
-        ? layer.timeRemap!.scalar(frame) * child.fps - child.start
-        : (frame - layer.offset) / layer.stretch;
+    final childFrame = layer.childFrame(frame);
     final cw = child.width, ch = child.height;
     // Axis-aligned clip rect when no rotation/skew (cb == 0 && cc == 0), else precomp scratch.
     if (cb.abs() < 1e-9 && cc.abs() < 1e-9) {
@@ -1131,10 +1294,10 @@ void _renderLayerInto(
           child,
           childFrame,
           alpha,
-          dst,
-          dstOriginX,
-          dstOriginY,
-          dstStride,
+          renderDst,
+          renderOx,
+          renderOy,
+          renderStride,
           nx0,
           ny0,
           nx1,
@@ -1145,7 +1308,7 @@ void _renderLayerInto(
           cd,
           ctx,
           cty,
-          effectiveClipMask,
+          renderClipMask,
           ws,
           depth + 1,
           stable,
@@ -1173,7 +1336,8 @@ void _renderLayerInto(
       );
       if (rx0 < rx1 && ry0 < ry1) {
         final bw = rx1 - rx0, bh = ry1 - ry0;
-        final preBufPlane = ws._acquireScratch(depth * 3 + 2, bw * bh);
+        final preDepth = isolateComplexMask ? depth + 1 : depth;
+        final preBufPlane = ws._acquireScratch(preDepth * 3 + 2, bw * bh);
         if (useNative) {
           simdClearPixels(preBufPlane, bw * bh);
         } else {
@@ -1199,7 +1363,7 @@ void _renderLayerInto(
           cty,
           null,
           ws,
-          depth + 1,
+          preDepth + 1,
           stable,
           useNative,
         );
@@ -1214,10 +1378,10 @@ void _renderLayerInto(
           ..endContour();
         ws._rasterize(ws._polyPath, false, ws._clipSpans, rx0, ry0, rx1, ry1);
         var spansToBlend = ws._clipSpans;
-        if (effectiveClipMask != null) {
+        if (renderClipMask != null) {
           RleSpans.intersect(
             ws._clipSpans,
-            effectiveClipMask,
+            renderClipMask,
             ws._intersectSpans,
           );
           spansToBlend = ws._intersectSpans;
@@ -1225,7 +1389,7 @@ void _renderLayerInto(
         final count = spansToBlend.spanCount * 2;
         final sdata = spansToBlend.data;
         final preBuf = preBufPlane.typedList;
-        final target = dst.typedList;
+        final target = renderDst.typedList;
         for (var k = 0; k < count; k += 2) {
           final w0 = sdata[k], w1 = sdata[k + 1];
           final y = w0 >>> 16,
@@ -1233,18 +1397,43 @@ void _renderLayerInto(
               len = w1 >>> 8,
               cov = (w1 & 0xFF) + 1;
           final sRow = (y - ry0) * bw + (x - rx0);
-          final dRow = (y - dstOriginY) * dstStride + (x - dstOriginX);
+          final dRow = (y - renderOy) * renderStride + (x - renderOx);
           for (var c = 0; c < len; c++) {
             final p = preBuf[sRow + c];
             if (p != 0) {
               final scaled = cov == 256 ? p : SwarBlender.scalePremul(p, cov);
-              target[dRow + c] = SwarBlender.blendSrcOver(
-                scaled,
-                target[dRow + c],
-              );
+              final i = dRow + c;
+              target[i] = renderBlend == 0
+                  ? SwarBlender.blendSrcOver(scaled, target[i])
+                  : SwarBlender.blendPixel(scaled, target[i], renderBlend);
             }
           }
         }
+      }
+    }
+  }
+
+  if (isolateComplexMask) {
+    final sdata = effectiveClipMask.data;
+    final count = effectiveClipMask.spanCount * 2;
+    final srcPx = renderDst.typedList;
+    final target = dst.typedList;
+    for (var k = 0; k < count; k += 2) {
+      final w0 = sdata[k], w1 = sdata[k + 1];
+      final y = w0 >>> 16,
+          x = w0 & 0xFFFF,
+          len = w1 >>> 8,
+          cov = (w1 & 0xFF) + 1;
+      final sRow = (y - renderOy) * renderStride + (x - renderOx);
+      final dRow = (y - dstOriginY) * dstStride + (x - dstOriginX);
+      for (var c = 0; c < len; c++) {
+        final p = srcPx[sRow + c];
+        if (p == 0) continue;
+        final scaled = cov == 256 ? p : SwarBlender.scalePremul(p, cov);
+        final i = dRow + c;
+        target[i] = blendMode == 0
+            ? SwarBlender.blendSrcOver(scaled, target[i])
+            : SwarBlender.blendPixel(scaled, target[i], blendMode);
       }
     }
   }
@@ -1269,13 +1458,76 @@ void _compositeInnerShadow(
   int wx,
   int wy,
   bool inPlace,
-  bool skipTint,
-) {
+  bool skipTint, [
+  RleSpans? clipMask,
+]) {
   final (sx0, sy0, sx1, sy1) = samples;
   final (x0, y0, x1, y1) = output;
   final r = 255 - shadow.channel(16), g = 255 - shadow.channel(8);
   final b = 255 - shadow.channel(0);
   final div255 = SwarBlender.div255;
+
+  int tintPixel(int p, int x, int? i0, int? i1) {
+    if (skipTint) return p;
+    final xA = x + stepX, xB = xA + 1;
+    final validA = xA >= sx0 && xA < sx1;
+    final validB = xB >= sx0 && xB < sx1;
+    final a00 = i0 != null && validA ? src[i0 + xA] >>> 24 : 0;
+    final a01 = i0 != null && validB ? src[i0 + xB] >>> 24 : 0;
+    final a10 = i1 != null && validA ? src[i1 + xA] >>> 24 : 0;
+    final a11 = i1 != null && validB ? src[i1 + xB] >>> 24 : 0;
+    final edge =
+        255 -
+        (a00 & a01 & a10 & a11 == 255
+            ? 255
+            : (((a00 * (256 - wx) + a01 * wx) * (256 - wy) +
+                      (a10 * (256 - wx) + a11 * wx) * wy +
+                      32768) >>>
+                  16));
+    if (edge == 0) return p;
+    return (p & 0xff000000) |
+        (div255(((p >>> 16) & 255) * (255 - div255(r * edge))) << 16) |
+        (div255(((p >>> 8) & 255) * (255 - div255(g * edge))) << 8) |
+        div255((p & 255) * (255 - div255(b * edge)));
+  }
+
+  if (clipMask != null) {
+    final data = clipMask.data;
+    final count = clipMask.spanCount * 2;
+    for (var sIdx = 0; sIdx < count; sIdx += 2) {
+      final w0 = data[sIdx];
+      final y = w0 >>> 16;
+      if (y < y0) continue;
+      if (y >= y1) break;
+      final w1 = data[sIdx + 1];
+      final cx = w0 & 0xFFFF;
+      final len = w1 >>> 8;
+      final xStart = cx < x0 ? x0 : cx;
+      final xEnd = cx + len > x1 ? x1 : cx + len;
+      if (xStart >= xEnd) continue;
+      final cov = (w1 & 0xFF) + 1;
+      final row0 = y + stepY;
+      final row1 = row0 + 1;
+      final i0 = row0 >= sy0 && row0 < sy1 ? (row0 - sy) * srcStride - sx : null;
+      final i1 = row1 >= sy0 && row1 < sy1 ? (row1 - sy) * srcStride - sx : null;
+      final srcRow = (y - sy) * srcStride - sx;
+      final dstRow = (y - dy) * dstStride - dx;
+      for (var x = xStart; x < xEnd; x++) {
+        var p = src[srcRow + x];
+        if (p == 0) continue;
+        p = tintPixel(p, x, i0, i1);
+        if (opacity != 255) p = SwarBlender.scalePremul255(p, opacity);
+        if (cov != 256) p = SwarBlender.scalePremul(p, cov);
+        if (p == 0) continue;
+        final i = dstRow + x;
+        dst[i] = blendMode == 0
+            ? SwarBlender.blendSrcOver(p, dst[i])
+            : SwarBlender.blendPixel(p, dst[i], blendMode);
+      }
+    }
+    return;
+  }
+
   // An in-place pass needs the original sample alpha. RGB writes preserve it;
   // apply layer opacity only after all samples have been read.
   for (var y = y0; y < y1; y++) {
@@ -1288,30 +1540,7 @@ void _compositeInnerShadow(
     for (var x = x0; x < x1; x++) {
       var p = src[srcRow + x];
       if (p == 0) continue;
-      if (!skipTint) {
-        final xA = x + stepX, xB = xA + 1;
-        final validA = xA >= sx0 && xA < sx1;
-        final validB = xB >= sx0 && xB < sx1;
-        final a00 = i0 != null && validA ? src[i0 + xA] >>> 24 : 0;
-        final a01 = i0 != null && validB ? src[i0 + xB] >>> 24 : 0;
-        final a10 = i1 != null && validA ? src[i1 + xA] >>> 24 : 0;
-        final a11 = i1 != null && validB ? src[i1 + xB] >>> 24 : 0;
-        final edge =
-            255 -
-            (a00 & a01 & a10 & a11 == 255
-                ? 255
-                : (((a00 * (256 - wx) + a01 * wx) * (256 - wy) +
-                          (a10 * (256 - wx) + a11 * wx) * wy +
-                          32768) >>>
-                      16));
-        if (edge != 0) {
-          p =
-              (p & 0xff000000) |
-              (div255(((p >>> 16) & 255) * (255 - div255(r * edge))) << 16) |
-              (div255(((p >>> 8) & 255) * (255 - div255(g * edge))) << 8) |
-              div255((p & 255) * (255 - div255(b * edge)));
-        }
-      }
+      p = tintPixel(p, x, i0, i1);
       final i = dstRow + x;
       if (inPlace) {
         dst[i] = p;
@@ -1722,6 +1951,7 @@ void _renderStyleInto(
           spans,
           lut.typedList,
           a,
+          blendMode,
           (ia, ib, ic, id, itx, ity),
           s[0],
           s[1],
@@ -1809,6 +2039,7 @@ void _fillFocalGradientSpans(
   RleSpans spans,
   Uint32List lut,
   int opacity,
+  int blendMode,
   _RasterAffine inverse,
   double cx,
   double cy,
@@ -1818,6 +2049,7 @@ void _fillFocalGradientSpans(
   final (ia, ib, ic, id, itx, ity) = inverse;
   final (fx, fy) = focus;
   final k = 1 - fx * fx - fy * fy;
+  if (!(k > 1e-12) || !(radius > 0.0) || !radius.isFinite) return;
   final stepX = ia / radius, stepY = ib / radius;
   final data = spans.data;
   for (var i = 0; i < spans.spanCount * 2; i += 2) {
@@ -1831,11 +2063,18 @@ void _fillFocalGradientSpans(
     for (var p = start; p < end; p++, dx += stepX, dy += stepY) {
       // Solve |focus + (pixel - focus) / t| = 1 for the positive t.
       final dot = dx * fx + dy * fy;
-      final t = (dot + math.sqrt(dot * dot + k * (dx * dx + dy * dy))) / k;
-      var color = lut[t >= 1 ? 1023 : (t * 1023 + .5).toInt()];
+      final disc = dot * dot + k * (dx * dx + dy * dy);
+      final root = disc > 0.0 ? math.sqrt(disc) : 0.0;
+      final t = (dot + root) / k;
+      final idx = !(t > 0.0)
+          ? 0
+          : (t >= 1.0 ? 1023 : (t * 1023.0 + .5).toInt());
+      var color = lut[idx];
       if (opacity != 255) color = SwarBlender.scalePremul255(color, opacity);
       if (cov != 256) color = SwarBlender.scalePremul(color, cov);
-      dst[p] = SwarBlender.blendSrcOver(color, dst[p]);
+      dst[p] = blendMode == 0
+          ? SwarBlender.blendSrcOver(color, dst[p])
+          : SwarBlender.blendPixel(color, dst[p], blendMode);
     }
   }
 }
@@ -1985,44 +2224,59 @@ void _rasterBooleanSource(
         );
         return;
       }
-      final base = depth * 2;
-      final rest = ws._acquireBooleanSpans(base);
-      final first = ws._acquireBooleanSpans(base + 1);
-      _rasterBooleanSources(
-        sources,
-        0,
-        sources.length - 1,
-        frame,
-        matrix,
-        clip,
-        false,
-        rest,
-        ws,
-        depth + 1,
-      );
-      if (rest.spanCount == 0 && (merge.mode == 3 || merge.mode == 4)) {
+      if (sources.isEmpty) {
         out.clear();
         return;
       }
-      final last = sources.last;
-      if (_hasBooleanPath(last)) {
-        _rasterBooleanSource(
-          last,
-          frame,
-          matrix,
-          clip,
-          false,
-          first,
-          ws,
-          depth + 1,
-        );
-      } else {
-        final (a, b, c, d, tx, ty) = matrix;
-        final poly = ws._workPolyB..clear();
-        _appendSourceLocal(last, frame, a, b, c, d, tx, ty, 0.0625, poly, ws);
-        ws._rasterize(poly, false, first, clip.$1, clip.$2, clip.$3, clip.$4);
+      void rasterOperand(_PathSource operandSrc, RleSpans target) {
+        if (_hasBooleanPath(operandSrc)) {
+          _rasterBooleanSource(
+            operandSrc,
+            frame,
+            matrix,
+            clip,
+            false,
+            target,
+            ws,
+            depth + 1,
+          );
+        } else {
+          final (a, b, c, d, tx, ty) = matrix;
+          final poly = ws._workPolyB..clear();
+          _appendSourceLocal(
+            operandSrc,
+            frame,
+            a,
+            b,
+            c,
+            d,
+            tx,
+            ty,
+            0.0625,
+            poly,
+            ws,
+          );
+          ws._rasterize(poly, false, target, clip.$1, clip.$2, clip.$3, clip.$4);
+        }
       }
-      RleSpans.combine(rest, first, out, merge.mode);
+      rasterOperand(sources[0], out);
+      if (sources.length == 1) {
+        if (merge.mode == 3 || merge.mode == 4) out.clear();
+        return;
+      }
+      // Fold left sequentially ((S0 op S1) op S2) with distinct ping-pong
+      // buffers so RleSpans.combine never clears its own input.
+      final base = depth * 2;
+      final lhs = ws._acquireBooleanSpans(base);
+      final rhs = ws._acquireBooleanSpans(base + 1);
+      for (var i = 1; i < sources.length; i++) {
+        if (out.spanCount == 0 && (merge.mode == 3 || merge.mode == 4)) {
+          return;
+        }
+        rasterOperand(sources[i], rhs);
+        lhs.swap(out);
+        RleSpans.combine(lhs, rhs, out, merge.mode);
+      }
     default:
       throw StateError('Expected a boolean path');
   }
@@ -2207,23 +2461,28 @@ void _fillGradientLut(_GradientSpec grad, double frame, Uint32List lut) {
   final values = grad.stops.at(frame);
   final count = grad.count;
   final rgb = grad._rgb;
+  final colorOffsets = grad._colorOffsets;
   for (var i = 0; i < count; i++) {
     final base = 4 * i;
     final outBase = 3 * i;
     rgb[outBase] = Track.linearToSrgb(values[base + 1]);
     rgb[outBase + 1] = Track.linearToSrgb(values[base + 2]);
     rgb[outBase + 2] = Track.linearToSrgb(values[base + 3]);
+    final v = values[base].clamp(0.0, 1.0);
+    colorOffsets[i] = i > 0 && v < colorOffsets[i - 1]
+        ? colorOffsets[i - 1]
+        : v;
   }
   var left = 0;
   for (var k = 0; k < 1024; k++) {
     final p = k / 1023.0;
-    while (left < count - 1 && values[(left + 1) * 4] <= p) {
+    while (left < count - 1 && colorOffsets[left + 1] <= p) {
       left++;
     }
-    final prev = math.max(0, left - (p < values[left * 4] ? 1 : 0));
+    final prev = math.max(0, left - (p < colorOffsets[left] ? 1 : 0));
     final right = math.min(count - 1, prev + 1);
-    final pL = values[prev * 4];
-    final pR = values[right * 4];
+    final pL = colorOffsets[prev];
+    final pR = colorOffsets[right];
     final span = pR - pL;
     final t = span <= 1e-12 ? 0.0 : ((p - pL) / span).clamp(0.0, 1.0);
     final l3 = prev * 3;

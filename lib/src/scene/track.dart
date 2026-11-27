@@ -40,8 +40,7 @@ class Keyframes {
       return null;
     }
     final a = key * stride, b = endOffset(key), j = key * 4;
-    if ((values[a] != values[b] || values[a + 1] != values[b + 1]) &&
-        (t[j] != 0 || t[j + 1] != 0 || t[j + 2] != 0 || t[j + 3] != 0)) {
+    if (t[j] != 0 || t[j + 1] != 0 || t[j + 2] != 0 || t[j + 3] != 0) {
       return table[key] = _SpatialCurve(values, a, b, t, j);
     }
     table[key] = _noSpatial;

@@ -413,16 +413,16 @@ abstract final class SwarBlender {
             i2 = (t2 * 1023.0 + 0.5).toInt();
             i3 = (t3 * 1023.0 + 0.5).toInt();
           } else {
-            i0 = t0 <= 0.0
+            i0 = !(t0 > 0.0)
                 ? 0
                 : (t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt());
-            i1 = t1 <= 0.0
+            i1 = !(t1 > 0.0)
                 ? 0
                 : (t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt());
-            i2 = t2 <= 0.0
+            i2 = !(t2 > 0.0)
                 ? 0
                 : (t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt());
-            i3 = t3 <= 0.0
+            i3 = !(t3 > 0.0)
                 ? 0
                 : (t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt());
           }
@@ -444,7 +444,7 @@ abstract final class SwarBlender {
           p += 4;
         }
         while (p < end) {
-          final clamped = t <= 0.0
+          final clamped = !(t > 0.0)
               ? 0
               : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
           dst[p] = blendSrcOver(lut1024[clamped], dst[p]);
@@ -453,7 +453,7 @@ abstract final class SwarBlender {
         }
       } else if (fullOpacity) {
         while (p < end) {
-          final clamped = t <= 0.0
+          final clamped = !(t > 0.0)
               ? 0
               : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
           dst[p] = blendSrcOver(scalePremul(lut1024[clamped], cov), dst[p]);
@@ -462,7 +462,7 @@ abstract final class SwarBlender {
         }
       } else if (cov == 256) {
         while (p < end) {
-          final clamped = t <= 0.0
+          final clamped = !(t > 0.0)
               ? 0
               : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
           dst[p] = blendSrcOver(
@@ -474,7 +474,7 @@ abstract final class SwarBlender {
         }
       } else {
         while (p < end) {
-          final clamped = t <= 0.0
+          final clamped = !(t > 0.0)
               ? 0
               : (t >= 1.0 ? 1023 : (t * 1023.0 + 0.5).toInt());
           final c = scalePremul(
@@ -513,15 +513,13 @@ abstract final class SwarBlender {
     final ry = ey - sy;
     final radius = math.max(0.001, math.sqrt(rx * rx + ry * ry));
     final invRadius = 1.0 / radius;
-    // Normalize affine step into unit-radius space so t = sqrt(dSq) directly.
+    // Normalize affine step into unit-radius space so t = sqrt(dx^2 + dy^2).
     final nia = ia * invRadius;
     final nib = ib * invRadius;
     final nic = ic * invRadius;
     final nid = id * invRadius;
     final nitx = (itx - sx) * invRadius;
     final nity = (ity - sy) * invRadius;
-    final stepSq = nia * nia + nib * nib;
-    final step2 = 2.0 * stepSq;
     final count = spans.spanCount * 2;
     final data = spans.data;
     final modulateAlpha = opacity255 < 255;
@@ -537,29 +535,27 @@ abstract final class SwarBlender {
       final cov = (w1 & 0xFF) + 1;
       final py = wy + 0.5;
       final px = wx + 0.5;
-      final dx0 = nia * px + nic * py + nitx;
-      final dy0 = nib * px + nid * py + nity;
-      // 2nd-order forward differencing of D^2(k) = (dx0 + k*nia)^2 + (dy0 + k*nib)^2.
-      var dSq = dx0 * dx0 + dy0 * dy0;
-      var step1 = 2.0 * (dx0 * nia + dy0 * nib) + stepSq;
+      // Step normalized (dx, dy) linearly to avoid 2nd-order cancellation near center.
+      var dx = nia * px + nic * py + nitx;
+      var dy = nib * px + nid * py + nity;
       final row = (wy - dstOriginY) * stride + (wx - dstOriginX);
       final end = row + len;
       var p = row;
       if (cov == 256 && !modulateAlpha) {
         final simdEnd = end - 3;
         while (p < simdEnd) {
-          final s0 = dSq > 0.0 ? dSq : 0.0;
-          dSq += step1;
-          step1 += step2;
-          final s1 = dSq > 0.0 ? dSq : 0.0;
-          dSq += step1;
-          step1 += step2;
-          final s2 = dSq > 0.0 ? dSq : 0.0;
-          dSq += step1;
-          step1 += step2;
-          final s3 = dSq > 0.0 ? dSq : 0.0;
-          dSq += step1;
-          step1 += step2;
+          final s0 = dx * dx + dy * dy;
+          dx += nia;
+          dy += nib;
+          final s1 = dx * dx + dy * dy;
+          dx += nia;
+          dy += nib;
+          final s2 = dx * dx + dy * dy;
+          dx += nia;
+          dy += nib;
+          final s3 = dx * dx + dy * dy;
+          dx += nia;
+          dy += nib;
           if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
             if (cEndOpaque) {
               dst[p] = cEndRaw;
@@ -577,10 +573,10 @@ abstract final class SwarBlender {
           }
           final t4 = Float32x4(s0, s1, s2, s3).sqrt();
           final t0 = t4.x, t1 = t4.y, t2 = t4.z, t3 = t4.w;
-          final c0 = lut1024[t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt()];
-          final c1 = lut1024[t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt()];
-          final c2 = lut1024[t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt()];
-          final c3 = lut1024[t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt()];
+          final c0 = lut1024[!(t0 < 1.0) ? 1023 : (t0 * 1023.0 + 0.5).toInt()];
+          final c1 = lut1024[!(t1 < 1.0) ? 1023 : (t1 * 1023.0 + 0.5).toInt()];
+          final c2 = lut1024[!(t2 < 1.0) ? 1023 : (t2 * 1023.0 + 0.5).toInt()];
+          final c3 = lut1024[!(t3 < 1.0) ? 1023 : (t3 * 1023.0 + 0.5).toInt()];
           if ((c0 & c1 & c2 & c3) >= 0xFF000000) {
             dst[p] = c0;
             dst[p + 1] = c1;
@@ -595,40 +591,40 @@ abstract final class SwarBlender {
           p += 4;
         }
         while (p < end) {
-          final q = dSq > 0.0 ? dSq : 0.0;
-          final clamped = q >= 1.0
+          final q = dx * dx + dy * dy;
+          final clamped = !(q < 1.0)
               ? 1023
               : (math.sqrt(q) * 1023.0 + 0.5).toInt();
           dst[p] = blendSrcOver(lut1024[clamped], dst[p]);
-          dSq += step1;
-          step1 += step2;
+          dx += nia;
+          dy += nib;
           p++;
         }
       } else {
         final simdEnd = end - 3;
         while (p < simdEnd) {
-          final s0 = dSq > 0.0 ? dSq : 0.0;
-          dSq += step1;
-          step1 += step2;
-          final s1 = dSq > 0.0 ? dSq : 0.0;
-          dSq += step1;
-          step1 += step2;
-          final s2 = dSq > 0.0 ? dSq : 0.0;
-          dSq += step1;
-          step1 += step2;
-          final s3 = dSq > 0.0 ? dSq : 0.0;
-          dSq += step1;
-          step1 += step2;
+          final s0 = dx * dx + dy * dy;
+          dx += nia;
+          dy += nib;
+          final s1 = dx * dx + dy * dy;
+          dx += nia;
+          dy += nib;
+          final s2 = dx * dx + dy * dy;
+          dx += nia;
+          dy += nib;
+          final s3 = dx * dx + dy * dy;
+          dx += nia;
+          dy += nib;
           int c0, c1, c2, c3;
           if (s0 >= 1.0 && s1 >= 1.0 && s2 >= 1.0 && s3 >= 1.0) {
             c0 = c1 = c2 = c3 = cEndRaw;
           } else {
             final t4 = Float32x4(s0, s1, s2, s3).sqrt();
             final t0 = t4.x, t1 = t4.y, t2 = t4.z, t3 = t4.w;
-            c0 = lut1024[t0 >= 1.0 ? 1023 : (t0 * 1023.0 + 0.5).toInt()];
-            c1 = lut1024[t1 >= 1.0 ? 1023 : (t1 * 1023.0 + 0.5).toInt()];
-            c2 = lut1024[t2 >= 1.0 ? 1023 : (t2 * 1023.0 + 0.5).toInt()];
-            c3 = lut1024[t3 >= 1.0 ? 1023 : (t3 * 1023.0 + 0.5).toInt()];
+            c0 = lut1024[!(t0 < 1.0) ? 1023 : (t0 * 1023.0 + 0.5).toInt()];
+            c1 = lut1024[!(t1 < 1.0) ? 1023 : (t1 * 1023.0 + 0.5).toInt()];
+            c2 = lut1024[!(t2 < 1.0) ? 1023 : (t2 * 1023.0 + 0.5).toInt()];
+            c3 = lut1024[!(t3 < 1.0) ? 1023 : (t3 * 1023.0 + 0.5).toInt()];
           }
           if (modulateAlpha) {
             c0 = scalePremul255(c0, opacity255);
@@ -649,16 +645,16 @@ abstract final class SwarBlender {
           p += 4;
         }
         while (p < end) {
-          final q = dSq > 0.0 ? dSq : 0.0;
-          final clamped = q >= 1.0
+          final q = dx * dx + dy * dy;
+          final clamped = !(q < 1.0)
               ? 1023
               : (math.sqrt(q) * 1023.0 + 0.5).toInt();
           var c = lut1024[clamped];
           if (modulateAlpha) c = scalePremul255(c, opacity255);
           if (cov < 256) c = scalePremul(c, cov);
           dst[p] = blendSrcOver(c, dst[p]);
-          dSq += step1;
-          step1 += step2;
+          dx += nia;
+          dy += nib;
           p++;
         }
       }

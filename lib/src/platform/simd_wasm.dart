@@ -19,14 +19,10 @@ extension type _WasmMemory(JSObject _) implements JSObject {
   external JSArrayBuffer get buffer;
 }
 
-const int wasmAbiVersion = 2;
-
 extension type _WasmExports(JSObject _) implements JSObject {
   external _WasmMemory get memory;
   @JS('_initialize')
   external void initialize();
-  @JS('fastlottie_wasm_abi_version')
-  external int abiVersion();
   external int malloc(int bytes);
   external void free(int address);
 
@@ -185,7 +181,6 @@ Future<void> initializeWasmKernels(Uint8List bytes) async {
   final exports = result.instance.exports;
   for (final name in const [
     '_initialize',
-    'fastlottie_wasm_abi_version',
     'malloc',
     'free',
     'fastlottie_clear_pixels',
@@ -204,12 +199,6 @@ Future<void> initializeWasmKernels(Uint8List bytes) async {
     }
   }
   exports.initialize();
-  final abi = exports.abiVersion();
-  if (abi != wasmAbiVersion) {
-    throw StateError(
-      'Incompatible FastLottie Wasm ABI: expected $wasmAbiVersion, got $abi',
-    );
-  }
   // Confirm the module exports readable memory before enabling the backend.
   if (exports.memory.buffer.toDart.lengthInBytes == 0) {
     throw StateError('FastLottie Wasm memory is empty');
