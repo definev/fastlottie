@@ -8,8 +8,8 @@ import 'c_library.dart';
 const wasmFileName = 'fastlottie_simd.wasm';
 
 Future<void> buildWasmAsset(BuildInput input, BuildOutputBuilder output) async {
-  final zig = input.userDefines.path('zig') ?? findZig();
-  if (zig == null) return; // Flutter can use the prebuilt package asset.
+  final zig = input.userDefines.path('zig');
+  if (zig == null) return; // Flutter uses the prebuilt package asset by default.
 
   final asset = input.outputDirectory.resolve(wasmFileName);
   final sources = wasmSources(input.packageRoot);

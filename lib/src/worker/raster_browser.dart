@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:js_interop';
 import 'dart:ui_web' as ui_web;
 
@@ -33,9 +34,19 @@ WorkerHandle? startBrowserRasterWorker(String name) {
             : bundledWasmAsset,
       );
     });
-  } catch (_) {
+  } catch (error, stack) {
+    _logFallback(error, stack);
     return null;
   }
+}
+
+void _logFallback(Object error, StackTrace? stack) {
+  developer.log(
+    'FastLottie Web Worker unavailable. Rasterizing inline.',
+    name: 'fastlottie',
+    error: error,
+    stackTrace: stack,
+  );
 }
 
 bool isBrowserRasterWorker(WorkerHandle handle) =>
@@ -127,6 +138,7 @@ final class _BrowserRasterWorker implements WorkerHandle {
 
   void _fail(Object error, [StackTrace? stack]) {
     if (_disposed) return;
+    _logFallback(error, stack);
     _messages.addError(error, stack);
     dispose();
   }
