@@ -831,6 +831,58 @@ void main() {
     },
   );
 
+  testWidgets(
+    'failed entry stays isolated and is not requeued when demoted',
+    (tester) async {
+      final original = FastLottieComposition.fromJson(fixture('icon'));
+      final blob = debugEncodeCompiledComposition(original);
+      final bd = ByteData.sublistView(blob);
+      final keySize = bd.getUint32(20, Endian.little);
+      final firstRecord = bd.getUint32(76 + keySize, Endian.little);
+      final corruptBlob = Uint8List.fromList(blob);
+      corruptBlob[firstRecord] ^= 0xff;
+      final corrupt = debugDecodeCompiledComposition(
+        corruptBlob,
+        deferPlayback: true,
+      ).composition;
+
+      // Budget fits one K=4 strip (33,536 B at 32x32) but cannot fit even a
+      // K=1 second entry (8,192 B) without demoting the first entry.
+      final cache = FastLottieRasterCache(
+        maximumBytes: 35000,
+        workerCount: 1,
+        allowUiVectorFallback: false,
+      );
+      final failed = FastLottiePlayer(
+        corrupt,
+        rasterCache: cache,
+        cache: FastLottieCache.none,
+      );
+      final healthy = FastLottiePlayer(
+        FastLottieComposition.fromJson(fixture('morph')),
+        rasterCache: cache,
+        cache: FastLottieCache.none,
+      );
+      addTearDown(() {
+        failed.dispose();
+        healthy.dispose();
+        cache.dispose();
+      });
+
+      _record(failed, 0, size: 32);
+      await _drain(tester, cache);
+      expect(cache.lastError, isNull);
+      expect(cache.debugEntryFramesPerStrip(failed), 4);
+      final dispatchesBeforeDemote = cache.workerDispatches;
+
+      _record(healthy, 0, size: 32);
+      await _drain(tester, cache);
+      expect(cache.debugEntryFramesPerStrip(failed), lessThan(4));
+      expect(cache.workerDispatches, dispatchesBeforeDemote + 1);
+      expect(cache.bytes, greaterThan(0));
+    },
+  );
+
   test(
     'isolate exit errors complete requests and compile pool recovers',
     () async {

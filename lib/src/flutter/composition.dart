@@ -176,9 +176,14 @@ class FastLottieComposition {
       }
     }
 
-    Future<FastLottieComposition> compile(Uint8List bytes) {
+    Future<FastLottieComposition> compile(Uint8List bytes) async {
       checkCancelled();
-      return FastLottieComposition.fromBytesAsync(bytes, options: options);
+      final composition = await FastLottieComposition.fromBytesAsync(
+        bytes,
+        options: options,
+      );
+      checkCancelled();
+      return composition;
     }
 
     if (loader != null) {
@@ -207,7 +212,6 @@ class FastLottieComposition {
       }
     }
     final composition = await compile(result.bytes);
-    checkCancelled();
     if (sourceCacheDirectory != null) {
       await platformCacheNetworkBytes(
         uri,
@@ -216,8 +220,8 @@ class FastLottieComposition {
         headers: requestHeaders,
         cancelToken: cancelToken,
       );
+      checkCancelled();
     }
-    checkCancelled();
     return composition;
   }
 

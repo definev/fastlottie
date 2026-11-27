@@ -257,11 +257,10 @@ void main() {
       dstBgra: Uint8List(pixels.length),
     );
     expect(read(1), isTrue);
-    expect(
-      ByteData.sublistView(file.readAsBytesSync())
-          .getUint64(BitstreamStore.headerSize, Endian.little),
-      0,
-    );
+    final repairedHeader = ByteData.sublistView(file.readAsBytesSync());
+    expect(repairedHeader.getUint64(BitstreamStore.headerSize, Endian.little), 0);
+    expect(repairedHeader.getUint32(20, Endian.little) & BitstreamStore.flagCompleted, 0);
+    expect(repairedHeader.getUint32(24, Endian.little), 1);
     expect(read(0), isFalse);
   });
 

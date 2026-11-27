@@ -87,10 +87,11 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     throw const FastLottieNetworkCancelledException();
   }
 
+  final initialHeaders = headers == null ? null : Map.of(headers);
   final hasDiskDir =
       sourceCacheDirectory != null && sourceCacheDirectory.isNotEmpty;
   final cachePath = hasDiskDir
-      ? _cacheFilePath(sourceCacheDirectory, uri, headers)
+      ? _cacheFilePath(sourceCacheDirectory, uri, initialHeaders)
       : null;
   if (cachePath != null) {
     try {
@@ -141,8 +142,8 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     }
     var url = uri;
     var redirects = 0;
-    var requestHeaders = headers;
-    final visited = <Uri>{uri};
+    var requestHeaders = initialHeaders;
+    final visited = <Uri>{uri.removeFragment()};
     HttpClientResponse response;
     while (true) {
       final req = request = await client.getUrl(url);
@@ -180,6 +181,9 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
       final location = response.headers.value(HttpHeaders.locationHeader);
       final status = response.statusCode;
       await _cancelResponse(response);
+      if (aborted || (cancelToken?.isCancelled ?? false)) {
+        throw const FastLottieNetworkCancelledException();
+      }
       if (location == null) {
         throw FastLottieNetworkException(
           uri,
@@ -196,14 +200,18 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
           statusCode: status,
         );
       }
-      if (++redirects > req.maxRedirects || !visited.add(next)) {
+      if (++redirects > req.maxRedirects ||
+          !visited.add(next.removeFragment())) {
         throw FastLottieNetworkException(
           uri,
           'Redirect limit exceeded',
           statusCode: status,
         );
       }
-      if (url.origin != next.origin && requestHeaders != null) {
+      final crossOrigin =
+          (!url.isScheme('http') && !url.isScheme('https')) ||
+          url.origin != next.origin;
+      if (crossOrigin && requestHeaders != null) {
         requestHeaders = Map.of(requestHeaders)
           ..removeWhere(
             (name, _) => _sensitiveRedirectHeaders.contains(name.toLowerCase()),
@@ -214,6 +222,9 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     final status = response.statusCode;
     if (status < 200 || status >= 300) {
       await _cancelResponse(response);
+      if (aborted || (cancelToken?.isCancelled ?? false)) {
+        throw const FastLottieNetworkCancelledException();
+      }
       throw FastLottieNetworkException(
         uri,
         'Unexpected HTTP status $status',
@@ -222,6 +233,9 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     }
     if (response.contentLength > maximumBytes) {
       await _cancelResponse(response);
+      if (aborted || (cancelToken?.isCancelled ?? false)) {
+        throw const FastLottieNetworkCancelledException();
+      }
       throw FastLottieNetworkException(
         uri,
         'Response Content-Length (${response.contentLength}) exceeds $maximumBytes bytes',
@@ -292,6 +306,9 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
         bytes,
         cancelToken,
       );
+    }
+    if (aborted || (cancelToken?.isCancelled ?? false)) {
+      throw const FastLottieNetworkCancelledException();
     }
     return FastLottieNetworkFetchResult(bytes, fromDiskCache: false);
   } on FastLottieNetworkCancelledException {

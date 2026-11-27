@@ -1220,6 +1220,7 @@ class BitstreamStore {
             final lengths = Uint32List(frameCount);
             final metas = Uint32List(frameCount);
             var validCount = 0;
+            var wipedSlots = false;
             var maxEnd = payloadStart;
             for (var i = 0; i < frameCount; i++) {
               final s = i * slotSize;
@@ -1239,6 +1240,7 @@ class BitstreamStore {
               } else {
                 // Wipe out-of-bounds truncated slot.
                 recoveredCorruptions++;
+                wipedSlots = true;
                 _slotScratch.fillRange(0, slotSize, 0);
                 handle.writeAt(headerSize + s, _slotScratch, 0, slotSize);
               }
@@ -1247,6 +1249,16 @@ class BitstreamStore {
               // Trim dangling incomplete frame tail left by an interrupted write.
               recoveredCorruptions++;
               handle.truncate(maxEnd);
+            }
+            final completed =
+                (flags & flagCompleted) != 0 && validCount == frameCount;
+            if (wipedSlots) {
+              final nextFlags =
+                  (flags & ~flagCompleted) | (completed ? flagCompleted : 0);
+              final hbd = ByteData.sublistView(_headerScratch);
+              hbd.setUint32(0, nextFlags, Endian.little);
+              hbd.setUint32(4, validCount, Endian.little);
+              handle.writeAt(20, _headerScratch, 0, 8);
             }
             final opened = _OpenFlCacheFile(
               entryKey: entryKey,
@@ -1257,8 +1269,7 @@ class BitstreamStore {
               frameCount: frameCount,
               uncompressedFrameBytes: expectedBytes,
               poster: poster,
-              completed:
-                  (flags & flagCompleted) != 0 && validCount == frameCount,
+              completed: completed,
               writtenCount: validCount,
               fileBytes: maxEnd,
               offsets: offsets,

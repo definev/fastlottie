@@ -133,7 +133,7 @@ final class _IoWorkerHandle implements WorkerHandle {
     _hostReceive.close();
     _pendingPreHandshake.clear();
     _workerSendPort = null;
-    _exited.complete();
+    if (!_exited.isCompleted) _exited.complete();
     if (!_messagesController.isClosed) {
       _messagesController.addError(
         _failure ?? StateError('Raster isolate exited'),

@@ -165,6 +165,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         cache._enabled &&
         cache.lastError == null &&
         !entry.retired &&
+        entry.rasterError == null &&
         entry.users.isNotEmpty) {
       final start = _stripStartFor(entry, entry.desiredFrameIndex);
       final count = _stripCountFor(entry, start, entry.totalFrames);
@@ -440,6 +441,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     if (!cache._enabled ||
         cache.lastError != null ||
         entry.retired ||
+        entry.rasterError != null ||
         entry.users.isEmpty) {
       return;
     }
@@ -1048,7 +1050,11 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         queue.remove(entry);
         entry.queuedForRaster = false;
         entry.queuedHighPriority = false;
-        if (entry.retired || entry.users.isEmpty) continue;
+        if (entry.retired ||
+            entry.rasterError != null ||
+            entry.users.isEmpty) {
+          continue;
+        }
         final idx = entry.pendingStripStart >= 0
             ? entry.pendingStripStart
             : _stripStartFor(entry, entry.desiredFrameIndex);
