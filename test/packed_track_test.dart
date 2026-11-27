@@ -76,22 +76,28 @@ void main() {
     },
   );
 
-  test('packed keyframes preserve the existing disk cache content keys', () {
-    // Recorded with the object-per-key layout before packing. Includes eased
-    // transforms, explicit endpoints and wide SIMD morphs.
+  test('packed keyframes preserve deterministic prefix-free content keys', () {
+    // Recorded with prefix-free AST hashing (FLK2) + premultiplied luma matte.
+    // Includes eased transforms, explicit endpoints and wide SIMD morphs.
     const expected = {
-      'icon': '04a87989aaf4ff02b9afaad0ef4fe8dc',
-      'many_shapes': 'bf388ba6228f7d57a0a66fdfaaa4f080',
-      'morph': 'cb6e56a7aa4c54c0768ea80768c3a3aa',
+      'icon': '710667ca9648cb6e3e2cf7f49c3a1360',
+      'many_shapes': '5ed4f76c28edea8112b3b12740efdd06',
+      'morph': '1752c3d18b2c84ca39fc6d825a015cd8',
     };
-    for (final entry in expected.entries) {
-      expect(
-        FastLottieComposition.fromJson(fixture(entry.key)).contentKey,
-        const bool.fromEnvironment('FASTLOTTIE_FUSED_FILL', defaultValue: true)
-            ? '${entry.value}_fused1'
-            : entry.value,
-      );
-    }
+    const fused = bool.fromEnvironment(
+      'FASTLOTTIE_FUSED_FILL',
+      defaultValue: true,
+    );
+    expect(
+      {
+        for (final key in expected.keys)
+          key: FastLottieComposition.fromJson(fixture(key)).contentKey,
+      },
+      {
+        for (final entry in expected.entries)
+          entry.key: fused ? '${entry.value}_fused1' : entry.value,
+      },
+    );
   });
 
   test('packed RGB values normalize each key independently', () async {

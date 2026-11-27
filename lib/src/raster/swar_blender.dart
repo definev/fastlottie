@@ -30,21 +30,6 @@ abstract final class SwarBlender {
     }
   }
 
-  /// Exact 16.16 fixed-point reciprocal table for un-premultiplying `0..255`
-  /// channels by `alpha` (`1..255`): `((c * _invAlphaLut[a]) >> 16) == (c * 255) ~/ a`.
-  static final Uint32List _invAlphaLut = () {
-    final lut = Uint32List(256);
-    for (var a = 1; a < 256; a++) {
-      lut[a] = ((255 << 16) + a - 1) ~/ a;
-    }
-    return lut;
-  }();
-
-  static int inverseAlpha(int alpha) => _invAlphaLut[alpha];
-
-  static NativePixelBuffer allocateInverseAlphaTable() =>
-      NativePixelBuffer(_invAlphaLut.length)..typedList.setAll(0, _invAlphaLut);
-
   static int premulBgra(int a, int r, int g, int b) {
     if (a == 0) return 0;
     if (a == 255) return (0xFF << 24) | (r << 16) | (g << 8) | b;

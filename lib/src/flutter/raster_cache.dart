@@ -89,6 +89,10 @@ class FastLottieRasterCache {
       diskCacheDirectory: diskCacheDirectory,
       workerCount: workerCount,
     );
+    if (SchedulerBinding.instance case final WidgetsBinding binding) {
+      _lifecycleObserver = _RasterCacheLifecycleObserver(this);
+      binding.addObserver(_lifecycleObserver!);
+    }
   }
 
   /// Budget for retained raster bytes and reserved buffer space.
@@ -184,6 +188,7 @@ class FastLottieRasterCache {
   final _disposalQueue = <ui.Image>[];
   int _disposalHead = 0, _deadBytes = 0;
   bool _disposed = false, _disposalScheduled = false;
+  _RasterCacheLifecycleObserver? _lifecycleObserver;
   int _touchSeq = 0;
   bool _enabled = true;
 
@@ -244,6 +249,9 @@ class FastLottieRasterCache {
   @visibleForTesting
   /// Number of retired images waiting for disposal.
   int get debugPendingDisposals => _disposalQueue.length - _disposalHead;
+  @visibleForTesting
+  /// Estimated bytes of retired images waiting in the deferred disposal queue.
+  int get debugDeadBytes => _deadBytes;
   @visibleForTesting
   /// Number of currently active raster jobs.
   int get debugInFlightCaptures => _coordinator.activeJobCount;
@@ -629,17 +637,29 @@ class FastLottieRasterCache {
     SchedulerBinding.instance.ensureVisualUpdate();
   }
 
+  int get _disposalByteCap =>
+      math.max(1024 * 1024, math.min(4 * 1024 * 1024, maximumBytes ~/ 8));
+
   void _enqueueDisposal(ui.Image image, int imgBytes) {
+    // Never call image.dispose() synchronously here: enqueue may run inside
+    // Canvas.paint() (e.g. ping-pong swap or LRU eviction), and disposing a
+    // ui.Image mid-frame risks use-after-dispose if an earlier sibling draw in
+    // the same frame references it. Always drain after paint finishes.
     _disposalQueue.add(image);
     _deadBytes += imgBytes;
-    final cap = math.max(
-      1024 * 1024,
-      math.min(4 * 1024 * 1024, maximumBytes ~/ 8),
-    );
-    if (_deadBytes > cap) {
-      _drainDisposalBatch(disposalBatchSize);
-    }
     _scheduleDisposal();
+  }
+
+  void _compactDisposalQueue() {
+    if (_disposalHead >= _disposalQueue.length) {
+      _disposalQueue.clear();
+      _disposalHead = 0;
+      _deadBytes = 0;
+    } else if (_disposalHead > 64 &&
+        _disposalHead * 2 >= _disposalQueue.length) {
+      _disposalQueue.removeRange(0, _disposalHead);
+      _disposalHead = 0;
+    }
   }
 
   void _drainDisposalBatch(int count) {
@@ -650,15 +670,16 @@ class FastLottieRasterCache {
       image.dispose();
       drained++;
     }
-    if (_disposalHead >= _disposalQueue.length) {
-      _disposalQueue.clear();
-      _disposalHead = 0;
-      _deadBytes = 0;
-    } else if (_disposalHead > 64 &&
-        _disposalHead * 2 >= _disposalQueue.length) {
-      _disposalQueue.removeRange(0, _disposalHead);
-      _disposalHead = 0;
+    _compactDisposalQueue();
+  }
+
+  void _drainDisposalUntilBytes(int cap) {
+    while (_disposalHead < _disposalQueue.length && _deadBytes > cap) {
+      final image = _disposalQueue[_disposalHead++];
+      _deadBytes -= image.width * image.height * 4;
+      image.dispose();
     }
+    _compactDisposalQueue();
   }
 
   void _scheduleDisposal() {
@@ -673,11 +694,16 @@ class FastLottieRasterCache {
       if (_disposed) return;
       final remaining = _disposalQueue.length - _disposalHead;
       if (remaining <= 0) return;
-      final batch = math.min(
-        disposalBatchSize * 4,
-        math.max(disposalBatchSize, (remaining + 7) ~/ 8),
-      );
-      _drainDisposalBatch(batch);
+      final cap = _disposalByteCap;
+      if (_deadBytes > cap) {
+        _drainDisposalUntilBytes(cap);
+      } else {
+        final batch = math.min(
+          disposalBatchSize * 4,
+          math.max(disposalBatchSize, (remaining + 7) ~/ 8),
+        );
+        _drainDisposalBatch(batch);
+      }
       if (_disposalHead < _disposalQueue.length) _scheduleDisposal();
     });
     SchedulerBinding.instance.ensureVisualUpdate();
@@ -781,8 +807,38 @@ class FastLottieRasterCache {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    final observer = _lifecycleObserver;
+    if (observer != null) {
+      _lifecycleObserver = null;
+      if (SchedulerBinding.instance case final WidgetsBinding binding) {
+        binding.removeObserver(observer);
+      }
+    }
     clear();
     _coordinator.dispose();
+  }
+}
+
+final class _RasterCacheLifecycleObserver with WidgetsBindingObserver {
+  _RasterCacheLifecycleObserver(this._cache);
+
+  final FastLottieRasterCache _cache;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_cache._disposed) return;
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      // Flush retired textures immediately before the OS stops vsync callbacks.
+      _cache._flushAllDisposals();
+    }
+  }
+
+  @override
+  void didHaveMemoryPressure() {
+    if (_cache._disposed) return;
+    _cache.evictUnpinned();
   }
 }
 

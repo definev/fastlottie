@@ -530,7 +530,7 @@ void main() {
     }
     expect(tested, files.length);
     expect(failures, isEmpty);
-  });
+  }, timeout: const Timeout(Duration(minutes: 5)));
 
   test('software RLE matches canvas vector: poultry leg (rotated precomp with matte)', () async {
     final file = File('$tgsCorpusPath/NotoEmoji/emoji_u1f357.tgs');

@@ -47,6 +47,14 @@ typedef _TrackDecoder = Float32List Function(
 
 class _Compiler {
   _Compiler(this.options);
+  static const double _maxFrameSpan = 36000;
+  static const double _minFrameRate = 1e-3;
+  static const double _maxFrameRate = 10000;
+  static const int _maxCompiledCommands = 200000;
+  static const int _maxGroupDepth = 64;
+  static final Paint _lumaBackdropPaint = Paint()
+    ..color = const Color(0xFF000000);
+
   final FastLottieOptions options;
   late double width, height, start, end, fps;
   late final Rect boundsRect = Rect.fromLTWH(0, 0, width, height);
@@ -56,6 +64,23 @@ class _Compiler {
   late final bool isStatic = layers.every(
     (l) => l.isStatic && l.ip <= start && l.op >= end,
   );
+  List<int>? _commandBudget;
+
+  void _chargeCommands(int count, _JsonPath path) {
+    commands += count;
+    final budget = _commandBudget;
+    if (budget != null) {
+      budget[0] += count;
+      if (budget[0] > _maxCompiledCommands) {
+        fail(
+          path,
+          'Composition exceeds command budget ($_maxCompiledCommands)',
+        );
+      }
+    } else if (commands > _maxCompiledCommands) {
+      fail(path, 'Composition exceeds command budget ($_maxCompiledCommands)');
+    }
+  }
 
   void dispose() {}
 
@@ -103,7 +128,9 @@ class _Compiler {
     Map<String, Map<String, dynamic>>? assetModels,
     Set<String> precompStack = const {},
     Map<(String, double, double), _Compiler>? precompTemplates,
+    List<int>? commandBudget,
   }) {
+    _commandBudget = commandBudget ?? <int>[1];
     check(json, _JsonPath.root, const {
       'v',
       'fr',
@@ -137,9 +164,10 @@ class _Compiler {
     final frameSpan = end - start;
     if (width <= 0 ||
         height <= 0 ||
-        fps <= 0 ||
+        fps < _minFrameRate ||
+        fps > _maxFrameRate ||
         frameSpan <= 0 ||
-        frameSpan > 0x7fffffff) {
+        frameSpan > _maxFrameSpan) {
       fail(_JsonPath.root, 'Invalid bounds/timing');
     }
     final assets = assetModels ?? <String, Map<String, dynamic>>{};
@@ -170,6 +198,7 @@ class _Compiler {
     final setMattes = <_Layer, (int, _JsonPath)>{};
     for (var i = 0; i < list.length; i++) {
       final path = _JsonPath.layers.index(i);
+      _chargeCommands(1, path);
       final m = map(list[i], path);
       check(m, path, const {
         'ddd',
@@ -319,13 +348,17 @@ class _Compiler {
               assetModels: assets,
               precompStack: {...precompStack, id},
               precompTemplates: precomps,
+              commandBudget: _commandBudget,
             );
           precomps[precompKey] = template;
           child = template;
+          commands += child.commands;
         } else {
+          // Charge budget BEFORE cloning so diamond precomp DAGs fail fast
+          // without exponential allocation.
+          _chargeCommands(template.commands, path.field('refId'));
           child = _Fork().scene(template);
         }
-        commands += child.commands;
         hasStroke |= child.hasStroke;
       }
       final timeRemap = m['tm'] != null
@@ -540,6 +573,12 @@ class _Compiler {
       canvas.saveLayer(layerBounds, layer.contentPaint);
       layer.draw(canvas, frame, alpha);
       canvas.saveLayer(layerBounds, layer.mattePaint);
+      if (layer.matteType >= 3) {
+        // Composite the matte onto opaque black so ColorFilter.matrix sees
+        // premultiplied RGB (mAlpha * straightRGB) with alpha == 1, preserving
+        // subpixel anti-aliasing and matte opacity fades.
+        canvas.drawRect(layerBounds, _lumaBackdropPaint);
+      }
       matte.draw(
         canvas,
         frame,
@@ -862,17 +901,26 @@ class _Compiler {
         ));
       }
     }
-    commands += track.valueCount ~/ 6;
+    _chargeCommands(track.valueCount ~/ 6, p);
     return _BezierGeometry(track, closed ?? true, closureKeys);
   }
 
-  _Group _group(dynamic value, _JsonPath path, _ShapePathCompiler paths) {
+  _Group _group(
+    dynamic value,
+    _JsonPath path,
+    _ShapePathCompiler paths, [
+    int depth = 0,
+  ]) {
+    if (depth > _maxGroupDepth) {
+      fail(path, 'Shape group nesting exceeds $_maxGroupDepth');
+    }
     if (value is! List) fail(path, 'Expected shape list');
     final sources = <_PathSource>[];
     final draws = <_Draw>[];
     _Transform? transform;
     for (var i = 0; i < value.length; i++) {
       final p = path.index(i);
+      _chargeCommands(1, p);
       final m = map(value[i], p);
       final type = m['ty'];
       final bm = m['bm'] ?? 0;
@@ -899,7 +947,7 @@ class _Compiler {
             'bm',
             'cl',
           });
-          final group = _group(m['it'], p.field('it'), paths);
+          final group = _group(m['it'], p.field('it'), paths, depth + 1);
           if (!hidden) {
             sources.add(group);
             draws.add(group);
@@ -1095,13 +1143,11 @@ class _Compiler {
               join > 3) {
             fail(p, 'Stroke cap/join');
           }
-          final color = _track(
-            m['c'],
-            p.field('c'),
-            3,
-            [0, 0, 0],
-            shareFallback: false,
-          )..gamma = true;
+          final color = _track(m['c'], p.field('c'), 3, [
+            0,
+            0,
+            0,
+          ], shareFallback: false)..gamma = true;
           // Lottie also permits RGB components encoded in [0,255].
           final values = color.constant ?? color.keyframes!.values;
           for (var base = 0; base < values.length; base += 3) {

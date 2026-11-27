@@ -328,7 +328,7 @@ void main() {
   });
 
   test(
-    'luma mattes use rlottie RGB weights, including inverse and opacity',
+    'luma mattes preserve matte opacity and premultiplied RGB weights',
     () async {
       for (final type in [3, 4]) {
         for (final color in [
@@ -346,12 +346,13 @@ void main() {
             (c) => player.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256), 0),
           );
           final luma =
-              (255 * (.299 * color[0] + .587 * color[1] + .114 * color[2]))
+              (255 *
+                      0.5 *
+                      (.299 * color[0] + .587 * color[1] + .114 * color[2]))
                   .round();
-          // rlottie's updateLuma unpremultiplies RGB before replacing alpha.
           expect(
             image[(128 * 256 + 100) * 4 + 3],
-            closeTo(type == 3 ? luma : 255 - luma, 1),
+            closeTo(type == 3 ? luma : 255 - luma, 2),
           );
           expect(image[(128 * 256 + 200) * 4 + 3], type == 3 ? 0 : 255);
           player.dispose();

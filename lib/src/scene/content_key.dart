@@ -64,22 +64,28 @@ final class _ContentKeyHasher {
     _mixInt(t.gamma ? 1 : 0);
     final cnst = t.constant;
     if (cnst != null) {
+      _mixInt(0);
       _mixInt(cnst.length);
       _mixFloatRange(cnst, 0, cnst.length);
       return;
     }
+    _mixInt(1);
     final data = t.keyframes!;
     _mixInt(data.count);
     final values = data.values;
     final controls = data.easing;
     final w = data.width;
+    _mixInt(w);
     for (var key = 0; key < data.count; key++) {
       _mixDouble(data.times[key]);
-      _mixInt(data.isHold(key) ? 1 : 0);
-      _mixInt(w);
+      _mixInt(
+        (data.isHold(key) ? 1 : 0) |
+            (data.hasEnd(key) ? 2 : 0) |
+            (data.hasTangents(key) ? 4 : 0) |
+            ((data.metadata[key] & Keyframes.linearFlag) != 0 ? 8 : 0),
+      );
       _mixFloatRange(values, key * data.stride, w);
       if (data.hasEnd(key)) {
-        _mixInt(w);
         _mixFloatRange(values, data.endOffset(key), w);
       }
       final easeCount = data.easeCount(key);
@@ -136,6 +142,12 @@ final class _ContentKeyHasher {
     _mixTrack(t.scale);
     _mixTrack(t.rotation);
     _mixTrack(t.opacity);
+    _mixInt(
+      (t.x != null ? 1 : 0) |
+          (t.y != null ? 2 : 0) |
+          (t.skew != null ? 4 : 0) |
+          (t.skewAxis != null ? 8 : 0),
+    );
     if (t.x != null) _mixTrack(t.x!);
     if (t.y != null) _mixTrack(t.y!);
     if (t.skew != null) _mixTrack(t.skew!);
@@ -166,11 +178,18 @@ final class _ContentKeyHasher {
       _mixTrack(s.rotation);
       _mixTrack(s.outerRadius);
       _mixTrack(s.outerRoundness);
+      _mixInt(
+        (s.innerRadius != null ? 1 : 0) | (s.innerRoundness != null ? 2 : 0),
+      );
       if (s.innerRadius != null) _mixTrack(s.innerRadius!);
       if (s.innerRoundness != null) _mixTrack(s.innerRoundness!);
     } else if (s is _TrimPart) {
-      _mixInt(5 + s.index);
-      if (s.index >= 0 && s.index < s.trim.inputs.length) {
+      _mixInt(5);
+      _mixInt(s.index);
+      _mixInt(s.trim.inputs.length);
+      final hasInput = s.index >= 0 && s.index < s.trim.inputs.length;
+      _mixInt(hasInput ? 1 : 0);
+      if (hasInput) {
         _mixSource(s.trim.inputs[s.index]);
       }
       _mixTrack(s.trim.start);
@@ -180,12 +199,15 @@ final class _ContentKeyHasher {
     } else if (s is _Group) {
       _mixInt(6);
       _mixTransform(s.transform);
+      _mixInt(s.sources.length);
       for (final sub in s.sources) {
         _mixSource(sub);
       }
     } else if (s is _MergePathSource) {
-      _mixInt(9 + s.mode);
+      _mixInt(9);
+      _mixInt(s.mode);
       if (s.mode != 1) _mixInt(0x424f4f4c); // Coverage boolean raster revision.
+      _mixInt(s.sources.length);
       for (final sub in s.sources) {
         _mixSource(sub);
       }
@@ -196,6 +218,7 @@ final class _ContentKeyHasher {
     if (d is _Group) {
       _mixInt(7);
       _mixTransform(d.transform);
+      _mixInt(d.draws.length);
       for (final sub in d.draws) {
         _mixDraw(sub);
       }
@@ -208,16 +231,20 @@ final class _ContentKeyHasher {
       _mixTrack(d.color);
       _mixTrack(d.opacity);
       _mixTrack(d.width);
+      _mixInt(d.sources.length);
       for (final s in d.sources) {
         _mixSource(s);
       }
       final g = d.gradient;
+      final dash = d.dash;
+      _mixInt((g != null ? 1 : 0) | (dash != null ? 2 : 0));
       if (g != null) {
         _mixInt(g.count);
         _mixInt(g.radial ? 1 : 0);
         _mixTrack(g.stops);
         _mixTrack(g.start);
         _mixTrack(g.end);
+        _mixInt(g.hasFocalPoint ? 1 : 0);
         if (g.hasFocalPoint) {
           _mixInt(0x666f6361); // Radial focal point.
           _mixTrack(g.highlightLength!);
@@ -225,9 +252,9 @@ final class _ContentKeyHasher {
           if (g.highlightAngle != null) _mixTrack(g.highlightAngle!);
         }
       }
-      final dash = d.dash;
       if (dash != null) {
         _mixTrack(dash.offset);
+        _mixInt(dash.intervals.length);
         for (final iv in dash.intervals) {
           _mixTrack(iv);
         }
@@ -236,6 +263,8 @@ final class _ContentKeyHasher {
   }
 
   void _mixCompiler(_Compiler comp) {
+    // Prefix-free AST digest + premultiplied luma matte revision.
+    _mixInt(0x464C4B32);
     _mixDouble(comp.width);
     _mixDouble(comp.height);
     _mixDouble(comp.start);
@@ -246,10 +275,27 @@ final class _ContentKeyHasher {
       _mixDouble(l.ip);
       _mixDouble(l.op);
       _mixDouble(l.offset);
-      if (l.stretch != 1.0) {
-        _mixInt(0x53545243);
-        _mixDouble(l.stretch);
-      }
+      _mixDouble(l.stretch);
+      final masks = l.masks;
+      final hasMasks = masks != null && masks.isNotEmpty;
+      final g = l.group;
+      final ch = l.child;
+      final fill = l.fillEffect;
+      final shadow = l.innerShadow;
+      _mixInt(
+        (l.hidden ? 1 : 0) |
+            (l.matteType << 1) |
+            (l.blendMode << 4) |
+            (l.usesSetMatte ? 1 << 9 : 0) |
+            (l.timeRemap != null ? 1 << 10 : 0) |
+            (l.parent != null ? 1 << 11 : 0) |
+            (fill != null ? 1 << 12 : 0) |
+            (shadow != null ? 1 << 13 : 0) |
+            (hasMasks ? 1 << 14 : 0) |
+            (g != null ? 1 << 15 : 0) |
+            (ch != null ? 1 << 16 : 0),
+      );
+      if (l.blendMode != 0) _mixInt(0x424c454e); // Blend raster revision.
       if (l.timeRemap != null) {
         _mixInt(0x54524d50);
         _mixTrack(l.timeRemap!);
@@ -258,19 +304,15 @@ final class _ContentKeyHasher {
         _mixInt(0x50524e54);
         _mixInt(comp.layers.indexOf(l.parent!));
       }
-      _mixInt((l.hidden ? 1 : 0) | (l.matteType << 2) | (l.blendMode << 6));
-      if (l.blendMode != 0) _mixInt(0x424c454e); // Blend raster revision.
       if (l.usesSetMatte) {
         _mixInt(0x534d4154);
         _mixInt(comp.layers.indexOf(l.matte!));
       }
-      final fill = l.fillEffect;
       if (fill != null) {
         _mixInt(0x46494c4c);
         _mixTrack(fill.color);
         _mixTrack(fill.opacity);
       }
-      final shadow = l.innerShadow;
       if (shadow != null) {
         _mixInt(0x53484457); // Inner Shadow.
         _mixDouble(shadow.dx);
@@ -278,22 +320,19 @@ final class _ContentKeyHasher {
         _mixInt(shadow.argb);
       }
       _mixTransform(l.transform);
-      final masks = l.masks;
-      if (masks != null && masks.isNotEmpty) {
+      if (hasMasks) {
         _mixInt(0x4d41534b);
         _mixInt(masks.length);
         for (final mask in masks) {
           _mixInt(mask.mode.codeUnitAt(0));
-          _mixInt(mask.inverted ? 1 : 0);
+          final expand = mask.expand;
+          _mixInt((mask.inverted ? 1 : 0) | (expand != null ? 2 : 0));
           _mixSource(mask.geometry);
           _mixTrack(mask.opacity);
-          final expand = mask.expand;
           if (expand != null) _mixTrack(expand);
         }
       }
-      final g = l.group;
       if (g != null) _mixDraw(g);
-      final ch = l.child;
       if (ch != null) {
         final (c1, c2, c3, c4) = _ContentKeyHasher.hash(ch, _seen);
         _mixInt(c1);

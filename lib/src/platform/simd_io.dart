@@ -20,12 +20,14 @@ typedef _NativeFillSolidSpans = ffi.Void Function(
   ffi.Int32,
   ffi.Int32,
   ffi.Int32,
+  ffi.Int32,
   ffi.Pointer<ffi.Int32>,
   ffi.Int32,
   ffi.Uint32,
 );
 typedef _DartFillSolidSpans = void Function(
   ffi.Pointer<ffi.Uint32>,
+  int,
   int,
   int,
   int,
@@ -47,6 +49,7 @@ external void _nativeClearPixelsAsset(ffi.Pointer<ffi.Uint32> dst, int count);
     ffi.Int32,
     ffi.Int32,
     ffi.Int32,
+    ffi.Int32,
     ffi.Pointer<ffi.Int32>,
     ffi.Int32,
     ffi.Uint32,
@@ -58,6 +61,7 @@ external void _nativeClearPixelsAsset(ffi.Pointer<ffi.Uint32> dst, int count);
 )
 external void _nativeFillSolidSpansAsset(
   ffi.Pointer<ffi.Uint32> dst,
+  int dstLen,
   int dstOriginX,
   int dstOriginY,
   int stride,
@@ -97,6 +101,7 @@ external void _blendRect(
     ffi.Int32,
     ffi.Int32,
     ffi.Int32,
+    ffi.Int32,
     ffi.Pointer<ffi.Int32>,
     ffi.Int32,
     ffi.Uint32,
@@ -109,6 +114,7 @@ external void _blendRect(
 )
 external void _blendSolid(
   ffi.Pointer<ffi.Uint32> dst,
+  int dstLen,
   int originX,
   int originY,
   int stride,
@@ -124,15 +130,15 @@ external void _blendSolid(
     ffi.Int32,
     ffi.Int32,
     ffi.Int32,
-    ffi.Pointer<ffi.Uint32>,
-    ffi.Pointer<ffi.Uint32>,
-    ffi.Int32,
-    ffi.Int32,
-    ffi.Int32,
-    ffi.Int32,
-    ffi.Int32,
     ffi.Int32,
     ffi.Pointer<ffi.Uint32>,
+    ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
+    ffi.Int32,
   )
 >(
   assetId: 'package:fastlottie/fastlottie_simd.dart',
@@ -141,6 +147,7 @@ external void _blendSolid(
 )
 external void _compositeMatte(
   ffi.Pointer<ffi.Uint32> dst,
+  int dstLen,
   int dstOriginX,
   int dstOriginY,
   int dstStride,
@@ -152,12 +159,12 @@ external void _compositeMatte(
   int boxY,
   int dstOut,
   int luma,
-  ffi.Pointer<ffi.Uint32> inverseAlpha,
 );
 
 @ffi.Native<
   ffi.Void Function(
     ffi.Pointer<ffi.Uint32>,
+    ffi.Int32,
     ffi.Int32,
     ffi.Int32,
     ffi.Int32,
@@ -185,6 +192,7 @@ external void _compositeMatte(
 )
 external void _gradientSpans(
   ffi.Pointer<ffi.Uint32> dst,
+  int dstLen,
   int ox,
   int oy,
   int stride,
@@ -212,6 +220,7 @@ final bool isNativeGradientSupported = () {
     // A zero-span call probes the symbol without reading any buffers.
     _gradientSpans(
       ffi.nullptr,
+      0,
       0,
       0,
       0,
@@ -260,9 +269,19 @@ bool nativeGradientSpans(
   double ex,
   double ey,
 ) {
-  if (dst.ptr == null || spans.ptr == null || lut.ptr == null) return false;
+  if (dst.ptr == null ||
+      spans.ptr == null ||
+      lut.ptr == null ||
+      stride <= 0 ||
+      count < 0 ||
+      count * 2 > spans.typedList.length ||
+      lut.typedList.length < 1024) {
+    return false;
+  }
+  if (count == 0) return true;
   _gradientSpans(
     dst.ptr!,
+    dst.typedList.length,
     ox,
     oy,
     stride,
@@ -355,7 +374,23 @@ bool nativeInnerShadow(
   int opacity,
 ) {
   final d = dst.ptr, s = src.ptr;
-  if (!_hasInnerShadow || d == null || s == null) return false;
+  if (!_hasInnerShadow ||
+      d == null ||
+      s == null ||
+      sw <= 0 ||
+      sh <= 0 ||
+      w <= 0 ||
+      h <= 0 ||
+      stride <= 0 ||
+      offset < 0 ||
+      x0 < 0 ||
+      y0 < 0 ||
+      x0 + w > sw ||
+      y0 + h > sh ||
+      src.typedList.length < sw * sh ||
+      offset + (h - 1) * stride + w > dst.typedList.length) {
+    return false;
+  }
   try {
     _innerShadow(
       d,
@@ -393,7 +428,17 @@ bool nativeBlendRect(
   int mode,
 ) {
   final d = dst.ptr, s = src.ptr;
-  if (!_hasBlendRect || d == null || s == null) return false;
+  if (!_hasBlendRect ||
+      d == null ||
+      s == null ||
+      width <= 0 ||
+      height <= 0 ||
+      stride <= 0 ||
+      offset < 0 ||
+      src.typedList.length < width * height ||
+      offset + (height - 1) * stride + width > dst.typedList.length) {
+    return false;
+  }
   try {
     _blendRect(d, offset, stride, s, width, height, mode);
     _kernelCalls++;
@@ -415,9 +460,27 @@ bool nativeBlendSolid(
   int mode,
 ) {
   final d = dst.ptr, s = spans.ptr;
-  if (!_hasBlendSolid || d == null || s == null) return false;
+  if (!_hasBlendSolid ||
+      d == null ||
+      s == null ||
+      stride <= 0 ||
+      count < 0 ||
+      count * 2 > spans.typedList.length) {
+    return false;
+  }
+  if (count == 0) return true;
   try {
-    _blendSolid(d, originX, originY, stride, s, count, color, mode);
+    _blendSolid(
+      d,
+      dst.typedList.length,
+      originX,
+      originY,
+      stride,
+      s,
+      count,
+      color,
+      mode,
+    );
     _kernelCalls++;
     return true;
   } on ArgumentError {
@@ -439,22 +502,29 @@ bool nativeCompositeMatte(
   int boxY,
   bool dstOut,
   bool luma,
-  NativePixelBuffer inverseAlpha,
 ) {
-  final d = dst.ptr,
-      target = layer.ptr,
-      mask = matte.ptr,
-      inverse = inverseAlpha.ptr;
+  final d = dst.ptr, target = layer.ptr, mask = matte.ptr;
   if (!_hasCompositeMatte ||
       d == null ||
       target == null ||
       mask == null ||
-      inverse == null) {
+      width <= 0 ||
+      height <= 0 ||
+      dstStride <= 0 ||
+      boxX < dstOriginX ||
+      boxY < dstOriginY ||
+      layer.typedList.length < width * height ||
+      matte.typedList.length < width * height ||
+      (boxY + height - 1 - dstOriginY) * dstStride +
+              (boxX - dstOriginX) +
+              width >
+          dst.typedList.length) {
     return false;
   }
   try {
     _compositeMatte(
       d,
+      dst.typedList.length,
       dstOriginX,
       dstOriginY,
       dstStride,
@@ -466,7 +536,6 @@ bool nativeCompositeMatte(
       boxY,
       dstOut ? 1 : 0,
       luma ? 1 : 0,
-      inverse,
     );
     _kernelCalls++;
     return true;
@@ -501,9 +570,6 @@ bool _initLib() {
       final candidates = [
         '$execDir/libfastlottie_simd.dylib',
         '$execDir/../Frameworks/libfastlottie_simd.dylib',
-        'build/libfastlottie_simd.dylib',
-        '../build/libfastlottie_simd.dylib',
-        'example/build/libfastlottie_simd.dylib',
       ];
       for (final c in candidates) {
         if (File(c).existsSync()) {
@@ -702,6 +768,10 @@ class NativePixelBuffer {
 }
 
 void simdClearPixels(NativePixelBuffer dst, int count) {
+  if (count <= 0) return;
+  if (count > dst.typedList.length) {
+    throw RangeError.range(count, 0, dst.typedList.length, 'count');
+  }
   final p = dst.ptr;
   if (p != null) {
     if (_useAssetClearFill) {
@@ -729,10 +799,17 @@ bool simdFillSolidSpans(
   int srcPremul,
 ) {
   final d = dst.ptr, s = spans.ptr;
-  if (d != null && s != null) {
+  if (d != null &&
+      s != null &&
+      stride > 0 &&
+      spanCount >= 0 &&
+      spanCount * 2 <= spans.typedList.length) {
+    if (spanCount == 0) return true;
+    final dstLen = dst.typedList.length;
     if (_useAssetClearFill) {
       _nativeFillSolidSpansAsset(
         d,
+        dstLen,
         dstOriginX,
         dstOriginY,
         stride,
@@ -745,7 +822,7 @@ bool simdFillSolidSpans(
     }
     final fn = _nativeFillSolidSpans;
     if (fn != null) {
-      fn(d, dstOriginX, dstOriginY, stride, s, spanCount, srcPremul);
+      fn(d, dstLen, dstOriginX, dstOriginY, stride, s, spanCount, srcPremul);
       _kernelCalls++;
       return true;
     }
@@ -841,6 +918,7 @@ external int _denseBorrowed(
     ffi.Int32,
     ffi.Int32,
     ffi.Int32,
+    ffi.Int32,
     ffi.Uint32,
   )
 >(
@@ -865,6 +943,7 @@ external int _denseSolidBorrowed(
   int capacity,
   ffi.Pointer<ffi.Int32> bounds,
   ffi.Pointer<ffi.Uint32> dst,
+  int dstLen,
   int originX,
   int originY,
   int stride,
@@ -972,8 +1051,23 @@ class NativeCoverageWorkspace {
     NativeSpansBuffer out, {
     bool borrowGeometry = true,
   }) {
+    if (nv < 2 ||
+        nc <= 0 ||
+        nv > vx.length ||
+        nv > vy.length ||
+        nc > s.length ||
+        nc > e.length ||
+        x0 < 0 ||
+        y0 < 0 ||
+        x0 >= x1 ||
+        y0 >= y1 ||
+        x1 > 65535 ||
+        y1 > 65535 ||
+        out.ptr == null) {
+      return -2;
+    }
     final cells = (x1 - x0) * (y1 - y0);
-    if (nv < 2 || nc == 0 || out.ptr == null || cells > 262144) {
+    if (cells > 262144) {
       return -2;
     }
     if (cells > _peakCells) _peakCells = cells;
@@ -1100,18 +1194,35 @@ class NativeCoverageWorkspace {
     int color,
   ) {
     final target = dst.ptr;
-    final cells = (x1 - x0) * (y1 - y0);
     if (_borrowedUnavailable ||
         target == null ||
         nv < 2 ||
-        nc == 0 ||
-        out.ptr == null ||
-        cells > 262144 ||
+        nc <= 0 ||
+        nv > vx.length ||
+        nv > vy.length ||
+        nc > s.length ||
+        nc > e.length ||
+        x0 < 0 ||
+        y0 < 0 ||
+        x0 >= x1 ||
+        y0 >= y1 ||
+        x1 > 65535 ||
+        y1 > 65535 ||
+        stride <= 0 ||
+        x0 < originX ||
+        y0 < originY ||
+        out.ptr == null) {
+      return -2;
+    }
+    final dstLen = dst.typedList.length;
+    final cells = (x1 - x0) * (y1 - y0);
+    if (cells > 262144 ||
         nv > 1024 ||
         nc > 128 ||
         x1 - x0 > 384 ||
         y1 - y0 > 384 ||
-        nv * (x1 - x0 + y1 - y0 + 4) + cells > 196608) {
+        nv * (x1 - x0 + y1 - y0 + 4) + cells > 196608 ||
+        (y1 - 1 - originY) * stride + (x1 - originX) > dstLen) {
       return -2;
     }
     try {
@@ -1143,6 +1254,7 @@ class NativeCoverageWorkspace {
         out.typedList.length ~/ 2,
         _bounds,
         target,
+        dstLen,
         originX,
         originY,
         stride,

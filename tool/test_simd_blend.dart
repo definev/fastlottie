@@ -7,6 +7,7 @@ import 'package:ffi/ffi.dart';
 
 typedef NativeFillSolidSpans = ffi.Void Function(
   ffi.Pointer<ffi.Uint32> dst,
+  ffi.Int32 dstLen,
   ffi.Int32 dstOriginX,
   ffi.Int32 dstOriginY,
   ffi.Int32 stride,
@@ -17,6 +18,7 @@ typedef NativeFillSolidSpans = ffi.Void Function(
 
 typedef DartFillSolidSpans = void Function(
   ffi.Pointer<ffi.Uint32> dst,
+  int dstLen,
   int dstOriginX,
   int dstOriginY,
   int stride,
@@ -97,7 +99,16 @@ void main() {
   final swNative = Stopwatch()..start();
   for (var loop = 0; loop < 100; loop++) {
     dstNative.fillRange(0, width * height, 0);
-    nativeFill(dstPtrNative, 0, 0, width, spansPtr, numSpans, testColor);
+    nativeFill(
+      dstPtrNative,
+      width * height,
+      0,
+      0,
+      width,
+      spansPtr,
+      numSpans,
+      testColor,
+    );
   }
   swNative.stop();
   final timeNativeUs = swNative.elapsedMicroseconds / 100.0;

@@ -415,10 +415,6 @@ class RasterWorkspace {
   final _staticGradientLuts =
       Map<_GradientSpec, _SceneCacheEntry<NativePixelBuffer>>.identity();
   NativePixelBuffer? _scratchGradientLut;
-  NativePixelBuffer? _nativeInverseAlphaLut;
-
-  NativePixelBuffer get _inverseAlphaLut =>
-      _nativeInverseAlphaLut ??= SwarBlender.allocateInverseAlphaTable();
 
   void _releaseGradientLuts() {
     for (final lut in _staticGradientLuts.values) {
@@ -469,8 +465,6 @@ class RasterWorkspace {
     resetCaches();
     _scratchGradientLut?.dispose();
     _scratchGradientLut = null;
-    _nativeInverseAlphaLut?.dispose();
-    _nativeInverseAlphaLut = null;
     _nativeCoverage?.release();
     _nativeCoverage = null;
     _rasterSpans?.dispose();

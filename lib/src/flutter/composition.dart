@@ -52,16 +52,22 @@ class FastLottieComposition {
     Map<String, dynamic> json, {
     FastLottieOptions options = const FastLottieOptions(),
   }) {
-    dynamic copy(dynamic value) {
-      if (value is Map<String, dynamic>) {
-        return value.map((k, v) => MapEntry(k, copy(v)));
+    const maxDepth = 256;
+    dynamic copy(dynamic value, int depth) {
+      if (depth > maxDepth) {
+        throw const FormatException('JSON nesting depth exceeds $maxDepth');
       }
-      if (value is List) return value.map(copy).toList();
+      if (value is Map<String, dynamic>) {
+        return value.map((k, v) => MapEntry(k, copy(v, depth + 1)));
+      }
+      if (value is List) {
+        return value.map((v) => copy(v, depth + 1)).toList();
+      }
       return value;
     }
 
     return FastLottieComposition._fromOwned(
-      copy(json) as Map<String, dynamic>,
+      copy(json, 0) as Map<String, dynamic>,
       options,
       sourceBytes: kIsWeb
           ? Uint8List.fromList(_jsonBytesCodec.encode(json))

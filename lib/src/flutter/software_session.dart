@@ -25,8 +25,13 @@ class FastLottieSoftwareSession {
     bool borrowGeometry = true,
     bool nativeStroke = true,
     bool usePreparedScene = false,
-  }) : _ws = RasterWorkspace(
-         initialHeight: pixelHeight,
+  }) : assert(() {
+         RangeError.checkValueInInterval(pixelWidth, 0, 65535, 'pixelWidth');
+         RangeError.checkValueInInterval(pixelHeight, 0, 65535, 'pixelHeight');
+         return true;
+       }()),
+       _ws = RasterWorkspace(
+         initialHeight: _checkSessionDimension(pixelHeight, 'pixelHeight'),
          preferNative: preferNative,
          retainCoverage: retainCoverage,
          fuseFillTransforms: fuseFillTransforms,
@@ -36,7 +41,17 @@ class FastLottieSoftwareSession {
        _scene = usePreparedScene
            ? composition.takeScene()
            : composition.sceneTemplate.fork(),
-       _pixelBuffer = NativePixelBuffer(pixelWidth * pixelHeight);
+       _pixelBuffer = NativePixelBuffer(
+         _checkSessionDimension(pixelWidth, 'pixelWidth') *
+             _checkSessionDimension(pixelHeight, 'pixelHeight'),
+       );
+
+  static int _checkSessionDimension(int value, String name) {
+    if (value < 0 || value > 65535) {
+      throw ArgumentError.value(value, name, 'Must be between 0 and 65535');
+    }
+    return value;
+  }
 
   /// Width of the output buffer in pixels.
   final int pixelWidth;
