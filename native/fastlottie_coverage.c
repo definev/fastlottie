@@ -421,9 +421,10 @@ static inline uint32_t fl_src_over(uint32_t src, uint32_t dst) {
 }
 
 static void fl_fill_solid(const int32_t *spans, int32_t count,
-                          uint32_t *dst, int32_t origin_x, int32_t origin_y,
+                          uint32_t *dst, int32_t dst_len,
+                          int32_t origin_x, int32_t origin_y,
                           int32_t stride, uint32_t color) {
-  if (!dst || !color) return;
+  if (!dst || dst_len <= 0 || stride <= 0 || !color) return;
   for (int32_t i = 0; i < count * 2; i += 2) {
     const uint32_t xy = (uint32_t)spans[i], run = (uint32_t)spans[i + 1];
     const uint32_t src = fl_scale_premul(color, (run & 255) + 1);
@@ -431,7 +432,9 @@ static void fl_fill_solid(const int32_t *spans, int32_t count,
     const int32_t y = (int32_t)(xy >> 16) - origin_y;
     const int32_t x = (int32_t)(xy & 65535) - origin_x;
     const int32_t len = (int32_t)(run >> 8);
-    uint32_t *row = dst + (int64_t)y * stride + x;
+    const int64_t row_off = (int64_t)y * stride + x;
+    if (len <= 0 || row_off < 0 || row_off + len > dst_len) continue;
+    uint32_t *row = dst + row_off;
     const uint32_t sa = src >> 24;
 
     if (sa == 255) {
@@ -552,10 +555,11 @@ FL_EXPORT int32_t fl_dense_raster_solid_borrowed(
     void *state, const double *x, const double *y,
     const int32_t *start, const int32_t *end, int32_t vertices, int32_t contours,
     int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t odd,
-    int32_t *out, int32_t cap, int32_t *bounds, uint32_t *dst,
+    int32_t *out, int32_t cap, int32_t *bounds, uint32_t *dst, int32_t dst_len,
     int32_t origin_x, int32_t origin_y, int32_t stride, uint32_t color) {
   FLDense *r = state;
-  if (!r || !dst || vertices < 2 || vertices > 1024 || contours < 1 || contours > 128 ||
+  if (!r || !dst || dst_len <= 0 || vertices < 2 || vertices > 1024 ||
+      contours < 1 || contours > 128 ||
       x0 < 0 || y0 < 0 || x1 > 65535 || y1 > 65535 || x0 >= x1 || y0 >= y1 ||
       x1 - x0 > 384 || y1 - y0 > 384 || cap < 1 || stride <= 0) return -2;
   const int w = x1 - x0, h = y1 - y0;
@@ -568,6 +572,8 @@ FL_EXPORT int32_t fl_dense_raster_solid_borrowed(
   }
   const int32_t count = fl_dense_run(r, x, y, start, end, contours,
                                      x0, y0, x1, y1, odd, out, cap, bounds);
-  if (count >= 0) fl_fill_solid(out, count, dst, origin_x, origin_y, stride, color);
+  if (count >= 0) {
+    fl_fill_solid(out, count, dst, dst_len, origin_x, origin_y, stride, color);
+  }
   return count;
 }

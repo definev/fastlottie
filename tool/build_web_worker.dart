@@ -8,7 +8,7 @@ Future<void> main(List<String> args) async {
   }
   final root = Platform.script.resolve('../');
   final bundled = File.fromUri(
-    root.resolve('lib/src/wasm/fastlottie_worker.js'),
+    root.resolve('lib/src/wasm/fastlottie_worker_v5.js'),
   );
   final scratch = await Directory.systemTemp.createTemp('fastlottie-worker-');
   try {

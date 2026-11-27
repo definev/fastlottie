@@ -84,14 +84,19 @@ static inline uint32_t blend_src_over(uint32_t s, uint32_t d) {
     return src_over_ia(s, d, 255 - sa);
 }
 
+FL_EXPORT int32_t fastlottie_wasm_abi_version(void) {
+    return 2;
+}
+
 FL_EXPORT void fastlottie_clear_pixels(uint32_t* dst, int32_t count) {
     if (dst && count > 0) {
         memset(dst, 0, (size_t)count * sizeof(uint32_t));
     }
 }
 
-FL_EXPORT void fastlottie_fill_solid_spans(
+FL_EXPORT void fastlottie_fill_solid_spans_v2(
     uint32_t* dst,
+    int32_t dst_len,
     int32_t dstOriginX,
     int32_t dstOriginY,
     int32_t stride,
@@ -99,7 +104,7 @@ FL_EXPORT void fastlottie_fill_solid_spans(
     int32_t spanCount,
     uint32_t srcPremul
 ) {
-    if (!dst || !data || spanCount <= 0 || srcPremul == 0) return;
+    if (!dst || dst_len <= 0 || stride <= 0 || !data || spanCount <= 0 || srcPremul == 0) return;
 
     const int32_t total = spanCount * 2;
     for (int32_t i = 0; i < total; i += 2) {
@@ -111,11 +116,14 @@ FL_EXPORT void fastlottie_fill_solid_spans(
         int32_t len = (int32_t)(w1 >> 8);
         uint32_t cov = (w1 & 0xFF) + 1;
 
+        const int64_t row_off = (int64_t)y * stride + x;
+        if (len <= 0 || row_off < 0 || row_off + len > dst_len) continue;
+
         uint32_t effSrc = cov == 256 ? srcPremul : scale_premul(srcPremul, cov);
         if (effSrc == 0) continue;
 
         uint32_t sa = effSrc >> 24;
-        uint32_t* row = dst + ((int64_t)y * stride + x);
+        uint32_t* row = dst + row_off;
 
         if (sa == 255) {
             int32_t p = 0;
@@ -418,6 +426,7 @@ static FL_ALWAYS_INLINE void composite_alpha_matte_impl(
 
 FL_EXPORT void fastlottie_composite_matte(
     uint32_t* dst,
+    int32_t dst_len,
     int32_t dstOriginX,
     int32_t dstOriginY,
     int32_t dstStride,
@@ -428,10 +437,17 @@ FL_EXPORT void fastlottie_composite_matte(
     int32_t bx0,
     int32_t by0,
     int32_t isDstOut,
-    int32_t isLuma,
-    const uint32_t* invAlphaLut
+    int32_t isLuma
 ) {
-    if (!dst || !layerBuf || !matteBuf || bw <= 0 || bh <= 0) return;
+    if (!dst || dst_len <= 0 || dstStride <= 0 || !layerBuf || !matteBuf ||
+        bw <= 0 || bh <= 0) {
+        return;
+    }
+    const int64_t first_off = (int64_t)(by0 - dstOriginY) * dstStride + (bx0 - dstOriginX);
+    const int64_t last_end = (int64_t)(by0 + bh - 1 - dstOriginY) * dstStride + (bx0 - dstOriginX) + bw;
+    if (bx0 < dstOriginX || by0 < dstOriginY || first_off < 0 || last_end > dst_len) {
+        return;
+    }
 
     if (!isLuma) {
         if (isDstOut) {
@@ -457,25 +473,16 @@ FL_EXPORT void fastlottie_composite_matte(
             uint32_t tPx = tRow[col];
             if (tPx == 0) continue;
 
+            // Matte pixels are premultiplied (r = R_straight * mAlpha / 255),
+            // so BT.601 luminance directly on premultiplied RGB yields
+            // mAlpha * luma_straight, preserving AA and matte opacity.
             uint32_t mPx = mRow[col];
-            uint32_t mAlpha = mPx >> 24;
-            int32_t factor;
-            if (mAlpha == 0) {
-                factor = isDstOut ? 255 : 0;
-            } else {
-                uint32_t r = (mPx >> 16) & 0xFF;
-                uint32_t g = (mPx >> 8) & 0xFF;
-                uint32_t b = mPx & 0xFF;
-                if (mAlpha != 255 && invAlphaLut) {
-                    uint32_t inv = invAlphaLut[mAlpha];
-                    r = (r * inv) >> 16;
-                    g = (g * inv) >> 16;
-                    b = (b * inv) >> 16;
-                }
-                uint32_t lum = (19595 * r + 38470 * g + 7471 * b) >> 16;
-                if (lum > 255) lum = 255;
-                factor = isDstOut ? (255 - lum) : lum;
-            }
+            uint32_t r = (mPx >> 16) & 0xFF;
+            uint32_t g = (mPx >> 8) & 0xFF;
+            uint32_t b = mPx & 0xFF;
+            uint32_t lum = (19595 * r + 38470 * g + 7471 * b + 32768) >> 16;
+            if (lum > 255) lum = 255;
+            int32_t factor = isDstOut ? (int32_t)(255 - lum) : (int32_t)lum;
 
             if (factor <= 0) continue;
             uint32_t masked = (factor >= 255) ? tPx : scale_premul_255(tPx, (uint32_t)factor);
@@ -803,10 +810,12 @@ FL_EXPORT void fastlottie_blend_rect(
     }
 }
 
-FL_EXPORT void fastlottie_blend_solid(
-    uint32_t *dst, int32_t origin_x, int32_t origin_y, int32_t stride,
-    const int32_t *spans, int32_t count, uint32_t color, int32_t mode
+FL_EXPORT void fastlottie_blend_solid_v2(
+    uint32_t *dst, int32_t dst_len, int32_t origin_x, int32_t origin_y,
+    int32_t stride, const int32_t *spans, int32_t count,
+    uint32_t color, int32_t mode
 ) {
+    if (!dst || dst_len <= 0 || stride <= 0 || !spans || count <= 0 || color == 0) return;
     uint32_t prev_src = 0, prev_dst = 0, result = 0;
     for (int i = 0; i < count * 2; i += 2) {
         const uint32_t xy = (uint32_t)spans[i], run = (uint32_t)spans[i + 1];
@@ -814,8 +823,11 @@ FL_EXPORT void fastlottie_blend_solid(
         if (s == 0) continue;
         const int y = (int)(xy >> 16) - origin_y;
         const int x = (int)(xy & 65535) - origin_x;
-        uint32_t *row = dst + (int64_t)y * stride + x;
-        for (uint32_t p = 0; p < (run >> 8); ++p) {
+        const int len = (int)(run >> 8);
+        const int64_t row_off = (int64_t)y * stride + x;
+        if (len <= 0 || row_off < 0 || row_off + len > dst_len) continue;
+        uint32_t *row = dst + row_off;
+        for (int p = 0; p < len; ++p) {
             const uint32_t d = row[p];
             if (s != prev_src || d != prev_dst) {
                 prev_src = s;
@@ -1030,7 +1042,7 @@ static FL_ALWAYS_INLINE void gradient_store4_src_over_scaled(
 }
 
 static void gradient_linear_src_over(
-    uint32_t* dst, int32_t ox, int32_t oy, int32_t stride,
+    uint32_t* dst, int32_t dst_len, int32_t ox, int32_t oy, int32_t stride,
     const int32_t* spans, int32_t count, const uint32_t* lut,
     uint32_t opacity,
     double ia, double ib, double ic, double id, double itx, double ity,
@@ -1043,7 +1055,7 @@ static void gradient_linear_src_over(
     const double len_sq = gx * gx + gy * gy;
     if (!(len_sq > 1e-12)) {
         const uint32_t c = (opacity == 255) ? lut[0] : scale_premul_255(lut[0], opacity);
-        fastlottie_fill_solid_spans(dst, ox, oy, stride, spans, count, c);
+        fastlottie_fill_solid_spans_v2(dst, dst_len, ox, oy, stride, spans, count, c);
         return;
     }
     const double inv_len_sq = 1.0 / len_sq;
@@ -1057,7 +1069,9 @@ static void gradient_linear_src_over(
         const int x = xy & 65535, y = xy >> 16;
         const int len = run >> 8;
         const uint32_t cov = (run & 255) + 1;
-        uint32_t* row = dst + (int64_t)(y - oy) * stride + x - ox;
+        const int64_t row_off = (int64_t)(y - oy) * stride + x - ox;
+        if (len <= 0 || row_off < 0 || row_off + len > dst_len) continue;
+        uint32_t* row = dst + row_off;
         const double px = x + 0.5, py = y + 0.5;
         const double lx = ia * px + ic * py + itx;
         const double ly = ib * px + id * py + ity;
@@ -1163,7 +1177,7 @@ static void gradient_linear_src_over(
 }
 
 static void gradient_radial_src_over(
-    uint32_t* dst, int32_t ox, int32_t oy, int32_t stride,
+    uint32_t* dst, int32_t dst_len, int32_t ox, int32_t oy, int32_t stride,
     const int32_t* spans, int32_t count, const uint32_t* lut,
     uint32_t opacity,
     double ia, double ib, double ic, double id, double itx, double ity,
@@ -1191,7 +1205,9 @@ static void gradient_radial_src_over(
         const int x = xy & 65535, y = xy >> 16;
         const int len = run >> 8;
         const uint32_t cov = (run & 255) + 1;
-        uint32_t* row = dst + (int64_t)(y - oy) * stride + x - ox;
+        const int64_t row_off = (int64_t)(y - oy) * stride + x - ox;
+        if (len <= 0 || row_off < 0 || row_off + len > dst_len) continue;
+        uint32_t* row = dst + row_off;
         const double px = x + 0.5, py = y + 0.5;
         const double dx = nia * px + nic * py + nitx;
         const double dy = nib * px + nid * py + nity;
@@ -1293,7 +1309,7 @@ static FL_ALWAYS_INLINE void gradient_store_blend(
 }
 
 static FL_ALWAYS_INLINE void gradient_spans_blend_impl(
-    uint32_t *dst, int32_t ox, int32_t oy, int32_t stride,
+    uint32_t *dst, int32_t dst_len, int32_t ox, int32_t oy, int32_t stride,
     const int32_t *spans, int32_t count, const uint32_t *lut,
     uint32_t opacity, int32_t mode, int32_t radial, int specialize_multiply,
     double ia, double ib, double ic, double id, double itx, double ity,
@@ -1326,7 +1342,9 @@ static FL_ALWAYS_INLINE void gradient_spans_blend_impl(
         const int x = xy & 65535, y = xy >> 16;
         const int len = run >> 8;
         const uint32_t cov = (run & 255) + 1;
-        uint32_t *row = dst + (int64_t)(y - oy) * stride + x - ox;
+        const int64_t row_off = (int64_t)(y - oy) * stride + x - ox;
+        if (len <= 0 || row_off < 0 || row_off + len > dst_len) continue;
+        uint32_t *row = dst + row_off;
         const double px = x + .5, py = y + .5;
         if (!radial) {
             double t = 0;
@@ -1395,34 +1413,34 @@ static FL_ALWAYS_INLINE void gradient_spans_blend_impl(
     }
 }
 
-FL_EXPORT void fastlottie_gradient_spans(
-    uint32_t *dst, int32_t ox, int32_t oy, int32_t stride,
+FL_EXPORT void fastlottie_gradient_spans_v2(
+    uint32_t *dst, int32_t dst_len, int32_t ox, int32_t oy, int32_t stride,
     const int32_t *spans, int32_t count, const uint32_t *lut,
     uint32_t opacity, int32_t mode, int32_t radial,
     double ia, double ib, double ic, double id, double itx, double ity,
     double sx, double sy, double ex, double ey
 ) {
-    if (count <= 0 || opacity == 0) return;
+    if (!dst || dst_len <= 0 || stride <= 0 || !spans || !lut || count <= 0 || opacity == 0) return;
     if (mode == 0) {
         if (!radial) {
             gradient_linear_src_over(
-                dst, ox, oy, stride, spans, count, lut, opacity,
+                dst, dst_len, ox, oy, stride, spans, count, lut, opacity,
                 ia, ib, ic, id, itx, ity, sx, sy, ex, ey
             );
         } else {
             gradient_radial_src_over(
-                dst, ox, oy, stride, spans, count, lut, opacity,
+                dst, dst_len, ox, oy, stride, spans, count, lut, opacity,
                 ia, ib, ic, id, itx, ity, sx, sy, ex, ey
             );
         }
     } else if (mode == 1) {
         gradient_spans_blend_impl(
-            dst, ox, oy, stride, spans, count, lut, opacity, 1, radial, 1,
+            dst, dst_len, ox, oy, stride, spans, count, lut, opacity, 1, radial, 1,
             ia, ib, ic, id, itx, ity, sx, sy, ex, ey
         );
     } else {
         gradient_spans_blend_impl(
-            dst, ox, oy, stride, spans, count, lut, opacity, mode, radial, 0,
+            dst, dst_len, ox, oy, stride, spans, count, lut, opacity, mode, radial, 0,
             ia, ib, ic, id, itx, ity, sx, sy, ex, ey
         );
     }

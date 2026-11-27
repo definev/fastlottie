@@ -429,6 +429,15 @@ class BitstreamStore {
         file.writtenCount >= totalFrames) {
       return true;
     }
+    var maxAvailable = cached?.length ?? 0;
+    if (_tilePages.isNotEmpty) {
+      for (final key in _tilePages.keys) {
+        if (key.$1 == entryKey) {
+          maxAvailable += TilePlaybackPage.maxFrames;
+        }
+      }
+    }
+    if (maxAvailable < totalFrames) return false;
     var available = 0;
     for (var f = 0; f < totalFrames; f++) {
       if ((cached != null && cached.contains(f)) ||

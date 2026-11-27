@@ -98,7 +98,6 @@ bool nativeCompositeMatte(
   int boxY,
   bool dstOut,
   bool luma,
-  NativePixelBuffer inverseAlpha,
 ) => false;
 
 bool get isNativeGradientSupported => false;

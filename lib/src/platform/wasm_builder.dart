@@ -5,7 +5,7 @@ import 'package:hooks/hooks.dart';
 
 import 'c_library.dart';
 
-const wasmFileName = 'fastlottie_simd.wasm';
+const wasmFileName = 'fastlottie_simd_v2.wasm';
 
 Future<void> buildWasmAsset(BuildInput input, BuildOutputBuilder output) async {
   final zig = input.userDefines.path('zig');

@@ -1,5 +1,7 @@
 part of 'raster_core.dart';
 
+const int _maxSoftwareDimension = 65535;
+
 /// Renders [scene] into premultiplied BGRA8888. [rowStride] is measured in
 /// pixels, including padding; defaults to [pixelWidth]. No `dart:ui` calls.
 void _renderSceneSoftware(
@@ -11,10 +13,23 @@ void _renderSceneSoftware(
   RasterWorkspace ws, {
   int? rowStride,
 }) {
+  if (pixelWidth < 0 ||
+      pixelHeight < 0 ||
+      pixelWidth > _maxSoftwareDimension ||
+      pixelHeight > _maxSoftwareDimension) {
+    throw ArgumentError(
+      'Raster dimensions ${pixelWidth}x$pixelHeight must be in 0..$_maxSoftwareDimension',
+    );
+  }
   final stride = rowStride ?? pixelWidth;
   final total = pixelWidth * pixelHeight;
+  if (stride < pixelWidth ||
+      (pixelHeight > 0 &&
+          stride > outBgra8888.typedList.length ~/ pixelHeight)) {
+    throw ArgumentError('Raster output is too small');
+  }
   final allocated = stride * pixelHeight;
-  if (stride < pixelWidth || allocated > outBgra8888.typedList.length) {
+  if (allocated > outBgra8888.typedList.length) {
     throw ArgumentError('Raster output is too small');
   }
   if (ws.preferNative) {
@@ -411,7 +426,6 @@ void _renderCompilerInto(
           by0,
           isDstOut,
           isLuma,
-          ws._inverseAlphaLut,
         )) {
       ws.nativeMatteComposites++;
       continue;
@@ -631,28 +645,20 @@ void _compositeMatteDart(
       final tPx = layerBuf[srcRow + col];
       if (tPx == 0) continue;
       final mPx = matteBuf[srcRow + col];
-      final mAlpha = mPx >>> 24;
-      int factor;
+      final int factor;
       if (!isLuma) {
+        final mAlpha = mPx >>> 24;
         factor = isDstOut ? (255 - mAlpha) : mAlpha;
       } else {
-        if (mAlpha == 0) {
-          factor = isDstOut ? 255 : 0;
-        } else {
-          var r = (mPx >>> 16) & 0xFF;
-          var g = (mPx >>> 8) & 0xFF;
-          var b = mPx & 0xFF;
-          if (mAlpha != 255) {
-            final inv = SwarBlender.inverseAlpha(mAlpha);
-            r = (r * inv) >>> 16;
-            g = (g * inv) >>> 16;
-            b = (b * inv) >>> 16;
-          }
-          // Division-free BT.601 integer luminance: 0.299*65536=19595, 0.587*65536=38470, 0.114*65536=7471.
-          final rawLum = (19595 * r + 38470 * g + 7471 * b) >>> 16;
-          final lum = rawLum > 255 ? 255 : rawLum;
-          factor = isDstOut ? (255 - lum) : lum;
-        }
+        // Matte pixels are already premultiplied (r = R_straight * mAlpha / 255),
+        // so BT.601 luminance directly on premultiplied RGB equals
+        // mAlpha * luma_straight, preserving subpixel anti-aliasing and opacity.
+        final r = (mPx >>> 16) & 0xFF;
+        final g = (mPx >>> 8) & 0xFF;
+        final b = mPx & 0xFF;
+        final rawLum = (19595 * r + 38470 * g + 7471 * b + 32768) >>> 16;
+        final lum = rawLum > 255 ? 255 : rawLum;
+        factor = isDstOut ? (255 - lum) : lum;
       }
       if (factor == 0) continue;
       final masked = factor == 255
@@ -779,7 +785,10 @@ void _renderLayerInto(
     final dy = mb * shadow.dx + md * shadow.dy;
     final shiftX = (dx * 256).round();
     final shiftY = (dy * 256).round();
-    final stepX = -shiftX >> 8, stepY = -shiftY >> 8;
+    // dart2js `>>` returns an unsigned uint32 on negative operands; recover the
+    // signed 32-bit floor quotient so positive shadow offsets do not wrap to +4e9.
+    final stepX = (-shiftX >> 8).toSigned(32);
+    final stepY = (-shiftY >> 8).toSigned(32);
     final weightX = -shiftX & 255, weightY = -shiftY & 255;
     // Include alpha just outside the output clip when the shifted sample
     // needs it. The unsigned span coordinates cannot address negative pixels.

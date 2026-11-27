@@ -22,9 +22,9 @@ dependencies:
 
 flutter:
   assets:
-    - path: lib/src/wasm/fastlottie_simd.wasm
+    - path: lib/src/wasm/fastlottie_simd_v2.wasm
       platforms: [web]
-    - path: lib/src/wasm/fastlottie_worker.js
+    - path: lib/src/wasm/fastlottie_worker_v5.js
       platforms: [web]
 
 dev_dependencies:

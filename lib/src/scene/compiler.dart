@@ -47,6 +47,15 @@ typedef _TrackDecoder = Float32List Function(
 
 class _Compiler {
   _Compiler(this.options);
+  static const double _maxFrameSpan = 36000;
+  static const double _minFrameRate = 1e-3;
+  static const double _maxFrameRate = 10000;
+  static const int _maxCompiledCommands = 200000;
+  static const int _maxGroupDepth = 64;
+  static final Paint _lumaBackdropPaint = Paint()
+    ..color = const Color(0xFF000000);
+  static final Paint _matteIsolationPaint = Paint();
+
   final FastLottieOptions options;
   late double width, height, start, end, fps;
   late final Rect boundsRect = Rect.fromLTWH(0, 0, width, height);
@@ -56,6 +65,24 @@ class _Compiler {
   late final bool isStatic = layers.every(
     (l) => l.isStatic && l.ip <= start && l.op >= end,
   );
+  late final bool hasNonNormalBlend = layers.any((l) => l.usesNonNormalBlend);
+  List<int>? _commandBudget;
+
+  void _chargeCommands(int count, _JsonPath path) {
+    commands += count;
+    final budget = _commandBudget;
+    if (budget != null) {
+      budget[0] += count;
+      if (budget[0] > _maxCompiledCommands) {
+        fail(
+          path,
+          'Composition exceeds command budget ($_maxCompiledCommands)',
+        );
+      }
+    } else if (commands > _maxCompiledCommands) {
+      fail(path, 'Composition exceeds command budget ($_maxCompiledCommands)');
+    }
+  }
 
   void dispose() {}
 
@@ -103,7 +130,9 @@ class _Compiler {
     Map<String, Map<String, dynamic>>? assetModels,
     Set<String> precompStack = const {},
     Map<(String, double, double), _Compiler>? precompTemplates,
+    List<int>? commandBudget,
   }) {
+    _commandBudget = commandBudget ?? <int>[1];
     check(json, _JsonPath.root, const {
       'v',
       'fr',
@@ -137,9 +166,10 @@ class _Compiler {
     final frameSpan = end - start;
     if (width <= 0 ||
         height <= 0 ||
-        fps <= 0 ||
+        fps < _minFrameRate ||
+        fps > _maxFrameRate ||
         frameSpan <= 0 ||
-        frameSpan > 0x7fffffff) {
+        frameSpan > _maxFrameSpan) {
       fail(_JsonPath.root, 'Invalid bounds/timing');
     }
     final assets = assetModels ?? <String, Map<String, dynamic>>{};
@@ -170,6 +200,7 @@ class _Compiler {
     final setMattes = <_Layer, (int, _JsonPath)>{};
     for (var i = 0; i < list.length; i++) {
       final path = _JsonPath.layers.index(i);
+      _chargeCommands(1, path);
       final m = map(list[i], path);
       check(m, path, const {
         'ddd',
@@ -319,13 +350,17 @@ class _Compiler {
               assetModels: assets,
               precompStack: {...precompStack, id},
               precompTemplates: precomps,
+              commandBudget: _commandBudget,
             );
           precomps[precompKey] = template;
           child = template;
+          commands += child.commands;
         } else {
+          // Charge budget BEFORE cloning so diamond precomp DAGs fail fast
+          // without exponential allocation.
+          _chargeCommands(template.commands, path.field('refId'));
           child = _Fork().scene(template);
         }
-        commands += child.commands;
         hasStroke |= child.hasStroke;
       }
       final timeRemap = m['tm'] != null
@@ -417,7 +452,7 @@ class _Compiler {
         }
         layer.matte = source;
         source.isMatteSource = true;
-        commands += 4;
+        _chargeCommands(4, _JsonPath.layers.index(i).field('tt'));
       }
     }
     for (final entry in setMattes.entries) {
@@ -436,7 +471,7 @@ class _Compiler {
       // Set Matte samples a source without consuming its ordinary draw.
       // A self reference samples the layer before its own matte.
       target.matte = source;
-      commands += 4;
+      _chargeCommands(4, at);
     }
     for (var i = 0; i < layers.length; i++) {
       if (rawLayers[i]['td'] == 1 && !layers[i].isMatteSource) {
@@ -537,15 +572,28 @@ class _Compiler {
         targetRect,
         matteRect,
       )!.inflate(1.0).intersect(bounds);
+      final isolateLumaMatte = layer.matteType >= 3 && matte.usesNonNormalBlend;
       canvas.saveLayer(layerBounds, layer.contentPaint);
       layer.draw(canvas, frame, alpha);
       canvas.saveLayer(layerBounds, layer.mattePaint);
+      if (layer.matteType >= 3) {
+        // Composite the matte onto opaque black so ColorFilter.matrix sees
+        // premultiplied RGB (mAlpha * straightRGB) with alpha == 1, preserving
+        // subpixel anti-aliasing and matte opacity fades.
+        canvas.drawRect(layerBounds, _lumaBackdropPaint);
+        if (isolateLumaMatte) {
+          // Draw non-normal matte blend modes against transparent first so
+          // modes such as multiply do not blend with the synthetic black backdrop.
+          canvas.saveLayer(layerBounds, _matteIsolationPaint);
+        }
+      }
       matte.draw(
         canvas,
         frame,
         matteParentAlpha,
         alphaOnly: layer.matteType < 3,
       );
+      if (isolateLumaMatte) canvas.restore();
       canvas.restore();
       canvas.restore();
     }
@@ -862,17 +910,26 @@ class _Compiler {
         ));
       }
     }
-    commands += track.valueCount ~/ 6;
+    _chargeCommands(track.valueCount ~/ 6, p);
     return _BezierGeometry(track, closed ?? true, closureKeys);
   }
 
-  _Group _group(dynamic value, _JsonPath path, _ShapePathCompiler paths) {
+  _Group _group(
+    dynamic value,
+    _JsonPath path,
+    _ShapePathCompiler paths, [
+    int depth = 0,
+  ]) {
+    if (depth > _maxGroupDepth) {
+      fail(path, 'Shape group nesting exceeds $_maxGroupDepth');
+    }
     if (value is! List) fail(path, 'Expected shape list');
     final sources = <_PathSource>[];
     final draws = <_Draw>[];
     _Transform? transform;
     for (var i = 0; i < value.length; i++) {
       final p = path.index(i);
+      _chargeCommands(1, p);
       final m = map(value[i], p);
       final type = m['ty'];
       final bm = m['bm'] ?? 0;
@@ -899,7 +956,7 @@ class _Compiler {
             'bm',
             'cl',
           });
-          final group = _group(m['it'], p.field('it'), paths);
+          final group = _group(m['it'], p.field('it'), paths, depth + 1);
           if (!hidden) {
             sources.add(group);
             draws.add(group);
@@ -947,7 +1004,7 @@ class _Compiler {
             0,
           ], separateEasing: true);
           final radius = _track(m['r'], p.field('r'), 1, [0]);
-          commands += 8;
+          _chargeCommands(8, p);
           if (!hidden) {
             sources.add(
               _Shape(_Primitive(type == 'el', pos, size, radius, m['d'] == 3)),
@@ -996,7 +1053,7 @@ class _Compiler {
                     ? _track(m['is'], p.field('is'), 1, [0])
                     : Track.constant([0.0]))
               : null;
-          commands += 12;
+          _chargeCommands(12, p);
           if (!hidden) {
             sources.add(
               _Shape(
@@ -1040,6 +1097,7 @@ class _Compiler {
             final shapes = <_Shape>[];
             void collect(List<_PathSource> items) {
               for (final source in items) {
+                _chargeCommands(1, p);
                 if (source is _Shape) shapes.add(source);
                 if (source is _Group) collect(source.sources);
               }
@@ -1051,7 +1109,7 @@ class _Compiler {
               shapes[n].content = _TrimPart(trim, n);
             }
           }
-          commands++;
+          _chargeCommands(1, p);
         case 'fl':
         case 'st':
         case 'gf':
@@ -1095,13 +1153,11 @@ class _Compiler {
               join > 3) {
             fail(p, 'Stroke cap/join');
           }
-          final color = _track(
-            m['c'],
-            p.field('c'),
-            3,
-            [0, 0, 0],
-            shareFallback: false,
-          )..gamma = true;
+          final color = _track(m['c'], p.field('c'), 3, [
+            0,
+            0,
+            0,
+          ], shareFallback: false)..gamma = true;
           // Lottie also permits RGB components encoded in [0,255].
           final values = color.constant ?? color.keyframes!.values;
           for (var base = 0; base < values.length; base += 3) {
@@ -1116,6 +1172,8 @@ class _Compiler {
           final opacity = _track(m['o'], p.field('o'), 1, [100]);
           final width = _track(m['w'], p.field('w'), 1, [1]);
           if (!hidden) {
+            // Account for the copied source-reference list before allocating it.
+            _chargeCommands(sources.length + 2, p);
             draws.add(
               _Style(
                 List.of(sources),
@@ -1133,8 +1191,9 @@ class _Compiler {
                 dash: dash,
               ),
             );
+          } else {
+            _chargeCommands(2, p);
           }
-          commands += 2;
         case 'mm':
           check(m, p, const {'ty', 'nm', 'mn', 'ix', 'hd', 'mm', 'bm', 'cix'});
           final mode = m['mm'] ?? 1;
@@ -1142,6 +1201,7 @@ class _Compiler {
             fail(p.field('mm'), 'Shape op mm mode $mode');
           }
           if (!hidden && sources.isNotEmpty) {
+            _chargeCommands(sources.length + 1, p);
             final operands = sources.where((s) {
               return s is! _Group || s.hasPathContent;
             }).toList();
@@ -1156,10 +1216,10 @@ class _Compiler {
                 incomplete ? operands.single : _MergePathSource(operands, mode),
               );
             }
-          } else if (hidden) {
-            sources.clear();
+          } else {
+            if (hidden) sources.clear();
+            _chargeCommands(1, p);
           }
-          commands++;
         default:
           fail(p.field('ty'), 'Shape op $type');
       }

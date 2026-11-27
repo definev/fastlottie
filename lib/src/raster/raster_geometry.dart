@@ -128,6 +128,7 @@ class PolyPath {
   }
 
   void addVertex(double x, double y) {
+    if (!(x.isFinite && y.isFinite)) return;
     if (vertexCount > _activeStart) {
       final px = vx[vertexCount - 1];
       final py = vy[vertexCount - 1];
@@ -152,7 +153,7 @@ class PolyPath {
     int depth = 0,
   ]) {
     if (depth >= 10) {
-      addVertex(x3, y3);
+      if (x3.isFinite && y3.isFinite) addVertex(x3, y3);
       return;
     }
     final dx1 = 3.0 * x1 - (2.0 * x0 + x3);
@@ -161,6 +162,10 @@ class PolyPath {
     final dy2 = 3.0 * y2 - (y0 + 2.0 * y3);
     final d1 = dx1 * dx1 + dy1 * dy1;
     final d2 = dx2 * dx2 + dy2 * dy2;
+    if (!(d1.isFinite && d2.isFinite)) {
+      if (x3.isFinite && y3.isFinite) addVertex(x3, y3);
+      return;
+    }
     if (d1 * 0.0625 <= flatnessSq && d2 * 0.0625 <= flatnessSq) {
       addVertex(x3, y3);
       return;

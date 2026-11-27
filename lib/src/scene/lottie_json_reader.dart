@@ -28,9 +28,12 @@ Map<String, dynamic> parseLottieJsonBytes(Uint8List bytes) {
 final class _LottieUtf8JsonParser {
   _LottieUtf8JsonParser(this._b) : _len = _b.length;
 
+  static const int _maxDepth = 256;
+
   final Uint8List _b;
   final int _len;
   int _pos = 0;
+  int _depth = 0;
 
   static const _pow10 = <double>[
     1e0,
@@ -97,11 +100,15 @@ final class _LottieUtf8JsonParser {
   }
 
   Map<String, dynamic> _parseObject() {
+    if (++_depth > _maxDepth) {
+      throw FormatException('JSON nesting depth exceeds $_maxDepth at $_pos');
+    }
     _pos++; // '{'
     _skipWs();
     final map = <String, dynamic>{};
     if (_pos < _len && _b[_pos] == 0x7D) {
       _pos++;
+      _depth--;
       return map;
     }
     while (true) {
@@ -128,6 +135,7 @@ final class _LottieUtf8JsonParser {
       }
       if (sep == 0x7D) {
         _pos++;
+        _depth--;
         return map;
       }
       throw FormatException('Expected "," or "}" at $_pos');
@@ -135,11 +143,15 @@ final class _LottieUtf8JsonParser {
   }
 
   Object _parseArray(String? parentKey) {
+    if (++_depth > _maxDepth) {
+      throw FormatException('JSON nesting depth exceeds $_maxDepth at $_pos');
+    }
     final startPos = _pos;
     _pos++; // '['
     _skipWs();
     if (_pos < _len && _b[_pos] == 0x5D) {
       _pos++;
+      _depth--;
       return <dynamic>[];
     }
 
@@ -148,7 +160,10 @@ final class _LottieUtf8JsonParser {
         _pos < _len &&
         _b[_pos] == 0x5B) {
       final packed = _tryParsePackedPoints();
-      if (packed != null) return packed;
+      if (packed != null) {
+        _depth--;
+        return packed;
+      }
       // Fallback to generic array parser on malformed/unexpected shape data.
       _pos = startPos + 1;
       _skipWs();
@@ -159,9 +174,17 @@ final class _LottieUtf8JsonParser {
     final firstByte = _pos < _len ? _b[_pos] : 0;
     if ((firstByte >= 0x30 && firstByte <= 0x39) || firstByte == 0x2D) {
       final numeric = _tryParseNumericArray(
-        preferFloat32: parentKey == 'k' || parentKey == 's' || parentKey == 'e' || parentKey == 'to' || parentKey == 'ti',
+        preferFloat32:
+            parentKey == 'k' ||
+            parentKey == 's' ||
+            parentKey == 'e' ||
+            parentKey == 'to' ||
+            parentKey == 'ti',
       );
-      if (numeric != null) return numeric;
+      if (numeric != null) {
+        _depth--;
+        return numeric;
+      }
       _pos = startPos + 1;
       _skipWs();
     }
@@ -181,6 +204,7 @@ final class _LottieUtf8JsonParser {
       }
       if (sep == 0x5D) {
         _pos++;
+        _depth--;
         return list;
       }
       throw FormatException('Expected "," or "]" at $_pos');
@@ -626,7 +650,11 @@ final class _LottieUtf8JsonParser {
     if (len == 5 && b[s] == 0x72 && b[s + 1] == 0x65 && b[s + 4] == 0x64) {
       if (b[s + 2] == 0x66 && b[s + 3] == 0x49) return 'refId';
     }
-    if (len == 4 && b[s] == 0x6D && b[s + 1] == 0x6F && b[s + 2] == 0x64 && b[s + 3] == 0x65) {
+    if (len == 4 &&
+        b[s] == 0x6D &&
+        b[s + 1] == 0x6F &&
+        b[s + 2] == 0x64 &&
+        b[s + 3] == 0x65) {
       return 'mode';
     }
     return null;

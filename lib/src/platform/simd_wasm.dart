@@ -19,19 +19,24 @@ extension type _WasmMemory(JSObject _) implements JSObject {
   external JSArrayBuffer get buffer;
 }
 
+const int wasmAbiVersion = 2;
+
 extension type _WasmExports(JSObject _) implements JSObject {
   external _WasmMemory get memory;
   @JS('_initialize')
   external void initialize();
+  @JS('fastlottie_wasm_abi_version')
+  external int abiVersion();
   external int malloc(int bytes);
   external void free(int address);
 
   @JS('fastlottie_clear_pixels')
   external void clearPixels(int dst, int count);
 
-  @JS('fastlottie_fill_solid_spans')
+  @JS('fastlottie_fill_solid_spans_v2')
   external void fillSolidSpans(
     int dst,
+    int dstLen,
     int originX,
     int originY,
     int stride,
@@ -51,9 +56,10 @@ extension type _WasmExports(JSObject _) implements JSObject {
     int mode,
   );
 
-  @JS('fastlottie_blend_solid')
+  @JS('fastlottie_blend_solid_v2')
   external void blendSolid(
     int dst,
+    int dstLen,
     int originX,
     int originY,
     int stride,
@@ -83,9 +89,10 @@ extension type _WasmExports(JSObject _) implements JSObject {
     int opacity,
   );
 
-  @JS('fastlottie_gradient_spans')
+  @JS('fastlottie_gradient_spans_v2')
   external void gradientSpans(
     int dst,
+    int dstLen,
     int ox,
     int oy,
     int stride,
@@ -178,14 +185,15 @@ Future<void> initializeWasmKernels(Uint8List bytes) async {
   final exports = result.instance.exports;
   for (final name in const [
     '_initialize',
+    'fastlottie_wasm_abi_version',
     'malloc',
     'free',
     'fastlottie_clear_pixels',
-    'fastlottie_fill_solid_spans',
+    'fastlottie_fill_solid_spans_v2',
     'fastlottie_blend_rect',
-    'fastlottie_blend_solid',
+    'fastlottie_blend_solid_v2',
     'fastlottie_inner_shadow',
-    'fastlottie_gradient_spans',
+    'fastlottie_gradient_spans_v2',
     'fl_dense_new',
     'fl_dense_free',
     'fl_dense_trim',
@@ -196,6 +204,12 @@ Future<void> initializeWasmKernels(Uint8List bytes) async {
     }
   }
   exports.initialize();
+  final abi = exports.abiVersion();
+  if (abi != wasmAbiVersion) {
+    throw StateError(
+      'Incompatible FastLottie Wasm ABI: expected $wasmAbiVersion, got $abi',
+    );
+  }
   // Confirm the module exports readable memory before enabling the backend.
   if (exports.memory.buffer.toDart.lengthInBytes == 0) {
     throw StateError('FastLottie Wasm memory is empty');
@@ -207,8 +221,8 @@ Future<void> initializeWasmKernels(Uint8List bytes) async {
 ByteBuffer get _heap => _kernels!.memory.buffer.toDart;
 
 int _allocate(int bytes) {
-  final address = _kernels!.malloc(bytes == 0 ? 1 : bytes);
-  if (address <= 0) throw StateError('Could not allocate $bytes Wasm bytes');
+  final address = _kernels!.malloc(bytes == 0 ? 1 : bytes) >>> 0;
+  if (address == 0) throw StateError('Could not allocate $bytes Wasm bytes');
   _heap.asUint8List(address, bytes).fillRange(0, bytes, 0);
   return address;
 }
@@ -315,6 +329,10 @@ class NativePixelBuffer {
 }
 
 void simdClearPixels(NativePixelBuffer dst, int count) {
+  if (count <= 0) return;
+  if (count > dst._count) {
+    throw RangeError.range(count, 0, dst._count, 'count');
+  }
   if (_allowWasmKernels && dst.ptr != null) {
     _kernels!.clearPixels(dst.ptr!, count);
   } else {
@@ -332,9 +350,15 @@ bool simdFillSolidSpans(
   int srcPremul,
 ) {
   if (!_allowWasmKernels) return false;
-  if (dst.ptr != null && spans.ptr != null) {
+  if (dst.ptr != null &&
+      spans.ptr != null &&
+      stride > 0 &&
+      spanCount >= 0 &&
+      spanCount * 2 <= spans._count) {
+    if (spanCount == 0) return true;
     _kernels!.fillSolidSpans(
       dst.ptr!,
+      dst._count,
       dstOriginX,
       dstOriginY,
       stride,
@@ -358,7 +382,16 @@ bool nativeBlendRect(
 ) {
   if (!_allowWasmKernels) return false;
   final d = dst.ptr, s = src.ptr;
-  if (d == null || s == null) return false;
+  if (d == null ||
+      s == null ||
+      width <= 0 ||
+      height <= 0 ||
+      stride <= 0 ||
+      offset < 0 ||
+      src._count < width * height ||
+      offset + (height - 1) * stride + width > dst._count) {
+    return false;
+  }
   try {
     _kernels!.blendRect(d, offset, stride, s, width, height, mode);
     return true;
@@ -379,9 +412,26 @@ bool nativeBlendSolid(
 ) {
   if (!_allowWasmKernels) return false;
   final d = dst.ptr, s = spans.ptr;
-  if (d == null || s == null) return false;
+  if (d == null ||
+      s == null ||
+      stride <= 0 ||
+      count < 0 ||
+      count * 2 > spans._count) {
+    return false;
+  }
+  if (count == 0) return true;
   try {
-    _kernels!.blendSolid(d, originX, originY, stride, s, count, color, mode);
+    _kernels!.blendSolid(
+      d,
+      dst._count,
+      originX,
+      originY,
+      stride,
+      s,
+      count,
+      color,
+      mode,
+    );
     return true;
   } catch (_) {
     return false;
@@ -408,7 +458,22 @@ bool nativeInnerShadow(
 ) {
   if (!_allowWasmKernels) return false;
   final d = dst.ptr, s = src.ptr;
-  if (d == null || s == null) return false;
+  if (d == null ||
+      s == null ||
+      sw <= 0 ||
+      sh <= 0 ||
+      w <= 0 ||
+      h <= 0 ||
+      stride <= 0 ||
+      offset < 0 ||
+      x0 < 0 ||
+      y0 < 0 ||
+      x0 + w > sw ||
+      y0 + h > sh ||
+      src._count < sw * sh ||
+      offset + (h - 1) * stride + w > dst._count) {
+    return false;
+  }
   try {
     _kernels!.innerShadow(
       d,
@@ -457,11 +522,19 @@ bool nativeGradientSpans(
   double ey,
 ) {
   if (!_allowWasmKernels) return false;
-  if (dst.ptr == null || spans.ptr == null || lut.ptr == null) {
+  if (dst.ptr == null ||
+      spans.ptr == null ||
+      lut.ptr == null ||
+      stride <= 0 ||
+      count < 0 ||
+      count * 2 > spans._count ||
+      lut._count < 1024) {
     return false;
   }
+  if (count == 0) return true;
   _kernels!.gradientSpans(
     dst.ptr!,
+    dst._count,
     ox,
     oy,
     stride,
@@ -500,7 +573,6 @@ bool nativeCompositeMatte(
   int boxY,
   bool dstOut,
   bool luma,
-  NativePixelBuffer inverseAlpha,
 ) => false;
 
 class NativeCoverageWorkspace {
@@ -562,11 +634,26 @@ class NativeCoverageWorkspace {
     NativeSpansBuffer out, {
     bool borrowGeometry = true,
   }) {
-    copiedDraws++;
-    final cells = (x1 - x0) * (y1 - y0);
-    if (nv < 2 || nc == 0 || out.ptr == null || cells > 262144) {
+    if (nv < 2 ||
+        nc <= 0 ||
+        nv > vx.length ||
+        nv > vy.length ||
+        nc > s.length ||
+        nc > e.length ||
+        x0 < 0 ||
+        y0 < 0 ||
+        x0 >= x1 ||
+        y0 >= y1 ||
+        x1 > 65535 ||
+        y1 > 65535 ||
+        out.ptr == null) {
       return -2;
     }
+    final cells = (x1 - x0) * (y1 - y0);
+    if (cells > 262144) {
+      return -2;
+    }
+    copiedDraws++;
     if (cells > _peakCells) _peakCells = cells;
     if (nv > _points) {
       if (_points > 0) {

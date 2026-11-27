@@ -14,7 +14,11 @@ const bridge = `
   parentPort.on('message', data => self.onmessage({ data }));
 `;
 
-async function smoke(asset) {
+const WORKER_VERSION = 5;
+const WORKER_ASSET = 'lib/src/wasm/fastlottie_worker_v5.js';
+const WASM_ASSET = 'lib/src/wasm/fastlottie_simd_v2.wasm';
+
+function startWorker(asset) {
   const worker = new Worker(bridge, { eval: true, workerData: asset });
   function exchange(...messages) {
     return new Promise((resolve, reject) => {
@@ -34,11 +38,16 @@ async function smoke(asset) {
       for (const message of messages) worker.postMessage(message);
     });
   }
+  return { worker, exchange };
+}
+
+async function smoke(asset, wasmBytes = fs.readFileSync(WASM_ASSET), expectedWasm = true) {
+  const { worker, exchange } = startWorker(asset);
 
   try {
-    const wasm = fs.readFileSync('lib/src/wasm/fastlottie_simd.wasm').toString('base64');
-    const ready = await exchange([-1, 4, `data:application/wasm;base64,${wasm}`]);
-    assert.deepEqual(ready, [-2, 4, true]);
+    const wasm = wasmBytes.toString('base64');
+    const ready = await exchange([-1, WORKER_VERSION, `data:application/wasm;base64,${wasm}`]);
+    assert.deepEqual(ready, [-2, WORKER_VERSION, expectedWasm]);
 
     const width = 32;
     const height = 24;
@@ -88,11 +97,31 @@ async function smoke(asset) {
   }
 }
 
+async function testVersionAndAbiMismatch(asset, expectedPixels) {
+  // 1. Outdated host handshake version must be rejected immediately.
+  const { worker, exchange } = startWorker(asset);
+  try {
+    const wasm = fs.readFileSync(WASM_ASSET).toString('base64');
+    const failed = await exchange([-1, WORKER_VERSION - 1, `data:application/wasm;base64,${wasm}`]);
+    assert.equal(failed[0], -3);
+  } finally {
+    await worker.terminate();
+  }
+
+  // 2. Incompatible Wasm module (missing ABI version / v2 exports) must fall
+  // back cleanly to Dart rasterization and match the Wasm pixel output.
+  const emptyWasm = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+  const fallback = await smoke(asset, emptyWasm, false);
+  assert.deepEqual(fallback, expectedPixels);
+}
+
 async function main() {
-  const actual = await smoke(path.resolve('lib/src/wasm/fastlottie_worker.js'));
+  const asset = path.resolve(WORKER_ASSET);
+  const actual = await smoke(asset);
+  await testVersionAndAbiMismatch(asset, actual);
   const baseline = process.argv[2];
   if (baseline) assert.deepEqual(actual, await smoke(path.resolve(baseline)));
-  console.log('Browser worker protocol and frame/strip pixel checks passed.');
+  console.log('Browser worker protocol, ABI fallback, and frame/strip pixel checks passed.');
 }
 
 main().catch(error => {
