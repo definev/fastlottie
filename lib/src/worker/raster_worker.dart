@@ -17,6 +17,46 @@ import '../raster/raster_core.dart';
 import '../scene/options.dart';
 import 'worker_messages.dart';
 
+const _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
+
+void _unpackU32ToU8(Uint32List src, int pxCount, Uint8List dst) {
+  var i = 0;
+  var bp = 0;
+  final end4 = pxCount - 3;
+  while (i < end4) {
+    final v0 = src[i];
+    dst[bp] = v0;
+    dst[bp + 1] = v0 >>> 8;
+    dst[bp + 2] = v0 >>> 16;
+    dst[bp + 3] = v0 >>> 24;
+    final v1 = src[i + 1];
+    dst[bp + 4] = v1;
+    dst[bp + 5] = v1 >>> 8;
+    dst[bp + 6] = v1 >>> 16;
+    dst[bp + 7] = v1 >>> 24;
+    final v2 = src[i + 2];
+    dst[bp + 8] = v2;
+    dst[bp + 9] = v2 >>> 8;
+    dst[bp + 10] = v2 >>> 16;
+    dst[bp + 11] = v2 >>> 24;
+    final v3 = src[i + 3];
+    dst[bp + 12] = v3;
+    dst[bp + 13] = v3 >>> 8;
+    dst[bp + 14] = v3 >>> 16;
+    dst[bp + 15] = v3 >>> 24;
+    i += 4;
+    bp += 16;
+  }
+  while (i < pxCount) {
+    final v = src[i++];
+    dst[bp] = v;
+    dst[bp + 1] = v >>> 8;
+    dst[bp + 2] = v >>> 16;
+    dst[bp + 3] = v >>> 24;
+    bp += 4;
+  }
+}
+
 // A scene is only needed while a vector miss is in flight or a clip is still
 // warming frames. Twenty-four covers a full picker/chat viewport per shard
 // without thrashing; a finished entry is dropped once every frame is cached.
@@ -42,6 +82,50 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
   const softPixelCap = 512 * 512;
   final pixels = NativePixelBuffer(defaultPixelCap);
   var smallPixelStreak = 0;
+  // Reusable concrete WasmGC byte/pixel scratch buffers so dart2wasm avoids
+  // cross-type Uint8List.sublistView(Uint32List) (6x-40x slower) and
+  // NativePixelBuffer.slice Uint32List views (TFA polymorphism).
+  var wasmFrameBytes = Uint8List(0);
+  var wasmStripBytes = Uint8List(0);
+  NativePixelBuffer? wasmSlotPixels;
+
+  Uint8List ensureWasmFrameBytes(int byteCount) {
+    if (wasmFrameBytes.length < byteCount) {
+      var cap = math.max(defaultPixelCap * 4, wasmFrameBytes.length);
+      while (cap < byteCount) {
+        cap *= 2;
+      }
+      playback.invalidate();
+      wasmFrameBytes = Uint8List(cap);
+    }
+    return wasmFrameBytes;
+  }
+
+  Uint8List ensureWasmStripBytes(int byteCount) {
+    if (wasmStripBytes.length < byteCount) {
+      var cap = math.max(defaultPixelCap * 4, wasmStripBytes.length);
+      while (cap < byteCount) {
+        cap *= 2;
+      }
+      wasmStripBytes = Uint8List(cap);
+    }
+    return wasmStripBytes;
+  }
+
+  NativePixelBuffer ensureWasmSlotPixels(int count) {
+    var slot = wasmSlotPixels;
+    if (slot == null) {
+      return wasmSlotPixels = NativePixelBuffer(math.max(defaultPixelCap, count));
+    }
+    if (slot.typedList.length < count) {
+      var cap = math.max(defaultPixelCap, slot.typedList.length);
+      while (cap < count) {
+        cap *= 2;
+      }
+      slot.reallocate(cap, 0);
+    }
+    return slot;
+  }
 
   (int, int, int) frameTelemetry(
     int startedMicros,
@@ -75,7 +159,13 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
       Uint8List.sublistView(pixels.typedList, 0, count);
 
   void recordPixelUse(int pxCount) {
-    if (pixels.typedList.length <= softPixelCap) {
+    final oversizedPixels = pixels.typedList.length > softPixelCap;
+    final oversizedWasm =
+        _isWasm &&
+        (wasmFrameBytes.length > softPixelCap * 4 ||
+            wasmStripBytes.length > softPixelCap * 4 ||
+            (wasmSlotPixels?.typedList.length ?? 0) > softPixelCap);
+    if (!oversizedPixels && !oversizedWasm) {
       smallPixelStreak = 0;
       return;
     }
@@ -83,7 +173,18 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
       if (++smallPixelStreak >= 16) {
         smallPixelStreak = 0;
         playback.invalidate();
-        pixels.reallocate(defaultPixelCap, 0);
+        if (oversizedPixels) pixels.reallocate(defaultPixelCap, 0);
+        if (_isWasm) {
+          if (wasmFrameBytes.length > softPixelCap * 4) {
+            wasmFrameBytes = Uint8List(defaultPixelCap * 4);
+          }
+          if (wasmStripBytes.length > softPixelCap * 4) {
+            wasmStripBytes = Uint8List(defaultPixelCap * 4);
+          }
+          if ((wasmSlotPixels?.typedList.length ?? 0) > softPixelCap) {
+            wasmSlotPixels!.reallocate(defaultPixelCap, 0);
+          }
+        }
       }
     } else {
       smallPixelStreak = 0;
@@ -151,15 +252,34 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
       final padY = stripCount > 1 ? 1 : 0;
       final stripHeight = stripCount * height + (stripCount - 1) * padY;
       final pxCount = width * stripHeight;
-      ensurePixels(pxCount);
-      if (padY > 0) {
-        for (var j = 1; j < stripCount; j++) {
-          final padStart = (j * (height + padY) - 1) * width;
-          pixels.typedList.fillRange(padStart, padStart + width, 0);
+      final singleFramePx = width * height;
+      final Uint8List? wasmStripOut;
+      final Uint8List? wasmSlotByteBuf;
+      if (_isWasm) {
+        wasmStripOut = ensureWasmStripBytes(pxCount * 4);
+        wasmSlotByteBuf = ensureWasmFrameBytes(singleFramePx * 4);
+        if (padY > 0) {
+          for (var j = 1; j < stripCount; j++) {
+            final padByteStart = ((j * (height + padY) - 1) * width) << 2;
+            wasmStripOut.fillRange(
+              padByteStart,
+              padByteStart + (width << 2),
+              0,
+            );
+          }
+        }
+      } else {
+        wasmStripOut = null;
+        wasmSlotByteBuf = null;
+        ensurePixels(pxCount);
+        if (padY > 0) {
+          for (var j = 1; j < stripCount; j++) {
+            final padStart = (j * (height + padY) - 1) * width;
+            pixels.typedList.fillRange(padStart, padStart + width, 0);
+          }
         }
       }
 
-      final singleFramePx = width * height;
       var vectorRenderedCount = 0;
       var compressedHitCount = 0;
       var latestDiskBytes = -1;
@@ -192,7 +312,12 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         final scnFrame = startFrame + srcIdx;
         final slotY = j * (height + padY);
         final slotPxOffset = slotY * width;
-        final slot = pixels.slice(slotPxOffset, singleFramePx);
+        final NativePixelBuffer? slot = _isWasm
+            ? null
+            : pixels.slice(slotPxOffset, singleFramePx);
+        final Uint8List slotDstBytes = _isWasm
+            ? wasmSlotByteBuf!
+            : Uint8List.sublistView(slot!.typedList);
 
         final cacheHit = store.tryReadFrame(
           entryKey: entryKey,
@@ -201,10 +326,18 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           totalFrames: totalFrames,
           poster: poster,
           frameIndex: srcIdx,
-          dstBgra: Uint8List.sublistView(slot.typedList),
+          dstBgra: slotDstBytes,
         );
 
         if (cacheHit) {
+          if (_isWasm) {
+            final byteOff = slotPxOffset << 2;
+            wasmStripOut!.setRange(
+              byteOff,
+              byteOff + (singleFramePx << 2),
+              slotDstBytes,
+            );
+          }
           compressedHitCount++;
           warmPage ??= srcIdx;
           if (hasStripFp) {
@@ -234,10 +367,13 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         }
         scenes[contentKey] = scene;
 
+        final renderTarget = _isWasm
+            ? ensureWasmSlotPixels(singleFramePx)
+            : slot!;
         final startedMicros = telemetryClock.elapsedMicroseconds;
         final beforeNative = readNativeKernelTelemetry();
         final beforeGeometryCalls = nativeGeometryKernelCalls;
-        renderSceneSoftware(scene, scnFrame, slot, width, height, ws);
+        renderSceneSoftware(scene, scnFrame, renderTarget, width, height, ws);
         final telemetry = frameTelemetry(
           startedMicros,
           beforeNative,
@@ -248,6 +384,13 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         geometryCopyBytes += telemetry.$3;
         vectorRenderedCount++;
 
+        final Uint8List renderedSlotBytes;
+        if (_isWasm) {
+          _unpackU32ToU8(renderTarget.typedList, singleFramePx, slotDstBytes);
+          renderedSlotBytes = slotDstBytes;
+        } else {
+          renderedSlotBytes = Uint8List.sublistView(slot!.typedList);
+        }
         final stored = store.storeFrame(
           entryKey: entryKey,
           width: width,
@@ -255,9 +398,17 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           totalFrames: totalFrames,
           poster: poster,
           frameIndex: srcIdx,
-          srcBgra: Uint8List.sublistView(slot.typedList),
+          srcBgra: renderedSlotBytes,
           scratch: lz4,
         );
+        if (_isWasm) {
+          final byteOff = slotPxOffset << 2;
+          wasmStripOut!.setRange(
+            byteOff,
+            byteOff + (singleFramePx << 2),
+            renderedSlotBytes,
+          );
+        }
         if (stored.entryDiskBytes > 0) {
           latestDiskBytes = stored.entryDiskBytes;
         }
@@ -280,8 +431,15 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         }
       }
 
-      final stripBytes = pixelBytes(pxCount);
-      final packed = packBytesForIsolate(stripBytes);
+      final Object packed;
+      if (_isWasm) {
+        final stripByteLen = pxCount << 2;
+        packed = Uint8List(stripByteLen)
+          ..setRange(0, stripByteLen, wasmStripOut!);
+      } else {
+        final stripBytes = pixelBytes(pxCount);
+        packed = packBytesForIsolate(stripBytes);
+      }
       final int fpHi;
       final int fpLo;
       if (!hasStripFp) {
@@ -344,6 +502,8 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         scenes.clear();
         ws.dispose();
         pixels.dispose();
+        wasmSlotPixels?.dispose();
+        wasmSlotPixels = null;
         endpoint.close();
         return;
       case (
@@ -397,8 +557,14 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
       ):
         try {
           final pxCount = width * height;
-          ensurePixels(pxCount);
-          final dstBytes = pixelBytes(pxCount);
+          final frameByteLen = pxCount << 2;
+          final Uint8List dstBytes;
+          if (_isWasm) {
+            dstBytes = ensureWasmFrameBytes(frameByteLen);
+          } else {
+            ensurePixels(pxCount);
+            dstBytes = pixelBytes(pxCount);
+          }
 
           final cacheHit = store.tryReadFrame(
             entryKey: entryKey,
@@ -413,7 +579,10 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
 
           if (cacheHit) {
             releaseSceneIfCached(contentKey, entryKey, totalFrames);
-            final packed = packBytesForIsolate(dstBytes);
+            final packed = _isWasm
+                ? (Uint8List(frameByteLen)
+                    ..setRange(0, frameByteLen, dstBytes))
+                : packBytesForIsolate(dstBytes);
             endpoint.send((
               repFrameReady,
               requestId: reqId,
@@ -425,7 +594,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
               renderMicros: 0,
               kernelCalls: 0,
               geometryCopyBytes: 0,
-              transferBytes: dstBytes.lengthInBytes,
+              transferBytes: frameByteLen,
               fpHi: store.lastFrameFpHi,
               fpLo: store.lastFrameFpLo,
             ));
@@ -449,6 +618,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           }
           scenes[contentKey] = scene;
 
+          if (_isWasm) ensurePixels(pxCount);
           playback.invalidate();
           final startedMicros = telemetryClock.elapsedMicroseconds;
           final beforeNative = readNativeKernelTelemetry();
@@ -459,7 +629,13 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             beforeNative,
             beforeGeometryCalls,
           );
-          final renderedBytes = pixelBytes(pxCount);
+          final Uint8List renderedBytes;
+          if (_isWasm) {
+            _unpackU32ToU8(pixels.typedList, pxCount, dstBytes);
+            renderedBytes = dstBytes;
+          } else {
+            renderedBytes = pixelBytes(pxCount);
+          }
           final stored = store.storeFrame(
             entryKey: entryKey,
             width: width,
@@ -470,7 +646,10 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             srcBgra: renderedBytes,
             scratch: lz4,
           );
-          final packed = packBytesForIsolate(renderedBytes);
+          final packed = _isWasm
+              ? (Uint8List(frameByteLen)
+                  ..setRange(0, frameByteLen, renderedBytes))
+              : packBytesForIsolate(renderedBytes);
           endpoint.send((
             repFrameReady,
             requestId: reqId,
@@ -482,7 +661,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             renderMicros: telemetry.$1,
             kernelCalls: telemetry.$2,
             geometryCopyBytes: telemetry.$3,
-            transferBytes: renderedBytes.lengthInBytes,
+            transferBytes: frameByteLen,
             fpHi: stored.fpHi,
             fpLo: stored.fpLo,
           ));
@@ -576,6 +755,12 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         smallPixelStreak = 0;
         if (pixels.typedList.length > defaultPixelCap) {
           pixels.reallocate(defaultPixelCap, 0);
+        }
+        if (_isWasm) {
+          wasmFrameBytes = Uint8List(0);
+          wasmStripBytes = Uint8List(0);
+          wasmSlotPixels?.dispose();
+          wasmSlotPixels = null;
         }
         endpoint.send((
           repDeleted,

@@ -31,6 +31,8 @@ part 'polygon_boolean.dart';
 part '../scene/content_key.dart';
 
 const _isWeb = bool.fromEnvironment('dart.library.js_interop');
+const _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
+const _isJs = _isWeb && !_isWasm;
 
 // Browser workers ship as a separate precompiled asset. Keep its pixel
 // algorithm aligned with the Flutter web host, including inline fallback.

@@ -36,10 +36,10 @@ final class _ContentKeyHasher {
   }
 
   static int _mul32(int a, int b) {
-    // Native Dart multiplies integers modulo 2^64. The low 32 bits are
-    // identical, including when the product overflows the signed range.
+    // Native Dart and dart2wasm multiply integers modulo 2^64. The low 32 bits
+    // are identical, including when the product overflows the signed range.
     // dart2js numbers cannot represent those products exactly.
-    if (!_isWeb &&
+    if (!_isJs &&
         !const bool.fromEnvironment('FASTLOTTIE_SPLIT_HASH_MULTIPLY')) {
       return (a * b) & 0xFFFFFFFF;
     }
@@ -105,7 +105,7 @@ final class _ContentKeyHasher {
   }
 
   void _mixFloatRange(Float32List values, int start, int length) {
-    if (_isWeb ||
+    if (_isJs ||
         const bool.fromEnvironment('FASTLOTTIE_SPLIT_HASH_MULTIPLY')) {
       for (var i = 0; i < length; i++) {
         _mixDouble(values[start + i]);

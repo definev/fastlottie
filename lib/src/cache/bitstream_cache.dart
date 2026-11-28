@@ -476,13 +476,20 @@ class BitstreamStore {
   }
 
   void _recordIoUse(int usedBytes) {
-    if (_ioScratch.length <= _softIoScratchLimit) {
+    final wasmOversized =
+        _isWasm && _wasmReadScratch.length > _softIoScratchLimit;
+    if (_ioScratch.length <= _softIoScratchLimit && !wasmOversized) {
       _smallIoCount = 0;
       return;
     }
     if (usedBytes <= _defaultIoScratchBytes) {
       if (++_smallIoCount >= 16) {
-        _ioScratch = Uint8List(_defaultIoScratchBytes);
+        if (_ioScratch.length > _defaultIoScratchBytes) {
+          _ioScratch = Uint8List(_defaultIoScratchBytes);
+        }
+        if (wasmOversized) {
+          _wasmReadScratch = Uint8List(0);
+        }
         _smallIoCount = 0;
       }
     } else {
@@ -494,6 +501,12 @@ class BitstreamStore {
     _smallIoCount = 0;
     if (_ioScratch.length > targetCapacity) {
       _ioScratch = Uint8List(targetCapacity);
+    }
+    if (_isWasm) {
+      if (_wasmReadScratch.length > targetCapacity) {
+        _wasmReadScratch = Uint8List(0);
+      }
+      Lz4Codec.shrinkWasmScratch(targetCapacity);
     }
   }
 

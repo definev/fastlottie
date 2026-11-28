@@ -7,6 +7,7 @@ import '../platform/simd_stub.dart'
 import 'scanline_rasterizer.dart';
 
 const _isWeb = bool.fromEnvironment('dart.library.js_interop');
+const _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
 
 /// 64-bit SWAR premultiplied BGRA8888 (`(A << 24) | (R << 16) | (G << 8) | B`) blenders.
 abstract final class SwarBlender {
@@ -161,6 +162,8 @@ abstract final class SwarBlender {
             dst.length >>> 1,
           );
           _blendRun64(dst, dst64, row, end, effSrc, ia);
+        } else if (_isWasm && len >= 4) {
+          blendRunPacked64(dst, row, end, effSrc, ia);
         } else {
           for (var p = row; p < end; p++) {
             final d = dst[p];
@@ -232,6 +235,45 @@ abstract final class SwarBlender {
     }
   }
 
+  /// 2-pixel packed 64-bit SWAR blend directly over a monomorphic [Uint32List]
+  /// (zero `.buffer` / `Uint64List.view` overhead on dart2wasm).
+  static void blendRunPacked64(
+    Uint32List dst,
+    int row,
+    int end,
+    int effSrc,
+    int ia,
+  ) {
+    final effSrc64 = (effSrc << 32) | effSrc;
+    const mask = (0x00FF00FF << 32) | 0x00FF00FF;
+    const bias = (0x00800080 << 32) | 0x00800080;
+    const agMask = (0xFF00FF00 << 32) | 0xFF00FF00;
+    var p = row;
+    final end2 = end - 1;
+    while (p < end2) {
+      final d0 = dst[p];
+      final d1 = dst[p + 1];
+      if ((d0 | d1) == 0) {
+        dst[p] = effSrc;
+        dst[p + 1] = effSrc;
+      } else {
+        final d = (d1 << 32) | d0;
+        final rb0 = (d & mask) * ia + bias;
+        final rb = ((rb0 + ((rb0 >>> 8) & mask)) >>> 8) & mask;
+        final ag0 = ((d >>> 8) & mask) * ia + bias;
+        final ag = (ag0 + ((ag0 >>> 8) & mask)) & agMask;
+        final out = effSrc64 + (rb | ag);
+        dst[p] = out & 0xFFFFFFFF;
+        dst[p + 1] = out >>> 32;
+      }
+      p += 2;
+    }
+    if (p < end) {
+      final d = dst[p];
+      dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
+    }
+  }
+
   static void _fillSolidRun(
     Uint32List dst,
     Int32x4List? dst4,
@@ -278,6 +320,8 @@ abstract final class SwarBlender {
       final ia = 255 - sa;
       if (dst64 != null && len >= 4) {
         _blendRun64(dst, dst64, row, end, effSrc, ia);
+      } else if (_isWasm && len >= 4) {
+        blendRunPacked64(dst, row, end, effSrc, ia);
       } else {
         for (var p = row; p < end; p++) {
           final d = dst[p];

@@ -281,7 +281,8 @@ class _SceneSnapshot {
       sourceBytes: sourceBytes,
     );
     input.need((count + 1) * 4);
-    final offsets = input.position % 4 == 0 && Endian.host == Endian.little
+    final offsets =
+        !_isWasm && input.position % 4 == 0 && Endian.host == Endian.little
         ? bytes.buffer.asUint32List(input.position, count + 1)
         : List<int>.generate(
             count + 1,
@@ -663,9 +664,12 @@ class _SnapshotReader {
 
   Uint8List take(int n) {
     need(n);
-    final result = Uint8List.sublistView(bytes, position, position + n);
+    final start = position;
     position += n;
-    return result;
+    if (_isWasm) {
+      return Uint8List(n)..setRange(0, n, bytes, start);
+    }
+    return Uint8List.sublistView(bytes, start, start + n);
   }
 
   (int, int) array(int size) {
@@ -679,21 +683,45 @@ class _SnapshotReader {
 
   Float32List f32() {
     final (at, n) = array(4);
+    if (_isWasm) {
+      final out = Float32List(n);
+      for (var i = 0; i < n; i++) {
+        out[i] = data.getFloat32(at + (i << 2), Endian.host);
+      }
+      return out;
+    }
     return bytes.buffer.asFloat32List(at, n);
   }
 
   Float64List f64() {
     final (at, n) = array(8);
+    if (_isWasm) {
+      final out = Float64List(n);
+      for (var i = 0; i < n; i++) {
+        out[i] = data.getFloat64(at + (i << 3), Endian.host);
+      }
+      return out;
+    }
     return bytes.buffer.asFloat64List(at, n);
   }
 
   Int32List i32() {
     final (at, n) = array(4);
+    if (_isWasm) {
+      final out = Int32List(n);
+      for (var i = 0; i < n; i++) {
+        out[i] = data.getInt32(at + (i << 2), Endian.host);
+      }
+      return out;
+    }
     return bytes.buffer.asInt32List(at, n);
   }
 
   Uint8List u8() {
     final (at, n) = array(1);
+    if (_isWasm) {
+      return Uint8List(n)..setRange(0, n, bytes, at);
+    }
     return bytes.buffer.asUint8List(at, n);
   }
 }

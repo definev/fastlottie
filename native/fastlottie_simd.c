@@ -133,6 +133,11 @@ FL_EXPORT void fastlottie_fill_solid_spans_v2(
             for (; p <= len - 4; p += 4) {
                 _mm_storeu_si128((__m128i*)(row + p), val4);
             }
+#elif defined(__wasm_simd128__)
+            v128_t val4 = wasm_i32x4_splat((int32_t)effSrc);
+            for (; p <= len - 4; p += 4) {
+                wasm_v128_store(row + p, val4);
+            }
 #endif
             for (; p < len; p++) {
                 row[p] = effSrc;
@@ -186,6 +191,27 @@ FL_EXPORT void fastlottie_fill_solid_spans_v2(
                     __m128i res8 = _mm_packus_epi16(res_lo, res_hi);
                     __m128i out16 = _mm_add_epi8(s16, res8);
                     _mm_storeu_si128((__m128i*)(row + p), out16);
+                }
+            }
+#elif defined(__wasm_simd128__)
+            if (len >= 4) {
+                v128_t s16 = wasm_i32x4_splat((int32_t)effSrc);
+                v128_t ia16 = wasm_i16x8_splat((int16_t)ia);
+                v128_t c128 = wasm_i16x8_splat(128);
+                for (; p <= len - 4; p += 4) {
+                    v128_t d16 = wasm_v128_load(row + p);
+                    v128_t lo = wasm_i16x8_add(
+                        wasm_i16x8_mul(wasm_u16x8_extend_low_u8x16(d16), ia16),
+                        c128
+                    );
+                    v128_t hi = wasm_i16x8_add(
+                        wasm_i16x8_mul(wasm_u16x8_extend_high_u8x16(d16), ia16),
+                        c128
+                    );
+                    lo = wasm_u16x8_shr(wasm_i16x8_add(lo, wasm_u16x8_shr(lo, 8)), 8);
+                    hi = wasm_u16x8_shr(wasm_i16x8_add(hi, wasm_u16x8_shr(hi, 8)), 8);
+                    v128_t out16 = wasm_i8x16_add(s16, wasm_u8x16_narrow_i16x8(lo, hi));
+                    wasm_v128_store(row + p, out16);
                 }
             }
 #endif
@@ -782,6 +808,67 @@ FL_EXPORT void fastlottie_blend_rect(
                     vcombine_u8(vshrn_n_u16(lo, 8), vshrn_n_u16(hi, 8));
                 const uint8x16_t result = vsubq_u8(vaddq_u8(a, b), product);
                 vst1q_u32(d + x, vreinterpretq_u32_u8(result));
+            }
+            for (; x < width; ++x) d[x] = blend_pixel(s[x], d[x], 2);
+        }
+        return;
+    }
+#elif defined(__wasm_simd128__)
+    if (mode == 1) {
+        const v128_t alpha_idx = fl_wasm_alpha_indices();
+        const v128_t bias = wasm_i16x8_splat(128);
+        for (int y = 0; y < height; ++y) {
+            uint32_t *d = dst + dst_offset + (int64_t)y * dst_stride;
+            const uint32_t *s = src + (int64_t)y * width;
+            int x = 0;
+            for (; x <= width - 4; x += 4) {
+                const v128_t a = wasm_v128_load(s + x);
+                if (!wasm_v128_any_true(a)) continue;
+                const v128_t b = wasm_v128_load(d + x);
+                if (!wasm_v128_any_true(b)) {
+                    wasm_v128_store(d + x, a);
+                    continue;
+                }
+                const v128_t inv_sa = wasm_v128_not(wasm_i8x16_swizzle(a, alpha_idx));
+                const v128_t inv_da = wasm_v128_not(wasm_i8x16_swizzle(b, alpha_idx));
+                const v128_t al = wasm_u16x8_extend_low_u8x16(a);
+                const v128_t ah = wasm_u16x8_extend_high_u8x16(a);
+                const v128_t bl = wasm_u16x8_extend_low_u8x16(b);
+                const v128_t bh = wasm_u16x8_extend_high_u8x16(b);
+                v128_t lo = wasm_i16x8_add(bias, wasm_i16x8_mul(al, bl));
+                v128_t hi = wasm_i16x8_add(bias, wasm_i16x8_mul(ah, bh));
+                lo = wasm_i16x8_add(
+                    lo, wasm_i16x8_mul(al, wasm_u16x8_extend_low_u8x16(inv_da))
+                );
+                hi = wasm_i16x8_add(
+                    hi, wasm_i16x8_mul(ah, wasm_u16x8_extend_high_u8x16(inv_da))
+                );
+                lo = wasm_i16x8_add(
+                    lo, wasm_i16x8_mul(bl, wasm_u16x8_extend_low_u8x16(inv_sa))
+                );
+                hi = wasm_i16x8_add(
+                    hi, wasm_i16x8_mul(bh, wasm_u16x8_extend_high_u8x16(inv_sa))
+                );
+                lo = wasm_u16x8_shr(wasm_i16x8_add(lo, wasm_u16x8_shr(lo, 8)), 8);
+                hi = wasm_u16x8_shr(wasm_i16x8_add(hi, wasm_u16x8_shr(hi, 8)), 8);
+                wasm_v128_store(d + x, wasm_u8x16_narrow_i16x8(lo, hi));
+            }
+            for (; x < width; ++x) d[x] = blend_pixel(s[x], d[x], 1);
+        }
+        return;
+    }
+    if (mode == 2) {
+        const v128_t bias = wasm_i16x8_splat(128);
+        for (int y = 0; y < height; ++y) {
+            uint32_t *d = dst + dst_offset + (int64_t)y * dst_stride;
+            const uint32_t *s = src + (int64_t)y * width;
+            int x = 0;
+            for (; x <= width - 4; x += 4) {
+                const v128_t a = wasm_v128_load(s + x);
+                if (!wasm_v128_any_true(a)) continue;
+                const v128_t b = wasm_v128_load(d + x);
+                const v128_t prod = fl_wasm_scale255_u8x16(a, b, bias);
+                wasm_v128_store(d + x, wasm_i8x16_sub(wasm_i8x16_add(a, b), prod));
             }
             for (; x < width; ++x) d[x] = blend_pixel(s[x], d[x], 2);
         }

@@ -32,13 +32,22 @@ class Lz4Scratch {
 
   /// Releases oversized temporary output buffers after repeated small encodes.
   void recordOutputUse(int neededBytes, {int softLimit = defaultSoftLimit}) {
-    if (outputBuffer.length <= softLimit) {
+    final wasmOversized =
+        _isWasm &&
+        (Lz4Codec._wasmSrcScratch.length > softLimit ||
+            Lz4Codec._wasmDstScratch.length > softLimit);
+    if (outputBuffer.length <= softLimit && !wasmOversized) {
       _smallUseCount = 0;
       return;
     }
     if (neededBytes <= defaultOutputCapacity) {
       if (++_smallUseCount >= 16) {
-        outputBuffer = Uint8List(defaultOutputCapacity);
+        if (outputBuffer.length > defaultOutputCapacity) {
+          outputBuffer = Uint8List(defaultOutputCapacity);
+        }
+        if (wasmOversized) {
+          Lz4Codec.shrinkWasmScratch(defaultOutputCapacity);
+        }
         _smallUseCount = 0;
       }
     } else {
@@ -51,6 +60,9 @@ class Lz4Scratch {
     _smallUseCount = 0;
     if (outputBuffer.length > targetCapacity) {
       outputBuffer = Uint8List(targetCapacity);
+    }
+    if (_isWasm) {
+      Lz4Codec.shrinkWasmScratch(targetCapacity);
     }
   }
 }
@@ -81,6 +93,16 @@ abstract final class Lz4Codec {
   static Uint8List _wasmSrcScratch = Uint8List(0);
   static Uint8List _wasmDstScratch = Uint8List(0);
 
+  /// Releases oversized static dart2wasm scratch buffers above [targetCapacity].
+  static void shrinkWasmScratch([int targetCapacity = 0]) {
+    if (_wasmSrcScratch.length > targetCapacity) {
+      _wasmSrcScratch = Uint8List(0);
+    }
+    if (_wasmDstScratch.length > targetCapacity) {
+      _wasmDstScratch = Uint8List(0);
+    }
+  }
+
   static void _zeroFillBytes(Uint8List dst, int start, int end) {
     var off = start;
     while (off < end) {
@@ -93,6 +115,17 @@ abstract final class Lz4Codec {
   @pragma('vm:prefer-inline')
   static int _readU32LE(Uint8List src, int i) =>
       src[i] | (src[i + 1] << 8) | (src[i + 2] << 16) | (src[i + 3] << 24);
+
+  @pragma('vm:prefer-inline')
+  static int _readU64LE(Uint8List src, int i) =>
+      src[i] |
+      (src[i + 1] << 8) |
+      (src[i + 2] << 16) |
+      (src[i + 3] << 24) |
+      (src[i + 4] << 32) |
+      (src[i + 5] << 40) |
+      (src[i + 6] << 48) |
+      (src[i + 7] << 56);
 
   static int maxCompressedLength(int inputLength) =>
       inputLength + (inputLength ~/ 255) + 16;
@@ -346,7 +379,8 @@ abstract final class Lz4Codec {
       hashTable.setRange(0, _hashTableSize, _negOneHashTable);
       final mflimit = srcLength - _mfLimit;
       final matchLimit = srcLength - _lastLiterals;
-      final matchLimit4 = matchLimit - 4;
+      final matchLimit8 = matchLimit - 8;
+      final ctz = _ctz64;
 
       var ip = 0;
       hashTable[_hash4(_readU32LE(src, 0))] = 0;
@@ -403,7 +437,7 @@ abstract final class Lz4Codec {
             }
             dst[out++] = rem;
           }
-          if (litLength >= 8) {
+          if (litLength > 16) {
             dst.setRange(out, out + litLength, src, anchor);
             out += litLength;
           } else {
@@ -418,14 +452,23 @@ abstract final class Lz4Codec {
 
           var mCur = matchIdx + _minMatch;
           var iCur = ip + _minMatch;
-          while (iCur <= matchLimit4 &&
-              _readU32LE(src, iCur) == _readU32LE(src, mCur)) {
-            iCur += 4;
-            mCur += 4;
+          var matchedTail = false;
+          while (iCur <= matchLimit8) {
+            final diff = _readU64LE(src, iCur) ^ _readU64LE(src, mCur);
+            if (diff != 0) {
+              final lsb = diff & -diff;
+              iCur += ctz[(lsb * _debruijn64) >>> 58] >>> 3;
+              matchedTail = true;
+              break;
+            }
+            iCur += 8;
+            mCur += 8;
           }
-          while (iCur < matchLimit && src[iCur] == src[mCur]) {
-            iCur++;
-            mCur++;
+          if (!matchedTail) {
+            while (iCur < matchLimit && src[iCur] == src[mCur]) {
+              iCur++;
+              mCur++;
+            }
           }
           final matchCode = (iCur - ip) - _minMatch;
           if (matchCode >= 15) {
@@ -508,6 +551,20 @@ abstract final class Lz4Codec {
     if (srcLength == 0) {
       if (dstLength != 0) throw const FormatException('Empty LZ4 block');
       return 0;
+    }
+    if (_isWasm) {
+      var sBuf = _wasmSrcScratch;
+      if (sBuf.length < srcLength) {
+        sBuf = _wasmSrcScratch = Uint8List(srcLength);
+      }
+      sBuf.setRange(0, srcLength, src, srcOffset);
+      var dBuf = _wasmDstScratch;
+      if (dBuf.length < dstLength) {
+        dBuf = _wasmDstScratch = Uint8List(dstLength);
+      }
+      final written = _decompressIntoWasmMono(sBuf, srcLength, dBuf, dstLength);
+      dst.setRange(0, written, dBuf, 0);
+      return written;
     }
 
     var ip = srcOffset;
@@ -602,6 +659,174 @@ abstract final class Lz4Codec {
         } else {
           final startOp = op;
           // Seed 16 bytes, then double with disjoint native setRange (memmove).
+          for (var k = 0; k < 16; k += 4) {
+            dst[op + k] = b0;
+            dst[op + k + 1] = b1;
+            dst[op + k + 2] = b2;
+            dst[op + k + 3] = b3;
+          }
+          var done = 16;
+          while (done < matchLen) {
+            final rem = matchLen - done;
+            final count = done < rem ? done : rem;
+            dst.setRange(startOp + done, startOp + done + count, dst, startOp);
+            done += count;
+          }
+          op = endOp;
+        }
+      } else if (offset == 1) {
+        final v = dst[matchPos];
+        if (v == 0) {
+          _zeroFillBytes(dst, op, endOp);
+          op = endOp;
+        } else if (matchLen <= 32) {
+          while (op < endOp) {
+            dst[op++] = v;
+          }
+        } else {
+          final startOp = op;
+          for (var k = 0; k < 16; k++) {
+            dst[startOp + k] = v;
+          }
+          var done = 16;
+          while (done < matchLen) {
+            final rem = matchLen - done;
+            final count = done < rem ? done : rem;
+            dst.setRange(startOp + done, startOp + done + count, dst, startOp);
+            done += count;
+          }
+          op = endOp;
+        }
+      } else if (matchLen > 32) {
+        final startOp = op;
+        var done = 0;
+        final seed = offset >= 16
+            ? offset
+            : ((16 + offset - 1) ~/ offset) * offset;
+        final seedLimit = seed < matchLen ? seed : matchLen;
+        while (done < seedLimit) {
+          dst[startOp + done] = dst[matchPos + done];
+          done++;
+        }
+        while (done < matchLen) {
+          final rem = matchLen - done;
+          final count = done < rem ? done : rem;
+          dst.setRange(startOp + done, startOp + done + count, dst, startOp);
+          done += count;
+        }
+        op = endOp;
+      } else {
+        while (op < endOp) {
+          dst[op++] = dst[matchPos++];
+        }
+      }
+    }
+
+    if (op != dstLength) {
+      throw FormatException('LZ4 decoded $op bytes, expected $dstLength');
+    }
+    return op;
+  }
+
+  /// Monomorphic `U8List` LZ4 block decompressor for dart2wasm. Only called
+  /// with [_wasmSrcScratch] / [_wasmDstScratch] so element loads/stores compile
+  /// to direct WasmGC array instructions even if external callers pass views.
+  static int _decompressIntoWasmMono(
+    Uint8List src,
+    int srcLength,
+    Uint8List dst,
+    int dstLength,
+  ) {
+    var ip = 0;
+    final ipEnd = srcLength;
+    var op = 0;
+
+    while (ip < ipEnd) {
+      final token = src[ip++];
+      var litLen = token >> 4;
+      if (litLen == 15) {
+        while (true) {
+          if (ip >= ipEnd) {
+            throw const FormatException('Truncated LZ4 literal len');
+          }
+          final add = src[ip++];
+          litLen += add;
+          if (add != 255) break;
+        }
+      }
+      if (ip + litLen > ipEnd || op + litLen > dstLength) {
+        throw const FormatException('LZ4 literal out of bounds');
+      }
+      if (litLen > 16) {
+        dst.setRange(op, op + litLen, src, ip);
+        ip += litLen;
+        op += litLen;
+      } else {
+        final litEnd = op + litLen;
+        while (op < litEnd) {
+          dst[op++] = src[ip++];
+        }
+      }
+
+      if (ip >= ipEnd) break;
+
+      if (ip + 2 > ipEnd) {
+        throw const FormatException('Truncated LZ4 match offset');
+      }
+      final offset = src[ip] | (src[ip + 1] << 8);
+      ip += 2;
+      if (offset <= 0 || offset > op) {
+        throw const FormatException('Invalid LZ4 match offset');
+      }
+
+      var matchLen = (token & 0x0F) + _minMatch;
+      if ((token & 0x0F) == 15) {
+        while (true) {
+          if (ip >= ipEnd) {
+            throw const FormatException('Truncated LZ4 match len');
+          }
+          final add = src[ip++];
+          matchLen += add;
+          if (add != 255) break;
+        }
+      }
+      if (op + matchLen > dstLength) {
+        throw const FormatException('LZ4 match out of output bounds');
+      }
+
+      var matchPos = op - offset;
+      final endOp = op + matchLen;
+      if (offset >= matchLen) {
+        if (matchLen > 16) {
+          dst.setRange(op, endOp, dst, matchPos);
+        } else {
+          for (var k = 0; k < matchLen; k++) {
+            dst[op + k] = dst[matchPos + k];
+          }
+        }
+        op = endOp;
+      } else if (offset == 4) {
+        final b0 = dst[matchPos];
+        final b1 = dst[matchPos + 1];
+        final b2 = dst[matchPos + 2];
+        final b3 = dst[matchPos + 3];
+        if ((b0 | b1 | b2 | b3) == 0) {
+          _zeroFillBytes(dst, op, endOp);
+          op = endOp;
+        } else if (matchLen <= 32) {
+          final quadEnd = op + (matchLen & ~3);
+          while (op < quadEnd) {
+            dst[op] = b0;
+            dst[op + 1] = b1;
+            dst[op + 2] = b2;
+            dst[op + 3] = b3;
+            op += 4;
+          }
+          while (op < endOp) {
+            dst[op++] = dst[matchPos++];
+          }
+        } else {
+          final startOp = op;
           for (var k = 0; k < 16; k += 4) {
             dst[op + k] = b0;
             dst[op + k + 1] = b1;

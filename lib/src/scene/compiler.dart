@@ -1590,7 +1590,7 @@ class _Compiler {
         values,
         easeIndex == easing.length
             ? easing
-            : Float64List.sublistView(easing, 0, easeIndex),
+            : (Float64List(easeIndex)..setRange(0, easeIndex, easing)),
         tangents,
         options.useSimd,
       ),

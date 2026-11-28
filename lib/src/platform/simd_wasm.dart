@@ -110,6 +110,23 @@ extension type _WasmExports(JSObject _) implements JSObject {
     double ey,
   );
 
+  @JS('fastlottie_composite_matte')
+  external void compositeMatte(
+    int dst,
+    int dstLen,
+    int dstOriginX,
+    int dstOriginY,
+    int dstStride,
+    int layerBuf,
+    int matteBuf,
+    int bw,
+    int bh,
+    int bx0,
+    int by0,
+    int isDstOut,
+    int isLuma,
+  );
+
   @JS('fl_dense_new')
   external int denseNew();
 
@@ -136,7 +153,33 @@ extension type _WasmExports(JSObject _) implements JSObject {
     int cap,
     int bounds,
   );
+
+  @JS('fl_dense_raster_solid')
+  external int denseRasterSolid(
+    int state,
+    int x,
+    int y,
+    int s,
+    int e,
+    int contours,
+    int x0,
+    int y0,
+    int x1,
+    int y1,
+    int odd,
+    int out,
+    int cap,
+    int bounds,
+    int dst,
+    int dstLen,
+    int originX,
+    int originY,
+    int stride,
+    int color,
+  );
 }
+
+const bool _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
 
 // On dart2wasm, C-Wasm kernels live in a separate JS-backed linear memory;
 // keeping JSArrayBuffer typed-list views reachable forces dart2wasm TFA to
@@ -144,8 +187,7 @@ extension type _WasmExports(JSObject _) implements JSObject {
 // (10x-14x slower). Compile them out on dart2wasm unless explicitly opted in
 // via `-DFASTLOTTIE_DART2WASM_C_KERNELS=true`.
 const bool _allowWasmKernels =
-    !bool.fromEnvironment('dart.tool.dart2wasm') ||
-    bool.fromEnvironment('FASTLOTTIE_DART2WASM_C_KERNELS');
+    !_isWasm || bool.fromEnvironment('FASTLOTTIE_DART2WASM_C_KERNELS');
 
 const int _zeroChunkPixels = 16384;
 final Uint32List _zeroU32 = Uint32List(_zeroChunkPixels);
@@ -165,15 +207,20 @@ void _clearU32Fast(Uint32List dst, int count) {
 }
 
 _WasmExports? _kernels;
+bool _hasCompositeMatte = false;
+bool _hasDenseRasterSolid = false;
+int _wasmKernelCalls = 0;
+int _wasmCopiedBytes = 0;
+
 bool get isSimdSupported => _allowWasmKernels && _kernels != null;
 bool get isNativeGradientSupported => isSimdSupported;
-bool get isNativeAdvancedBlendSupported => false;
+bool get isNativeAdvancedBlendSupported => isSimdSupported;
 bool get isNativeCancelSupported => false;
 void nativeCancelSlotStore(int slot, int token) {}
 bool nativeCancelSlotClaim(int slot) => false;
 int nativeCancelSlotLoad(int slot) => 0;
 ({int calls, int copiedBytes}) readNativeKernelTelemetry() =>
-    (calls: 0, copiedBytes: 0);
+    (calls: _wasmKernelCalls, copiedBytes: _wasmCopiedBytes);
 
 Future<void> initializeWasmKernels(Uint8List bytes) async {
   if (!_allowWasmKernels) return;
@@ -204,6 +251,12 @@ Future<void> initializeWasmKernels(Uint8List bytes) async {
     throw StateError('FastLottie Wasm memory is empty');
   }
 
+  _hasCompositeMatte = exports
+      .getProperty<JSAny?>('fastlottie_composite_matte'.toJS)
+      .typeofEquals('function');
+  _hasDenseRasterSolid = exports
+      .getProperty<JSAny?>('fl_dense_raster_solid'.toJS)
+      .typeofEquals('function');
   _kernels = exports;
 }
 
@@ -283,12 +336,21 @@ class NativePixelBuffer {
   NativePixelBuffer slice(int start, int count) {
     RangeError.checkValidRange(start, start + count, _count);
     final pointer = _allowWasmKernels ? ptr : null;
+    if (pointer != null) {
+      return NativePixelBuffer._view(pointer + start * 4, count, null);
+    }
+    if (_isWasm) {
+      if (start == 0 && count == _count) {
+        return NativePixelBuffer._view(null, _count, _fallbackList);
+      }
+      throw UnsupportedError(
+        'NativePixelBuffer.slice sub-views are unsupported in dart2wasm fallback mode',
+      );
+    }
     return NativePixelBuffer._view(
-      pointer == null ? null : pointer + start * 4,
+      null,
       count,
-      pointer == null
-          ? Uint32List.sublistView(_fallbackList!, start, start + count)
-          : null,
+      Uint32List.sublistView(_fallbackList!, start, start + count),
     );
   }
 
@@ -323,6 +385,7 @@ void simdClearPixels(NativePixelBuffer dst, int count) {
     throw RangeError.range(count, 0, dst._count, 'count');
   }
   if (_allowWasmKernels && dst.ptr != null) {
+    _wasmKernelCalls++;
     _kernels!.clearPixels(dst.ptr!, count);
   } else {
     _clearU32Fast(dst.typedList, count);
@@ -345,6 +408,7 @@ bool simdFillSolidSpans(
       spanCount >= 0 &&
       spanCount * 2 <= spans._count) {
     if (spanCount == 0) return true;
+    _wasmKernelCalls++;
     _kernels!.fillSolidSpans(
       dst.ptr!,
       dst._count,
@@ -382,6 +446,7 @@ bool nativeBlendRect(
     return false;
   }
   try {
+    _wasmKernelCalls++;
     _kernels!.blendRect(d, offset, stride, s, width, height, mode);
     return true;
   } catch (_) {
@@ -410,6 +475,7 @@ bool nativeBlendSolid(
   }
   if (count == 0) return true;
   try {
+    _wasmKernelCalls++;
     _kernels!.blendSolid(
       d,
       dst._count,
@@ -464,6 +530,7 @@ bool nativeInnerShadow(
     return false;
   }
   try {
+    _wasmKernelCalls++;
     _kernels!.innerShadow(
       d,
       offset,
@@ -521,6 +588,7 @@ bool nativeGradientSpans(
     return false;
   }
   if (count == 0) return true;
+  _wasmKernelCalls++;
   _kernels!.gradientSpans(
     dst.ptr!,
     dst._count,
@@ -547,8 +615,6 @@ bool nativeGradientSpans(
   return true;
 }
 
-// The mobile native asset exposes the matte and fused coverage kernels. Web
-// keeps its existing Wasm ABI until the generated worker asset is regenerated.
 bool nativeCompositeMatte(
   NativePixelBuffer dst,
   int dstOriginX,
@@ -562,7 +628,49 @@ bool nativeCompositeMatte(
   int boxY,
   bool dstOut,
   bool luma,
-) => false;
+) {
+  if (!_allowWasmKernels || !_hasCompositeMatte) return false;
+  final d = dst.ptr, l = layer.ptr, m = matte.ptr;
+  if (d == null ||
+      l == null ||
+      m == null ||
+      width <= 0 ||
+      height <= 0 ||
+      dstStride <= 0 ||
+      boxX < dstOriginX ||
+      boxY < dstOriginY ||
+      layer._count < width * height ||
+      matte._count < width * height) {
+    return false;
+  }
+  final firstOff = (boxY - dstOriginY) * dstStride + (boxX - dstOriginX);
+  final lastEnd =
+      (boxY + height - 1 - dstOriginY) * dstStride +
+      (boxX - dstOriginX) +
+      width;
+  if (firstOff < 0 || lastEnd > dst._count) return false;
+  try {
+    _wasmKernelCalls++;
+    _kernels!.compositeMatte(
+      d,
+      dst._count,
+      dstOriginX,
+      dstOriginY,
+      dstStride,
+      l,
+      m,
+      width,
+      height,
+      boxX,
+      boxY,
+      dstOut ? 1 : 0,
+      luma ? 1 : 0,
+    );
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
 class NativeCoverageWorkspace {
   NativeCoverageWorkspace._(this._state);
@@ -608,6 +716,64 @@ class NativeCoverageWorkspace {
   int _x = 0, _y = 0;
   int _s = 0, _e = 0;
 
+  void _uploadGeometry(
+    Float64List vx,
+    Float64List vy,
+    Int32List s,
+    Int32List e,
+    int nv,
+    int nc,
+  ) {
+    copiedDraws++;
+    _wasmCopiedBytes += nv * 16 + nc * 8;
+    if (nv > _points) {
+      if (_points > 0) {
+        _kernels!.free(_x);
+        _kernels!.free(_y);
+        _x = 0;
+        _y = 0;
+        _points = 0;
+      }
+      final nextPoints = nv * 2;
+      final nextX = _allocate(nextPoints * 8);
+      final int nextY;
+      try {
+        nextY = _allocate(nextPoints * 8);
+      } catch (_) {
+        _kernels!.free(nextX);
+        rethrow;
+      }
+      _x = nextX;
+      _y = nextY;
+      _points = nextPoints;
+    }
+    if (nc > _contours) {
+      if (_contours > 0) {
+        _kernels!.free(_s);
+        _kernels!.free(_e);
+        _s = 0;
+        _e = 0;
+        _contours = 0;
+      }
+      final nextContours = nc * 2;
+      final nextS = _allocate(nextContours * 4);
+      final int nextE;
+      try {
+        nextE = _allocate(nextContours * 4);
+      } catch (_) {
+        _kernels!.free(nextS);
+        rethrow;
+      }
+      _s = nextS;
+      _e = nextE;
+      _contours = nextContours;
+    }
+    _heap.asFloat64List(_x, _points).setRange(0, nv, vx);
+    _heap.asFloat64List(_y, _points).setRange(0, nv, vy);
+    _heap.asInt32List(_s, _contours).setRange(0, nc, s);
+    _heap.asInt32List(_e, _contours).setRange(0, nc, e);
+  }
+
   int raster(
     Float64List vx,
     Float64List vy,
@@ -642,51 +808,32 @@ class NativeCoverageWorkspace {
     if (cells > 262144) {
       return -2;
     }
-    copiedDraws++;
     if (cells > _peakCells) _peakCells = cells;
-    if (nv > _points) {
-      if (_points > 0) {
-        _kernels!.free(_x);
-        _kernels!.free(_y);
-      }
-      _points = nv * 2;
-      _x = _allocate(_points * 8);
-      _y = _allocate(_points * 8);
-    }
-    if (nc > _contours) {
-      if (_contours > 0) {
-        _kernels!.free(_s);
-        _kernels!.free(_e);
-      }
-      _contours = nc * 2;
-      _s = _allocate(_contours * 4);
-      _e = _allocate(_contours * 4);
-    }
-    _heap.asFloat64List(_x, _points).setRange(0, nv, vx);
-    _heap.asFloat64List(_y, _points).setRange(0, nv, vy);
-    _heap.asInt32List(_s, _contours).setRange(0, nc, s);
-    _heap.asInt32List(_e, _contours).setRange(0, nc, e);
+    _uploadGeometry(vx, vy, s, e, nv, nc);
 
-    int run() => _kernels!.denseRaster(
-      _state,
-      _x,
-      _y,
-      _s,
-      _e,
-      nc,
-      x0,
-      y0,
-      x1,
-      y1,
-      odd ? 1 : 0,
-      out.ptr!,
-      out.typedList.length ~/ 2,
-      _bounds,
-    );
+    int run() {
+      _wasmKernelCalls++;
+      return _kernels!.denseRaster(
+        _state,
+        _x,
+        _y,
+        _s,
+        _e,
+        nc,
+        x0,
+        y0,
+        x1,
+        y1,
+        odd ? 1 : 0,
+        out.ptr!,
+        out._count ~/ 2,
+        _bounds,
+      );
+    }
 
     var n = run();
     while (n == -1) {
-      out.reallocate(out.typedList.length * 2, 0);
+      out.reallocate(out._count * 2, 0);
       n = run();
     }
     return n;
@@ -710,7 +857,66 @@ class NativeCoverageWorkspace {
     int originY,
     int stride,
     int color,
-  ) => -2;
+  ) {
+    if (!_hasDenseRasterSolid ||
+        nv < 2 ||
+        nc <= 0 ||
+        nv > vx.length ||
+        nv > vy.length ||
+        nc > s.length ||
+        nc > e.length ||
+        x0 < 0 ||
+        y0 < 0 ||
+        x0 >= x1 ||
+        y0 >= y1 ||
+        x1 > 65535 ||
+        y1 > 65535 ||
+        out.ptr == null ||
+        dst.ptr == null ||
+        stride <= 0 ||
+        color == 0) {
+      return -2;
+    }
+    final cells = (x1 - x0) * (y1 - y0);
+    if (cells > 262144) {
+      return -2;
+    }
+    if (cells > _peakCells) _peakCells = cells;
+    _uploadGeometry(vx, vy, s, e, nv, nc);
+
+    int run() {
+      _wasmKernelCalls++;
+      return _kernels!.denseRasterSolid(
+        _state,
+        _x,
+        _y,
+        _s,
+        _e,
+        nc,
+        x0,
+        y0,
+        x1,
+        y1,
+        odd ? 1 : 0,
+        out.ptr!,
+        out._count ~/ 2,
+        _bounds,
+        dst.ptr!,
+        dst._count,
+        originX,
+        originY,
+        stride,
+        color,
+      );
+    }
+
+    var n = run();
+    while (n == -1) {
+      out.reallocate(out._count * 2, 0);
+      n = run();
+    }
+    return n;
+  }
 
   void trimIfOversized() {
     const softCells = 256 * 256;

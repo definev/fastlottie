@@ -118,6 +118,146 @@ async function testInvalidInitAndAbiFallback(asset, expectedPixels) {
   assert.deepEqual(fallback, expectedPixels);
 }
 
+function makeRectLayer(ind, x, y, w, h, rgba, opacity, extra = {}) {
+  return {
+    ty: 4,
+    ind,
+    ip: 0,
+    op: 10,
+    st: 0,
+    ks: { o: { a: 0, k: opacity } },
+    shapes: [
+      {
+        ty: 'gr',
+        it: [
+          { ty: 'rc', p: { a: 0, k: [x, y] }, s: { a: 0, k: [w, h] }, r: { a: 0, k: 0 } },
+          { ty: 'fl', c: { a: 0, k: rgba }, o: { a: 0, k: 100 } },
+        ],
+      },
+    ],
+    ...extra,
+  };
+}
+
+function buildMatteScene(tt) {
+  return Buffer.from(JSON.stringify({
+    v: '5.7.0',
+    fr: 30,
+    ip: 0,
+    op: 5,
+    w: 64,
+    h: 64,
+    layers: [
+      makeRectLayer(1, 32, 32, 44, 44, [0.9, 0.6, 0.2, 1.0], 85, { td: 1 }),
+      makeRectLayer(2, 26, 26, 48, 48, [0.15, 0.55, 0.95, 1.0], 90, { tt }),
+      makeRectLayer(3, 32, 32, 64, 64, [0.2, 0.2, 0.25, 1.0], 100),
+    ],
+  }));
+}
+
+function buildBlendScene(bm) {
+  // Two-shape top layer forces isolated layer plane -> exercises fastlottie_blend_rect;
+  // single-shape middle layer exercises fastlottie_blend_solid_v2.
+  return Buffer.from(JSON.stringify({
+    v: '5.7.0',
+    fr: 30,
+    ip: 0,
+    op: 5,
+    w: 64,
+    h: 64,
+    layers: [
+      {
+        ty: 4,
+        ind: 1,
+        ip: 0,
+        op: 5,
+        st: 0,
+        bm,
+        ks: { o: { a: 0, k: 82 } },
+        shapes: [
+          {
+            ty: 'gr',
+            it: [
+              { ty: 'rc', p: { a: 0, k: [28, 28] }, s: { a: 0, k: [36, 36] }, r: { a: 0, k: 0 } },
+              { ty: 'fl', c: { a: 0, k: [0.85, 0.35, 0.2, 1.0] }, o: { a: 0, k: 100 } },
+            ],
+          },
+          {
+            ty: 'gr',
+            it: [
+              { ty: 'el', p: { a: 0, k: [38, 38] }, s: { a: 0, k: [28, 28] } },
+              { ty: 'fl', c: { a: 0, k: [0.2, 0.75, 0.55, 1.0] }, o: { a: 0, k: 75 } },
+            ],
+          },
+        ],
+      },
+      makeRectLayer(2, 34, 30, 42, 42, [0.3, 0.45, 0.9, 1.0], 70, { bm }),
+      makeRectLayer(3, 32, 32, 60, 60, [0.45, 0.55, 0.65, 1.0], 100),
+    ],
+  }));
+}
+
+async function renderSceneWithWorker(asset, wasmBytes, expectedWasm, scenes) {
+  const { worker, exchange } = startWorker(asset);
+  try {
+    const ready = await exchange([
+      -1,
+      `data:application/wasm;base64,${wasmBytes.toString('base64')}`,
+    ]);
+    assert.deepEqual(ready, [-2, expectedWasm]);
+
+    const results = [];
+    let reqId = 500;
+    let configured = false;
+    for (const [name, bytes, w, h, frame] of scenes) {
+      const msgs = [];
+      if (!configured) {
+        msgs.push([0, null, 0, false]);
+        configured = true;
+      }
+      msgs.push([1, name, new Uint8Array(bytes), true]);
+      msgs.push([2, reqId++, `e_${name}`, name, frame, frame, w, h, 30, false]);
+      const rep = await exchange(...msgs);
+      assert.equal(rep[0], 0, `${name} render failed: ${JSON.stringify(rep)}`);
+      const kernelCalls = rep[8];
+      if (expectedWasm) {
+        assert.ok(kernelCalls > 0, `${name} expected Wasm kernelCalls > 0, got ${kernelCalls}`);
+      } else {
+        assert.equal(kernelCalls, 0, `${name} fallback expected kernelCalls == 0, got ${kernelCalls}`);
+      }
+      results.push([name, Buffer.from(rep[3]), kernelCalls]);
+    }
+    return results;
+  } finally {
+    await worker.terminate();
+  }
+}
+
+async function testWasmKernelParity(asset) {
+  const scenes = [
+    ['icon', fs.readFileSync('test/fixtures/icon.json'), 64, 64, 5],
+    ['features', fs.readFileSync('test/fixtures/features.json'), 64, 64, 5],
+    ['many_shapes', fs.readFileSync('test/fixtures/many_shapes.json'), 64, 64, 5],
+    ['morph', fs.readFileSync('test/fixtures/morph.json'), 64, 64, 15],
+  ];
+  for (const tt of [1, 2, 3, 4]) {
+    scenes.push([`matte_tt${tt}`, buildMatteScene(tt), 64, 64, 0]);
+  }
+  for (let bm = 0; bm <= 16; bm++) {
+    scenes.push([`blend_bm${bm}`, buildBlendScene(bm), 64, 64, 0]);
+  }
+  const wasmBytes = fs.readFileSync(WASM_ASSET);
+  const emptyWasm = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+  const wasmOut = await renderSceneWithWorker(asset, wasmBytes, true, scenes);
+  const dartOut = await renderSceneWithWorker(asset, emptyWasm, false, scenes);
+  for (let i = 0; i < scenes.length; i++) {
+    const [name, wasmPx] = wasmOut[i];
+    const [, dartPx] = dartOut[i];
+    assert.ok(wasmPx.some(b => b !== 0), `${name} rendered empty`);
+    assert.deepEqual(wasmPx, dartPx, `C-Wasm vs Dart pixel mismatch on ${name}`);
+  }
+}
+
 function parseArgs(argv) {
   let bundled = false;
   let workerPath = null;
@@ -168,8 +308,9 @@ async function main() {
   try {
     const actual = await smoke(asset);
     await testInvalidInitAndAbiFallback(asset, actual);
+    await testWasmKernelParity(asset);
     if (baseline) assert.deepEqual(actual, await smoke(path.resolve(baseline)));
-    console.log('Browser worker protocol, ABI fallback, and frame/strip pixel checks passed.');
+    console.log('Browser worker protocol, ABI fallback, C-Wasm SIMD/matte/blend parity, and frame/strip pixel checks passed.');
   } finally {
     if (tempBuild) fs.rmSync(tempBuild.dir, { recursive: true, force: true });
   }
