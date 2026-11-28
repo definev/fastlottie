@@ -27,6 +27,7 @@ part '../scene/path_ops.dart';
 part 'raster_workspace.dart';
 part 'software_scene.dart';
 part 'path_flattening.dart';
+part 'polygon_boolean.dart';
 part '../scene/content_key.dart';
 
 const _isWeb = bool.fromEnvironment('dart.library.js_interop');

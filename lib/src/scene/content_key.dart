@@ -221,7 +221,7 @@ final class _ContentKeyHasher {
     } else if (s is _MergePathSource) {
       _mixInt(9);
       _mixInt(s.mode);
-      if (s.mode != 1) _mixInt(0x424f4f4c); // Coverage boolean raster revision.
+      if (s.mode != 1) _mixInt(0x424f4f4d); // Polygon + coverage boolean revision.
       _mixInt(s.sources.length);
       for (final sub in s.sources) {
         _mixSource(sub);
