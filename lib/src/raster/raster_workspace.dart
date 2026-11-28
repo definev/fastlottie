@@ -228,6 +228,27 @@ class RasterWorkspace {
     return path;
   }
 
+  PolyPath _staticMergePolyline(
+    _MergePathSource source,
+    double frame,
+    int trimDepth,
+    int groupDepth,
+  ) {
+    final cached = _staticPaths.remove(source);
+    if (cached != null) {
+      _staticPaths[source] = cached;
+      return cached.value;
+    }
+    final local = PolyPath();
+    _appendMergeBoolean(source, frame, 0.01, local, this, trimDepth, groupDepth);
+    final path = local.cloneImmutable();
+    while (_staticPaths.length >= maxStaticPaths) {
+      _staticPaths.remove(_staticPaths.keys.first);
+    }
+    _staticPaths[source] = _SceneCacheEntry(_renderingScene!, path);
+    return path;
+  }
+
   double? _getStaticTrimMetric(_PathSource source) {
     final cached = _staticTrimMetrics.remove(source);
     if (cached == null) return null;
@@ -244,6 +265,7 @@ class RasterWorkspace {
   }
 
   static const int maxStaticPaths = 512;
+  int get debugStaticPathCount => _staticPaths.length;
   static const int maxStaticMetrics = 256;
   static const int maxStaticLuts = 256;
   static const int _smallFramePixels = 256 * 256;
@@ -262,6 +284,11 @@ class RasterWorkspace {
   final _trimPolyPool = <PolyPath>[];
   final _trimOutPool = <PolyPath>[];
   final _mergeCutPolyPool = <PolyPath>[];
+  final _mergeAccPolyPool = <PolyPath>[];
+  final _mergeOutPolyPool = <PolyPath>[];
+  PolygonBooleanScratch? _polygonBooleanScratchState;
+  PolygonBooleanScratch get _polygonBooleanScratch =>
+      _polygonBooleanScratchState ??= PolygonBooleanScratch();
   final _measurePolyPool = <PolyPath>[];
   final _groupMatrixPool = <Float64List>[];
   final _layerChain = <_Layer?>[];
@@ -353,6 +380,20 @@ class RasterWorkspace {
       _mergeCutPolyPool.add(PolyPath());
     }
     return _mergeCutPolyPool[depth]..clear();
+  }
+
+  PolyPath _acquireMergeAccPoly(int depth) {
+    while (_mergeAccPolyPool.length <= depth) {
+      _mergeAccPolyPool.add(PolyPath());
+    }
+    return _mergeAccPolyPool[depth]..clear();
+  }
+
+  PolyPath _acquireMergeOutPoly(int depth) {
+    while (_mergeOutPolyPool.length <= depth) {
+      _mergeOutPolyPool.add(PolyPath());
+    }
+    return _mergeOutPolyPool[depth]..clear();
   }
 
   PolyPath _acquireMeasurePoly(int depth) {
@@ -506,6 +547,9 @@ class RasterWorkspace {
       _trimPolyPool.clear();
       _trimOutPool.clear();
       _mergeCutPolyPool.clear();
+      _mergeAccPolyPool.clear();
+      _mergeOutPolyPool.clear();
+      _polygonBooleanScratchState?.trimIfOversized(aggressive: true);
       _measurePolyPool.clear();
       _trimLengthsPool.clear();
       _trimCacheOwners.clear();
@@ -543,6 +587,15 @@ class RasterWorkspace {
         math.min(2, _mergeCutPolyPool.length),
         _mergeCutPolyPool.length,
       );
+      _mergeAccPolyPool.removeRange(
+        math.min(2, _mergeAccPolyPool.length),
+        _mergeAccPolyPool.length,
+      );
+      _mergeOutPolyPool.removeRange(
+        math.min(2, _mergeOutPolyPool.length),
+        _mergeOutPolyPool.length,
+      );
+      _polygonBooleanScratchState?.trimIfOversized(aggressive: false);
       _measurePolyPool.removeRange(
         math.min(2, _measurePolyPool.length),
         _measurePolyPool.length,
@@ -569,6 +622,12 @@ class RasterWorkspace {
     _flattenLeafPoly.trimIfOversized(aggressive: aggressive);
     for (var i = 0; i < _mergeCutPolyPool.length; i++) {
       _mergeCutPolyPool[i].trimIfOversized(aggressive: aggressive);
+    }
+    for (var i = 0; i < _mergeAccPolyPool.length; i++) {
+      _mergeAccPolyPool[i].trimIfOversized(aggressive: aggressive);
+    }
+    for (var i = 0; i < _mergeOutPolyPool.length; i++) {
+      _mergeOutPolyPool[i].trimIfOversized(aggressive: aggressive);
     }
     if (aggressive) {
       for (final spans in _booleanSpans) {

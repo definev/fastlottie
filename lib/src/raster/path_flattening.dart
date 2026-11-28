@@ -66,8 +66,9 @@ void _appendSourceLocal(
   }
 
   if (src is _MergePathSource) {
-    if (src.mode == 3 && src.sources.length >= 2) {
-      for (var i = 0; i < src.sources.length - 1; i++) {
+    if (src.sources.isEmpty) return;
+    if (src.mode == 1) {
+      for (var i = 0; i < src.sources.length; i++) {
         _appendSourceLocal(
           src.sources[i],
           frame,
@@ -84,28 +85,12 @@ void _appendSourceLocal(
           groupDepth,
         );
       }
-      final cut = ws._acquireMergeCutPoly(groupDepth);
-      _appendSourceLocal(
-        src.sources.last,
-        frame,
-        ma,
-        mb,
-        mc,
-        md,
-        mtx,
-        mty,
-        flatnessSq,
-        cut,
-        ws,
-        trimDepth,
-        groupDepth + 1,
-      );
-      out.appendReversed(cut);
       return;
     }
-    for (var i = 0; i < src.sources.length; i++) {
+    if (src.sources.length == 1) {
+      if (src.mode == 3 || src.mode == 4) return;
       _appendSourceLocal(
-        src.sources[i],
+        src.sources[0],
         frame,
         ma,
         mb,
@@ -119,6 +104,25 @@ void _appendSourceLocal(
         trimDepth,
         groupDepth,
       );
+      return;
+    }
+    final PolyPath merged;
+    if (src.isPathStatic) {
+      merged = ws._staticMergePolyline(src, frame, trimDepth, groupDepth);
+    } else {
+      merged = ws._acquireMergeAccPoly(groupDepth);
+      _appendMergeBoolean(
+        src,
+        frame,
+        _localFlatnessSq(ma, mb, mc, md, flatnessSq),
+        merged,
+        ws,
+        trimDepth,
+        groupDepth,
+      );
+    }
+    if (merged.contourCount > 0) {
+      out.appendTransformed(merged, ma, mb, mc, md, mtx, mty);
     }
     return;
   }
@@ -306,6 +310,73 @@ void _flattenBezier(
     }
   }
   out.endContour();
+}
+
+void _appendMergeBoolean(
+  _MergePathSource src,
+  double frame,
+  double flatnessSq,
+  PolyPath out,
+  RasterWorkspace ws,
+  int trimDepth,
+  int groupDepth,
+) {
+  out.clear();
+  if (src.sources.isEmpty) return;
+  _appendSourceLocal(
+    src.sources[0],
+    frame,
+    1,
+    0,
+    0,
+    1,
+    0,
+    0,
+    flatnessSq,
+    out,
+    ws,
+    trimDepth,
+    groupDepth + 1,
+  );
+  if (src.sources.length == 1) {
+    if (src.mode == 3 || src.mode == 4) out.clear();
+    return;
+  }
+
+  final rhs = ws._acquireMergeCutPoly(groupDepth);
+  final tmpOut = ws._acquireMergeOutPoly(groupDepth);
+  final scratch = ws._polygonBooleanScratch;
+  for (var i = 1; i < src.sources.length; i++) {
+    if (out.contourCount == 0 && (src.mode == 3 || src.mode == 4)) {
+      break;
+    }
+    rhs.clear();
+    _appendSourceLocal(
+      src.sources[i],
+      frame,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      flatnessSq,
+      rhs,
+      ws,
+      trimDepth,
+      groupDepth + 1,
+    );
+    tmpOut.clear();
+    final ok = booleanPolyPaths(out, rhs, src.mode, tmpOut, scratch);
+    if (!ok) {
+      if (src.mode == 2 || src.mode == 5) {
+        out.appendTransformed(rhs, 1, 0, 0, 1, 0, 0);
+      }
+      continue;
+    }
+    out.clear();
+    out.appendTransformed(tmpOut, 1, 0, 0, 1, 0, 0);
+  }
 }
 
 void _flattenLeaf(

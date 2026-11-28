@@ -1259,7 +1259,9 @@ class _Compiler {
             sources.clear();
             if (operands.isNotEmpty) {
               sources.add(
-                incomplete ? operands.single : _MergePathSource(operands, mode),
+                incomplete
+                    ? operands.single
+                    : _Shape(_MergePathSource(operands, mode)),
               );
             }
           } else {
