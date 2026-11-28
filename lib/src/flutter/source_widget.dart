@@ -172,6 +172,7 @@ class FastLottieNetwork extends _FastLottieSource {
     this.headers,
     this.sourceCacheDirectory,
     this.maximumNetworkBytes = 16 * 1024 * 1024,
+    this.maximumSourceCacheBytes,
     this.loader,
     super.key,
     super.controller,
@@ -208,6 +209,10 @@ class FastLottieNetwork extends _FastLottieSource {
   /// Maximum response size for the default network loader.
   final int maximumNetworkBytes;
 
+  /// Optional disk byte cap for [sourceCacheDirectory] on native platforms;
+  /// null uses [FastLottieComposition.defaultMaximumNetworkDiskBytes].
+  final int? maximumSourceCacheBytes;
+
   /// Optional alternate loader for raw animation bytes.
   final FastLottieNetworkByteLoader? loader;
 
@@ -222,6 +227,7 @@ class FastLottieNetwork extends _FastLottieSource {
     cancelToken: token,
     sourceCacheDirectory: sourceCacheDirectory,
     maximumBytes: maximumNetworkBytes,
+    maximumSourceCacheBytes: maximumSourceCacheBytes,
     loader: loader,
   );
 
@@ -232,6 +238,7 @@ class FastLottieNetwork extends _FastLottieSource {
       mapEquals(other.headers, headers) &&
       other.sourceCacheDirectory == sourceCacheDirectory &&
       other.maximumNetworkBytes == maximumNetworkBytes &&
+      other.maximumSourceCacheBytes == maximumSourceCacheBytes &&
       other.loader == loader;
 }
 

@@ -818,11 +818,14 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       cache._releaseFailedEntryResources(entry);
     }
     _finishJob(entry, scheduleFollowup: false);
-    if (active) {
-      scheduleMicrotask(() {
-        if (!_disposed && !entry.retired) _notifyUsers(entry);
-      });
+    if (!active) return;
+    if (entry.users.isEmpty) {
+      cache._evict(entry);
+      return;
     }
+    scheduleMicrotask(() {
+      if (!_disposed && !entry.retired) _notifyUsers(entry);
+    });
   }
 
   @override
@@ -1088,9 +1091,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         queue.remove(entry);
         entry.queuedForRaster = false;
         entry.queuedHighPriority = false;
-        if (entry.retired ||
-            entry.rasterError != null ||
-            entry.users.isEmpty) {
+        if (entry.retired || entry.rasterError != null || entry.users.isEmpty) {
           continue;
         }
         final idx = entry.pendingStripStart >= 0

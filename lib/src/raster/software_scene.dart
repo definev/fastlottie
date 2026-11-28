@@ -1379,11 +1379,7 @@ void _renderLayerInto(
         ws._rasterize(ws._polyPath, false, ws._clipSpans, rx0, ry0, rx1, ry1);
         var spansToBlend = ws._clipSpans;
         if (renderClipMask != null) {
-          RleSpans.intersect(
-            ws._clipSpans,
-            renderClipMask,
-            ws._intersectSpans,
-          );
+          RleSpans.intersect(ws._clipSpans, renderClipMask, ws._intersectSpans);
           spansToBlend = ws._intersectSpans;
         }
         final count = spansToBlend.spanCount * 2;
@@ -1508,8 +1504,12 @@ void _compositeInnerShadow(
       final cov = (w1 & 0xFF) + 1;
       final row0 = y + stepY;
       final row1 = row0 + 1;
-      final i0 = row0 >= sy0 && row0 < sy1 ? (row0 - sy) * srcStride - sx : null;
-      final i1 = row1 >= sy0 && row1 < sy1 ? (row1 - sy) * srcStride - sx : null;
+      final i0 = row0 >= sy0 && row0 < sy1
+          ? (row0 - sy) * srcStride - sx
+          : null;
+      final i1 = row1 >= sy0 && row1 < sy1
+          ? (row1 - sy) * srcStride - sx
+          : null;
       final srcRow = (y - sy) * srcStride - sx;
       final dstRow = (y - dy) * dstStride - dx;
       for (var x = xStart; x < xEnd; x++) {
@@ -2256,7 +2256,15 @@ void _rasterBooleanSource(
             poly,
             ws,
           );
-          ws._rasterize(poly, false, target, clip.$1, clip.$2, clip.$3, clip.$4);
+          ws._rasterize(
+            poly,
+            false,
+            target,
+            clip.$1,
+            clip.$2,
+            clip.$3,
+            clip.$4,
+          );
         }
       }
       rasterOperand(sources[0], out);

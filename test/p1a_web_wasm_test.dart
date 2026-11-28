@@ -37,45 +37,48 @@ PolyPath _rectPoly(double x0, double y0, double x1, double y1) {
 
 void main() {
   group('PR #6 Web/Wasm correctness & parity', () {
-    test('SwarBlender.blendRunPacked64 matches scalar blendSrcOver bit-for-bit', () {
-      final alphas = <int>[1, 2, 17, 63, 127, 128, 191, 253, 254];
-      final dstSeeds = <int>[
-        0x00000000,
-        0x01010001,
-        0x40201030,
-        0x7F7F3F1F,
-        0x80408020,
-        0xC0906030,
-        0xFF000000,
-        0xFFFFFFFF,
-        0xFF123456,
-        0xFEFE7F01,
-      ];
-      for (final sa in alphas) {
-        final src = SwarBlender.premulBgra(sa, 211, 137, 59);
-        final ia = 255 - (src >>> 24);
-        for (final start in const [0, 1, 2, 3]) {
-          for (final len in const [1, 2, 3, 4, 5, 7, 8, 15, 16, 33]) {
-            final actual = Uint32List(start + len + 4);
-            final expected = Uint32List(start + len + 4);
-            for (var i = 0; i < actual.length; i++) {
-              final px = dstSeeds[(i * 7 + sa) % dstSeeds.length];
-              actual[i] = px;
-              expected[i] = px;
+    test(
+      'SwarBlender.blendRunPacked64 matches scalar blendSrcOver bit-for-bit',
+      () {
+        final alphas = <int>[1, 2, 17, 63, 127, 128, 191, 253, 254];
+        final dstSeeds = <int>[
+          0x00000000,
+          0x01010001,
+          0x40201030,
+          0x7F7F3F1F,
+          0x80408020,
+          0xC0906030,
+          0xFF000000,
+          0xFFFFFFFF,
+          0xFF123456,
+          0xFEFE7F01,
+        ];
+        for (final sa in alphas) {
+          final src = SwarBlender.premulBgra(sa, 211, 137, 59);
+          final ia = 255 - (src >>> 24);
+          for (final start in const [0, 1, 2, 3]) {
+            for (final len in const [1, 2, 3, 4, 5, 7, 8, 15, 16, 33]) {
+              final actual = Uint32List(start + len + 4);
+              final expected = Uint32List(start + len + 4);
+              for (var i = 0; i < actual.length; i++) {
+                final px = dstSeeds[(i * 7 + sa) % dstSeeds.length];
+                actual[i] = px;
+                expected[i] = px;
+              }
+              SwarBlender.blendRunPacked64(actual, start, start + len, src, ia);
+              for (var p = start; p < start + len; p++) {
+                expected[p] = SwarBlender.blendSrcOver(src, expected[p]);
+              }
+              expect(
+                actual,
+                orderedEquals(expected),
+                reason: 'sa=$sa start=$start len=$len',
+              );
             }
-            SwarBlender.blendRunPacked64(actual, start, start + len, src, ia);
-            for (var p = start; p < start + len; p++) {
-              expected[p] = SwarBlender.blendSrcOver(src, expected[p]);
-            }
-            expect(
-              actual,
-              orderedEquals(expected),
-              reason: 'sa=$sa start=$start len=$len',
-            );
           }
         }
-      }
-    });
+      },
+    );
 
     test('FtScanlineRasterizer._prepareDense dirty-slice clear leaves no stale bits', () {
       final reuse = FtScanlineRasterizer(256);
@@ -209,15 +212,24 @@ void main() {
         final row = i ~/ 4;
         shapes.add({
           'ty': 'rc',
-          'p': {'a': 0, 'k': [40.0 + col * 18.0, 30.0 + row * 16.0]},
-          's': {'a': 0, 'k': [30.0, 26.0]},
+          'p': {
+            'a': 0,
+            'k': [40.0 + col * 18.0, 30.0 + row * 16.0],
+          },
+          's': {
+            'a': 0,
+            'k': [30.0, 26.0],
+          },
           'r': {'a': 0, 'k': 0},
         });
       }
       shapes.add({'ty': 'mm', 'mm': 2}); // Union
       shapes.add({
         'ty': 'st',
-        'c': {'a': 0, 'k': [0.1, 0.7, 0.9, 1.0]},
+        'c': {
+          'a': 0,
+          'k': [0.1, 0.7, 0.9, 1.0],
+        },
         'o': {'a': 0, 'k': 100},
         'w': {'a': 0, 'k': 3},
       });
@@ -257,7 +269,25 @@ void main() {
 
     test('Lz4Codec roundtrip, boundary lengths, abort cutoff, and shrinkWasmScratch', () {
       final scratch = Lz4Scratch();
-      final lengths = <int>[0, 1, 4, 5, 11, 12, 13, 15, 16, 17, 31, 32, 33, 64, 128, 4096, 65536];
+      final lengths = <int>[
+        0,
+        1,
+        4,
+        5,
+        11,
+        12,
+        13,
+        15,
+        16,
+        17,
+        31,
+        32,
+        33,
+        64,
+        128,
+        4096,
+        65536,
+      ];
       for (final len in lengths) {
         final input = Uint8List(len);
         for (var i = 0; i < len; i++) {
@@ -332,7 +362,9 @@ void main() {
         // Exercise BitstreamStore + TilePlaybackPage roundtrip.
         final store = BitstreamStore(maximumRamBytes: 4 * 1024 * 1024);
         final lz4 = Lz4Scratch();
-        final rawBytes = Uint8List.fromList(Uint8List.sublistView(px1.typedList));
+        final rawBytes = Uint8List.fromList(
+          Uint8List.sublistView(px1.typedList),
+        );
         for (var f = 0; f < 4; f++) {
           store.storeFrame(
             entryKey: name,
@@ -378,7 +410,9 @@ void main() {
     });
 
     test('contentKey is deterministic for compiled JSON', () {
-      final raw = utf8.encode(File('test/fixtures/morph.json').readAsStringSync());
+      final raw = utf8.encode(
+        File('test/fixtures/morph.json').readAsStringSync(),
+      );
       final a = RasterScene.compileBytes(
         Uint8List.fromList(raw),
         const FastLottieOptions(),

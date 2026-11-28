@@ -81,7 +81,9 @@ final class RasterScene {
   factory RasterScene.compileBytes(
     Uint8List utf8Json,
     FastLottieOptions options,
-  ) => RasterScene._(_Compiler(options)..compile(parseLottieJsonBytes(utf8Json)));
+  ) => RasterScene._(
+    _Compiler(options)..compile(parseLottieJsonBytes(utf8Json)),
+  );
 
   _Compiler? _compilerState;
   _Compiler get _compiler =>

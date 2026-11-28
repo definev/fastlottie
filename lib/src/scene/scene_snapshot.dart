@@ -439,12 +439,9 @@ class _SnapshotDecoder {
               closed = _input.flag(),
               reverse = _input.flag(),
               flags = _input.u8();
-          value = _BezierGeometry(
-            track,
-            closed,
-            [for (final f in flags) (f & 1 != 0, f & 2 != 0)],
-            reverse,
-          );
+          value = _BezierGeometry(track, closed, [
+            for (final f in flags) (f & 1 != 0, f & 2 != 0),
+          ], reverse);
         case 9:
           final ellipse = _input.flag(), reverse = _input.flag();
           value = _Primitive(ellipse, read(), read(), read(), reverse);

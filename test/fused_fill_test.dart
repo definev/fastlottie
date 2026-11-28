@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:fastlottie/fastlottie.dart';
+import 'package:fastlottie/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'path_ops_test.dart' show animated, constant, fill, scene, stroke, trim;

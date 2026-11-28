@@ -228,10 +228,7 @@ class FastLottiePlayer extends ChangeNotifier {
     _checkPositiveFinite(height, 'height');
     _checkPositiveFinite(devicePixelRatio, 'devicePixelRatio');
     RangeError.checkNotNegative(maximumBytes, 'maximumBytes');
-    var contentSize = Size(
-      width * devicePixelRatio,
-      height * devicePixelRatio,
-    );
+    var contentSize = Size(width * devicePixelRatio, height * devicePixelRatio);
     if (!contentSize.isFinite || contentSize.isEmpty) {
       final invalidWidth =
           !contentSize.width.isFinite || contentSize.width <= 0;

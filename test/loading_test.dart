@@ -1,4 +1,5 @@
 import 'package:fastlottie/fastlottie.dart';
+import 'package:fastlottie/testing.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -99,30 +100,27 @@ void main() {
     controller.dispose();
     player.dispose();
   });
-  test(
-    'worker compiles lazily by default and prepares vector scene when requested',
-    () async {
-      final lazy = await FastLottieComposition.fromBytesAsync(
-        bytes(fixture('icon')),
-      );
-      expect(lazy.debugHasPreparedScene, isFalse);
+  test('worker compiles lazily by default and prepares vector scene when requested', () async {
+    final lazy = await FastLottieComposition.fromBytesAsync(
+      bytes(fixture('icon')),
+    );
+    expect(lazy.debugHasPreparedScene, isFalse);
 
-      final c = await FastLottieComposition.fromBytesAsync(
-        bytes(fixture('icon')),
-        prepareForVector: true,
-      );
-      expect(c.debugHasPreparedScene, isTrue);
-      final discarded = FastLottiePlayer(c);
-      expect(discarded.debugHasScene, isFalse);
-      discarded.dispose();
-      expect(c.debugHasPreparedScene, isTrue);
-      final player = FastLottiePlayer(c);
-      record(player, .2);
-      expect(player.debugHasScene, isTrue);
-      expect(c.debugHasPreparedScene, isFalse);
-      player.dispose();
-    },
-  );
+    final c = await FastLottieComposition.fromBytesAsync(
+      bytes(fixture('icon')),
+      prepareForVector: true,
+    );
+    expect(c.debugHasPreparedScene, isTrue);
+    final discarded = FastLottiePlayer(c);
+    expect(discarded.debugHasScene, isFalse);
+    discarded.dispose();
+    expect(c.debugHasPreparedScene, isTrue);
+    final player = FastLottiePlayer(c);
+    record(player, .2);
+    expect(player.debugHasScene, isTrue);
+    expect(c.debugHasPreparedScene, isFalse);
+    player.dispose();
+  });
   test('taking a prepared raster scene leaves later players independent', () {
     final composition = FastLottieComposition.fromJson(fixture('icon'))
       ..prepareForPlayback();

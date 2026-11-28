@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie/src/raster/raster_core.dart' show RasterWorkspace;
+import 'package:fastlottie/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show fixture;

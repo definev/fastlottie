@@ -15,7 +15,7 @@ Related documentation: [Native raster & warm playback](native-playback.md) · [D
 flowchart TB
     subgraph Ingest["1. Ingest & Decode"]
         SRC[".json / .tgs (GZip) / Asset / Network URI"]
-        NET["network_io.dart\nHttpClient + FastLottieCancelToken\nRaw disk cache (.tgsbin, atomic .tmp.$pid.$seq)"]
+        NET["network_io.dart / network_web.dart / network_coalescer.dart\nHttpClient / fetch + FastLottieCancelToken + Ref-Counted Coalescing\nBounded 64 MiB .flbin disk LRU (atomic .flbin.tmp.$pid.$seq)"]
         DEC["decoding.dart: decodeLottieBytes()\nGZip sniff (0x1f 0x8b), 16 MiB zip-bomb cap"]
         SRC --> NET --> DEC
     end
@@ -24,7 +24,7 @@ flowchart TB
         COMP["compiler.dart + expressions.dart\nFail-fast whitelist validation\nStatic Expression, Trim DAG, Layer Control"]
         TRACK["track.dart: Keyframes & Track\nColumnar TypedData + O(1) cursor + Float32x4 SIMD\nBracketed Newton-Raphson + sRGB & SpatialCurve LUT (129 samples)"]
         HASH["content_key.dart: 128-bit contentKey\nDeterministic across Isolate/Web (+ _fused1 suffix for fused fill)"]
-        FORK["fork.dart + scene_snapshot.dart\nShare immutable Keyframes via Isolate.exit (zero-copy)\nOptional binary snapshot FLM1 v2 + LZ4"]
+        FORK["fork.dart + scene_snapshot.dart\nShare immutable Keyframes via Isolate.exit (zero-copy)\nOptional binary snapshot FLM1 v3 + LZ4"]
         DEC -->|"UTF-8 byte reader"| COMP --> TRACK --> HASH --> FORK
     end
 
@@ -44,9 +44,9 @@ flowchart TB
     end
 
     subgraph Workers["5. Sharded Worker Pool & Native/Wasm Kernels"]
-        POOL["worker_pool.dart: RasterWorkerPool\nNative: 2..4 Isolates (FNV-1a) | Web: 1..2 Web Workers\nProactive scene push when cold, max 24 scenes/shard"]
+        POOL["worker_pool.dart: RasterWorkerPool\nNative: 2..4 Isolates (weighted least-loaded) | Web: 1..2 Web Workers\nProactive scene push when cold, max 24 scenes/shard"]
         STORE["bitstream_cache.dart + tile_playback.dart + lz4.dart\nL1 RAM: LZ4 _ramLru + TilePlaybackPage (16x16 tiles)\nL2 Disk: .flcache (FLC1 v2, self-healing CRC31)"]
-        RAST["software_scene.dart + native/*.c / fastlottie_simd.wasm\nAdaptive Bézier flattening (Fused Fill) -> PolyPath (SoA)\n24.8 fixed-point scanline (up to 262,144 native cells)\nSWAR / NEON / SSE2 Premultiplied BGRA8888"]
+        RAST["software_scene.dart + native/*.c / fastlottie_simd.wasm\nAdaptive Bézier flattening (Fused Fill) -> PolyPath (SoA)\n24.8 fixed-point scanline (up to 262,144 native cells)\nSWAR / NEON / SSE2 / Wasm SIMD128 Premultiplied BGRA8888"]
         TIER2 <-->|"Mini-Strip BGRA8888\nTransferableTypedData + 64-bit dedup"| POOL
         POOL --> STORE
         STORE -->|"Cache Miss"| RAST
@@ -157,7 +157,7 @@ sequenceDiagram
 
 - **Safe Decoding (`lib/decoding.dart`):** `decodeLottieBytes()` checks the first two bytes (`0x1f 0x8b`) to auto-decompress `.tgs` (GZip) payloads while enforcing a `maximumBytes = 16 MiB` ceiling against zip bombs (using streaming `dart:io` zlib on native platforms and `package:archive` on web).
 - **Direct UTF-8 Byte Parsing (`lib/src/scene/lottie_json_reader.dart`):** Parses Lottie JSON directly from UTF-8 bytes without allocating an intermediate `Map<String, dynamic>` DOM tree, minimizing GC pressure and parse latency.
-- **Cancellable Network Fetching (`lib/src/network/network_io.dart`):** `FastLottieComposition.loadNetwork` (and `FastLottieNetwork`) supports `FastLottieCancelToken` to immediately call `request.abort()` / `socket.destroy()` when widgets dispose or scroll off-screen. Raw payloads can be cached to disk as `<128-bit-uri-hash>.tgsbin` using temp files + atomic rename (`.tmp.$pid.$seq`).
+- **Cancellable & Coalesced Network Fetching (`lib/src/network/network_io.dart`, `network_web.dart`, `network_coalescer.dart`):** `FastLottieComposition.loadNetwork` (and `FastLottieNetwork`) works natively on both `dart:io` (`HttpClient` with immediate `request.abort()`) and Flutter Web (`fetch` + `AbortController` + streaming `ReadableStream` byte cap). Concurrent loads for the same resource are coalesced via reference-counted cancellation, and native raw payloads cached as `<128-bit-uri-hash>.flbin` (temp file + atomic rename) are bounded by an async per-directory LRU (`defaultMaximumNetworkDiskBytes = 64 MiB`).
 - **Fail-Fast Compiler (`lib/src/scene/compiler.dart`):**
   - Rather than silently dropping unsupported properties and rendering broken visuals, `_Compiler.check` validates every JSON key against `const Set<String>` whitelists (and rejects unsupported `ddd`, `ao`, `bm`, and `hasMask` combinations). Anything outside the subset throws `UnsupportedLottieException` with its exact JSON path (`$.layers[i]...`).
   - **Deterministic compilation order:** validate metadata → `_compileMasks()` → resolve expressions → build transforms & layer content → once all layers exist, run `_linkMattes()` (track mattes & Set Matte) and `_linkParents()` with cycle detection. This preserves deterministic error paths and `commands` counts used for cache budgets.
@@ -250,8 +250,8 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
 ### 4.6. Widget Layer & Cross-Platform Separation (Native IO vs. Web)
 
 - **Widgets (`widget.dart`, `source_widget.dart`):**
-  - `FastLottie` manages a `FastLottiePlayer`, coalesces repeating autoplay widgets onto a single shared vsync `Ticker` (`_SharedPlaybackClock`) or accepts an external `controller`, acquires the default shared raster cache via `DefaultRasterCacheScope`, and triggers `prewarm()` in `didChangeDependencies` whenever `width` and `height` are known.
-  - `FastLottieAsset`, `FastLottieBytes`, and `FastLottieNetwork` extend `_FastLottieSource`, handling async loading (`placeholderBuilder`, `errorBuilder` with `retry`) and automatic cancellation via `FastLottieCancelToken`.
+  - `FastLottie` manages a `FastLottiePlayer`, preserves composition aspect ratio on single-axis `width`/`height`, coalesces repeating autoplay widgets onto a single shared vsync `Ticker` (`_SharedPlaybackClock`) or accepts an external `controller`, acquires the default shared raster cache via `DefaultRasterCacheScope` (5-second idle grace period in app builds, immediate teardown on background/memory pressure), omits internal `RepaintBoundary` layers so dense sticker grids batch cleanly, and triggers `prewarm()` in `didChangeDependencies` whenever `width` or `height` is known.
+  - `FastLottieAsset`, `FastLottieBytes` (content-based byte equality), and `FastLottieNetwork` extend `_FastLottieSource`, handling async loading (`placeholderBuilder`, `errorBuilder` with `retry`), `Semantics` (`semanticLabel`, `excludeFromSemantics`), and automatic cancellation via `FastLottieCancelToken`.
   - `FastLottieView` paints a caller-owned `FastLottiePlayer` (e.g., after `prepareRaster`).
   - `FastLottiePlaybackScope` lets list/viewport owners pass visibility policy down without per-tick `RenderBox` scans:
     - `active`: plays normally.
@@ -260,8 +260,8 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
   - **`_FrameRepaint`:** Filters animation ticks through `sampleForRepaint(progress, useFrameRate)` — never calls `setState()`, and suppresses `notifyListeners()` whenever the quantized frame is unchanged (e.g., a 30 FPS clip on a 120 Hz screen). Automatically pauses internal ticks for static compositions or when `MediaQuery.disableAnimationsOf(context)` is true.
 - **Conditional Imports for Native vs. Web:**
   - `raster_flutter_canvas.dart` / `raster_no_canvas.dart`: isolates `dart:ui` from `raster_core.dart` so the exact same raster core runs inside a JS/Wasm Web Worker.
-  - `raster_browser.dart` / `raster_web_protocol.dart`: communicates with `lib/src/wasm/fastlottie_worker.js` and `fastlottie_simd.wasm` via positional arrays + `Transferable ArrayBuffer`; automatically falls back to inline execution if workers are blocked or disabled (`FASTLOTTIE_DISABLE_WEB_WORKER`).
-  - `isolate_io.dart` / `isolate_stub.dart`, `platform_io.dart` / `platform_stub.dart`, `network_io.dart` / `network_stub.dart`, `simd_io.dart` / `simd_wasm.dart` / `simd_web.dart` / `simd_stub.dart`.
+  - `raster_browser.dart` / `web_worker_url.dart` / `raster_web_protocol.dart`: communicates with `lib/src/wasm/fastlottie_worker.js` and `fastlottie_simd.wasm` via positional arrays + `Transferable ArrayBuffer`; automatically boots cross-origin CDN workers via a same-origin `importScripts` Blob shim (revoked on startup/disposal) and falls back inline if workers are blocked or disabled (`FASTLOTTIE_DISABLE_WEB_WORKER`).
+  - `isolate_io.dart` / `isolate_stub.dart`, `platform_io.dart` / `platform_stub.dart`, `network_io.dart` / `network_web.dart` / `network_stub.dart`, `simd_io.dart` / `simd_wasm.dart` / `simd_web.dart` / `simd_stub.dart`.
 
 ---
 
@@ -270,15 +270,16 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
 | Source File | Core Responsibility |
 | :--- | :--- |
 | `lib/fastlottie.dart` | Public entry point: exports widgets, composition, player, caches, SIMD helpers, and options. |
+| `lib/testing.dart` | Internal testing & benchmark entry point exporting `debug*` snapshot/raster helpers. |
 | `lib/decoding.dart` | `decodeLottieBytes()`: auto-decompresses `.tgs` (GZip `0x1f 0x8b`) with a `16 MiB` zip-bomb cap. |
-| `lib/src/flutter/composition.dart` | `FastLottieComposition`: asset/bytes/network loading, background compile pool, `_template` & `_preparedScene`. |
-| `lib/src/flutter/player.dart` | `FastLottiePlayer`: 3-tier render dispatch, memoized layout bounds, `prepareRaster`, `prewarm`. |
-| `lib/src/flutter/raster_cache.dart` | `FastLottieRasterCache`, `DefaultRasterCacheScope`: $O(1)$ VRAM budget, adaptive $K$, `_demoteEntry`, `_disposalQueue`. |
-| `lib/src/flutter/raster_coordinator.dart` | `_RasterCoordinator`: front/back strip swaps, lookahead prefetch, 2-lane priority queue, front-buffer hold, 64-bit upload dedup. |
+| `lib/src/flutter/composition.dart` | `FastLottieComposition`: asset/bytes/network loading (with request coalescing), background compile pool, `_template` & `_preparedScene`. |
+| `lib/src/flutter/player.dart` | `FastLottiePlayer`: 3-tier render dispatch, memoized layout bounds, `prepareRaster`, `prewarm`, `prewarmCache`. |
+| `lib/src/flutter/raster_cache.dart` | `FastLottieRasterCache`, `DefaultRasterCacheScope`: $O(1)$ VRAM budget, adaptive $K$, `_demoteEntry`, `_disposalQueue`, 5s idle grace window. |
+| `lib/src/flutter/raster_coordinator.dart` | `_RasterCoordinator`: front/back strip swaps, lookahead prefetch, 2-lane priority queue, front-buffer hold, 64-bit upload dedup, per-entry error isolation. |
 | `lib/src/flutter/picture_cache.dart` | `FastLottiePictureCache`: shared bounded LRU of vector `ui.Picture` frames for `usePipeline: false`. |
 | `lib/src/flutter/widget.dart` | `FastLottie`, `FastLottieView`, `FastLottiePlaybackScope`, `_SharedPlaybackClock`, `_FrameRepaint`. |
 | `lib/src/flutter/source_widget.dart` | `FastLottieAsset`, `FastLottieBytes`, `FastLottieNetwork`: async source widgets with placeholder/error/retry and cancel token. |
-| `lib/src/flutter/software_session.dart` | `FastLottieSoftwareSession`, `debugRenderSoftwareFrame`: reusable software raster session for tests and benchmarks. |
+| `lib/src/flutter/software_session.dart` | `FastLottieSoftwareSession`, `debugRenderSoftwareFrame` (both exported via `lib/testing.dart`): reusable software raster session for tests and benchmarks. |
 | `lib/src/scene/options.dart` | `FastLottieOptions` (`useSimd`), `UnsupportedLottieException`. |
 | `lib/src/scene/lottie_json_reader.dart` | Direct zero-DOM UTF-8 byte reader for Lottie JSON. |
 | `lib/src/scene/compiler.dart` | `_Compiler`: fail-fast whitelist validation, track/mask/layer-control compilation, matte & parent linking. |
@@ -289,18 +290,19 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
 | `lib/src/scene/gradient.dart` | `_GradientSpec`: in-place color/alpha stop merging and `ui.Shader` creation for Canvas rendering. |
 | `lib/src/scene/fork.dart` | `_Fork`: clones per-player mutable state, shares immutable `Keyframes` & constant tracks, warms static flags. |
 | `lib/src/scene/content_key.dart` | `_ContentKeyHasher`: deterministic 128-bit scene content hash. |
-| `lib/src/scene/scene_snapshot.dart` | `_SceneSnapshot`: internal binary (`FLM1` v2) serialization/deserialization for immutable scene graphs (`deferSnapshot`). |
+| `lib/src/scene/scene_snapshot.dart` | `_SceneSnapshot`: internal binary (`FLM1` v3) serialization/deserialization for immutable scene graphs (`deferSnapshot`). |
 | `lib/src/raster/raster_core.dart` | Core library shared between Flutter and browser workers; defines `RasterScene` (`_fused1`) and `renderSceneSoftware`. |
 | `lib/src/raster/software_scene.dart` | `_renderSceneSoftware`, `_renderStyleInto`: software scene walk, early bounds culling, masks/mattes, inner shadow, gradients. |
 | `lib/src/raster/raster_workspace.dart` | `RasterWorkspace`: scratch buffers, per-scene coverage/path/trim/gradient caches, and memory reclamation. |
 | `lib/src/raster/raster_geometry.dart` | `PolyPath`, `Float64Scratch`: allocation-free Struct-of-Arrays polyline representation. |
 | `lib/src/raster/path_flattening.dart` | Adaptive Bézier flattening (including fused fill), trim, dash, and normal-bisection stroke expansion (`_expandStroke`). |
+| `lib/src/raster/polygon_boolean.dart` | Pure-Dart 2D planar polygon boolean kernel (`booleanPolyPaths`) for stroked `MergePaths` and `MergePaths -> Trim Paths`. |
 | `lib/src/raster/scanline_rasterizer.dart` | `FtScanlineRasterizer`, `RleSpans`: 24.8 fixed-point analytic scanline rasterizer & RLE spans (Dart fallback). |
-| `lib/src/raster/swar_blender.dart` | `SwarBlender`: 64-bit SWAR premultiplied BGRA8888 blending, 2nd-order + `Float32x4` radial gradients, `_invAlphaLut`. |
-| `lib/src/worker/worker_pool.dart` | `RasterWorkerPool`: FNV-1a sharding, proactive scene registration, global `_diskLru` management. |
+| `lib/src/raster/swar_blender.dart` | `SwarBlender`: 64-bit SWAR premultiplied BGRA8888 blending, linear-step radial gradients, `_invAlphaLut`. |
+| `lib/src/worker/worker_pool.dart` | `RasterWorkerPool`: weighted least-loaded FNV-1a-seeded sharding, proactive scene registration, async `_diskLru` management. |
 | `lib/src/worker/raster_worker.dart` | `softwareWorkerEntry`: worker loop, `maxWorkerScenes = 24`, cache lookup/store, `renderSceneSoftware`. |
 | `lib/src/worker/worker_messages.dart` | Internal opcodes and Dart records exchanged between pool and workers. |
-| `lib/src/worker/raster_browser.dart` / `stub.dart` | Web Worker lifecycle, Wasm asset loading, and inline fallback when workers fail or are disabled. |
+| `lib/src/worker/raster_browser.dart` / `web_worker_url.dart` / `stub.dart` | Web Worker lifecycle, cross-origin CDN `importScripts` Blob shim, Wasm asset loading, and inline fallback when workers fail or are disabled. |
 | `lib/src/worker/raster_web_protocol.dart` | Wire-format codec encoding Dart records into positional arrays with `Transferable ArrayBuffer`. |
 | `lib/src/cache/bitstream_cache.dart` | `BitstreamStore`: compressed RAM LRU, `TilePlaybackPage`, `.flcache` (`FLC1` v2) disk store, self-healing CRC31. |
 | `lib/src/cache/tile_playback.dart` | `TilePlaybackPage`, `TilePlaybackCursor`: 16×16 tile deduplication across 2–4 warm frames in RAM. |
@@ -313,7 +315,7 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
 | `lib/src/platform/isolate_io.dart` / `stub.dart` | Worker isolate communication via `SendPort`/`ReceivePort` + `TransferableTypedData`. |
 | `lib/src/platform/platform_io.dart` / `stub.dart` | `PlatformFileHandle` (synchronous `RandomAccessFile`) and `PlatformDiskFs`. |
 | `lib/src/platform/raster_flutter_canvas.dart` / `no_canvas.dart` | Conditional import bridge decoupling `dart:ui` from `raster_core.dart`. |
-| `lib/src/network/network_io.dart` / `stub.dart` / `network_types.dart` | HTTP/HTTPS fetching with `FastLottieCancelToken` and raw `.tgsbin` disk cache. |
+| `lib/src/network/network_io.dart` / `network_web.dart` / `network_stub.dart` / `network_coalescer.dart` / `network_types.dart` | Native (`dart:io`) & Web (`fetch` + `AbortController`) fetching with `FastLottieCancelToken`, ref-counted request coalescing, and bounded `.flbin` disk LRU. |
 | `native/fastlottie_coverage.c`, `fastlottie_simd.c`, `fastlottie_geometry.c`, `fastlottie_cache.c` | Optimized C kernels: bitset scanline, NEON/SSE2 blending, Bézier flattening, stroke expansion, LZ4 & ARM64 CRC32. |
 | `lib/src/wasm/fastlottie_worker.js`, `fastlottie_simd.wasm` | Prebuilt Web Worker JS bundle and standalone C Wasm kernels for Flutter Web. |
 

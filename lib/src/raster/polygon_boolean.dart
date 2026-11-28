@@ -211,7 +211,10 @@ bool booleanPolyPaths(
     validContours++;
     for (var i = start; i < end; i++) {
       final x = poly.vx[i], y = poly.vy[i];
-      if (!x.isFinite || !y.isFinite || x.abs() > maxCoord || y.abs() > maxCoord) {
+      if (!x.isFinite ||
+          !y.isFinite ||
+          x.abs() > maxCoord ||
+          y.abs() > maxCoord) {
         return (double.nan, double.nan, double.nan, double.nan);
       }
       if (x < minX) minX = x;
@@ -356,34 +359,41 @@ bool _solvePlanarBoolean(
         final d2b = ((b2x - a1x) * dy1 - (b2y - a1y) * dx1).abs() * invLen1;
         final d1a = ((a1x - a2x) * dy2 - (a1y - a2y) * dx2).abs() * invLen2;
         final d1b = ((b1x - a2x) * dy2 - (b1y - a2y) * dx2).abs() * invLen2;
-        if (d2a <= proxEps || d2b <= proxEps || d1a <= proxEps || d1b <= proxEps) {
+        if (d2a <= proxEps ||
+            d2b <= proxEps ||
+            d1a <= proxEps ||
+            d1b <= proxEps) {
           final invL1Sq = 1.0 / len1Sq;
           final invL2Sq = 1.0 / len2Sq;
           if (d2a <= proxEps) {
             final t = ((a2x - a1x) * dx1 + (a2y - a1y) * dy1) * invL1Sq;
             if (t > tEps1 && t < 1.0 - tEps1) {
-              if (++splitOps > PolygonBooleanScratch.maxSubSegments) return false;
+              if (++splitOps > PolygonBooleanScratch.maxSubSegments)
+                return false;
               s._splitT[i].add(t);
             }
           }
           if (d2b <= proxEps) {
             final t = ((b2x - a1x) * dx1 + (b2y - a1y) * dy1) * invL1Sq;
             if (t > tEps1 && t < 1.0 - tEps1) {
-              if (++splitOps > PolygonBooleanScratch.maxSubSegments) return false;
+              if (++splitOps > PolygonBooleanScratch.maxSubSegments)
+                return false;
               s._splitT[i].add(t);
             }
           }
           if (d1a <= proxEps) {
             final u = ((a1x - a2x) * dx2 + (a1y - a2y) * dy2) * invL2Sq;
             if (u > tEps2 && u < 1.0 - tEps2) {
-              if (++splitOps > PolygonBooleanScratch.maxSubSegments) return false;
+              if (++splitOps > PolygonBooleanScratch.maxSubSegments)
+                return false;
               s._splitT[j].add(u);
             }
           }
           if (d1b <= proxEps) {
             final u = ((b1x - a2x) * dx2 + (b1y - a2y) * dy2) * invL2Sq;
             if (u > tEps2 && u < 1.0 - tEps2) {
-              if (++splitOps > PolygonBooleanScratch.maxSubSegments) return false;
+              if (++splitOps > PolygonBooleanScratch.maxSubSegments)
+                return false;
               s._splitT[j].add(u);
             }
           }
@@ -432,7 +442,8 @@ bool _solvePlanarBoolean(
   final vRankList = s._vRankList..clear();
   final grid = s._grid..clear();
   const invCell = 1.0 / PolygonBooleanScratch._snapEps;
-  const snapSq = PolygonBooleanScratch._snapEps * PolygonBooleanScratch._snapEps;
+  const snapSq =
+      PolygonBooleanScratch._snapEps * PolygonBooleanScratch._snapEps;
 
   int internVertex(double x, double y, double originRank) {
     final gx = (x * invCell).round();
@@ -641,7 +652,8 @@ bool _solvePlanarBoolean(
     for (var ai = 0; ai < xAct.length; ai++) {
       final g = xAct[ai];
       final gux = vxList[eu[g]], gvx = vxList[ev[g]];
-      if (gvx <= mx) continue; // Half-open [gux, gvx) drops segments ending at <= mx.
+      if (gvx <= mx)
+        continue; // Half-open [gux, gvx) drops segments ending at <= mx.
       xAct[write++] = g;
       if (g == e) continue;
       final guy = vyList[eu[g]], gvy = vyList[ev[g]];
@@ -695,7 +707,8 @@ bool _solvePlanarBoolean(
       final gu = eu[g], gv = ev[g];
       final guy = vyList[gu], gvy = vyList[gv];
       final gMaxY = guy > gvy ? guy : gvy;
-      if (gMaxY <= my) continue; // Half-open [gMinY, gMaxY) drops segments ending at <= my.
+      if (gMaxY <= my)
+        continue; // Half-open [gMinY, gMaxY) drops segments ending at <= my.
       yAct[write++] = g;
       if (g == e) continue;
       final gux = vxList[gu], gvx = vxList[gv];
@@ -769,7 +782,10 @@ bool _solvePlanarBoolean(
       if (unvisitedCount > 1) {
         // Pick outgoing edge making minimal CCW sweep from backward vector (V -> U)
         // in Y-down coordinates so interior on RIGHT never crosses itself at pinch points.
-        final backAngle = math.atan2(vyList[u] - vyList[v], vxList[u] - vxList[v]);
+        final backAngle = math.atan2(
+          vyList[u] - vyList[v],
+          vxList[u] - vxList[v],
+        );
         var bestSweep = double.infinity;
         for (var ci = 0; ci < candidates.length; ci++) {
           final cand = candidates[ci];
@@ -1148,7 +1164,12 @@ void _emitCanonicalRingSlice(
 /// Allocation-free in-place introsort (quicksort + insertion sort + heapsort
 /// fallback) on `order[0 .. count)` ordered by `(ax[i], ay[i], i)`.
 /// Avoids `Int32List.sublistView` so `Int32List` stays monomorphic on dart2wasm.
-void _sortEdgeOrder(Int32List order, Float64List ax, Float64List ay, int count) {
+void _sortEdgeOrder(
+  Int32List order,
+  Float64List ax,
+  Float64List ay,
+  int count,
+) {
   if (count <= 1) return;
   var depthLimit = 0;
   for (var n = count; n > 1; n >>>= 1) {

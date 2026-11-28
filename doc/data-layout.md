@@ -53,7 +53,6 @@ python3 tool/benchmark_data_layout.py \
   --reference /absolute/path/to/before-snapshot \
   --candidate /absolute/path/to/after-snapshot \
   --output /tmp/fastlottie-layout-kernels.json
-python3 tool/run_benchmark.py --output /tmp/fastlottie-layout-release.json
 flutter test
 dart analyze lib test/packed_track_test.dart
 ```
@@ -62,9 +61,9 @@ The track driver runs 256 tracks × 8 keyframes covering implicit/explicit ends,
 hold, linear/eased segments, forward/backward seeks, and endpoints across 4,096
 iterations per batch. The stroke driver runs 64 contours with caps/joins and
 reused scratch buffers across iterations. These are kernel microbenchmarks and
-do not translate directly into FPS. `debugRenderSoftwareFrame` allocates a new
-workspace per call and is not used to measure the worker's retained-scratch
-gains.
+do not translate directly into FPS. `debugRenderSoftwareFrame` (from
+`package:fastlottie/testing.dart`) allocates a new workspace per call and is not
+used to measure the worker's retained-scratch gains.
 
 Apple M5, macOS 27.2, Dart/Flutter release AOT. Raw samples:
 [kernels](data-layout-kernels.json),

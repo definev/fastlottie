@@ -175,7 +175,8 @@ final class RasterWorkerPool<T> {
   bool _disposed = false;
 
   bool get isStarted => _started;
-  Future<void> get debugDiskScanReady => _diskScanFuture ?? Future<void>.value();
+  Future<void> get debugDiskScanReady =>
+      _diskScanFuture ?? Future<void>.value();
 
   int get workerCount => _handles.isNotEmpty ? _handles.length : _workerCount;
   int get registeredSceneCount =>

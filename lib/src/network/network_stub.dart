@@ -10,6 +10,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
   FastLottieCancelToken? cancelToken,
   String? sourceCacheDirectory,
   int maximumBytes = 16 * 1024 * 1024,
+  int maximumCacheBytes = defaultMaximumNetworkDiskBytes,
   bool cacheDownloadedBytes = true,
   Duration responseTimeout = const Duration(seconds: 30),
 }) {
@@ -20,7 +21,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
   }
   return Future<FastLottieNetworkFetchResult>.error(
     UnsupportedError(
-      'Direct network loading requires dart:io or a custom network loader.',
+      'Direct network loading requires dart:io, Flutter Web, or a custom network loader.',
     ),
   );
 }
@@ -30,6 +31,7 @@ Future<void> platformCacheNetworkBytes(
   Uint8List bytes, {
   required String directoryPath,
   Map<String, String>? headers,
+  int maximumCacheBytes = defaultMaximumNetworkDiskBytes,
   FastLottieCancelToken? cancelToken,
 }) async {}
 

@@ -54,12 +54,7 @@ class _Fork {
     if (v is _BezierGeometry) {
       return _copy(
         v,
-        () => _BezierGeometry(
-          track(v.track),
-          v.closed,
-          v.closures,
-          v.reverse,
-        ),
+        () => _BezierGeometry(track(v.track), v.closed, v.closures, v.reverse),
       );
     }
     if (v is _Primitive) {
