@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+const _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
+
 /// A cursor describes pixels in a caller-owned buffer. Invalidate it before
 /// changing that buffer or using it for anything other than this playback.
 final class TilePlaybackCursor {
@@ -92,7 +94,10 @@ final class TilePlaybackPage {
     final frameFpLo = Uint32List(maxFrames);
     final Uint8List? aligned;
     final Uint32List words;
-    if (scratch.offsetInBytes & 3 == 0) {
+    if (_isWasm) {
+      aligned = null;
+      words = Uint32List(pixels);
+    } else if (scratch.offsetInBytes & 3 == 0) {
       aligned = null;
       words = Uint32List.sublistView(scratch, 0, pixels * 4);
     } else {
@@ -113,7 +118,17 @@ final class TilePlaybackPage {
           !readFrame(frame, scratch)) {
         return null;
       }
-      if (aligned != null) {
+      if (_isWasm) {
+        var bp = 0;
+        for (var i = 0; i < pixels; i++) {
+          words[i] =
+              scratch[bp] |
+              (scratch[bp + 1] << 8) |
+              (scratch[bp + 2] << 16) |
+              (scratch[bp + 3] << 24);
+          bp += 4;
+        }
+      } else if (aligned != null) {
         aligned.setRange(0, pixels * 4, scratch);
       }
       slots[relative] = f;
@@ -173,11 +188,28 @@ final class TilePlaybackPage {
       firstFrame,
       slots,
       index,
-      [for (final tile in tiles) tile.buffer.asUint8List()],
+      _isWasm
+          ? [for (final tile in tiles) _unpackTileU32(tile)]
+          : [for (final tile in tiles) tile.buffer.asUint8List()],
       bytes,
       frameFpHi,
       frameFpLo,
     );
+  }
+
+  static Uint8List _unpackTileU32(Uint32List tile) {
+    final len = tile.length;
+    final out = Uint8List(len << 2);
+    var bp = 0;
+    for (var i = 0; i < len; i++) {
+      final v = tile[i];
+      out[bp] = v;
+      out[bp + 1] = v >>> 8;
+      out[bp + 2] = v >>> 16;
+      out[bp + 3] = v >>> 24;
+      bp += 4;
+    }
+    return out;
   }
 
   void read(int frame, Uint8List dst, TilePlaybackCursor? cursor) {

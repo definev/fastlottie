@@ -298,6 +298,7 @@ class FtScanlineRasterizer {
   Uint64List? _denseUsed;
   int _denseW = 0;
   int _denseWords = 0;
+  int _denseUsedDirtyLen = 0;
   bool _denseNeedsClear = false;
   Uint32List? _cachedDst;
   Int32x4List? _cachedDst4;
@@ -328,6 +329,7 @@ class FtScanlineRasterizer {
     if (_denseCells.length > denseLimit * 2) {
       _denseCells = Int32List(0);
       _denseUsed = null;
+      _denseUsedDirtyLen = 0;
       _denseNeedsClear = false;
     }
   }
@@ -510,13 +512,16 @@ class FtScanlineRasterizer {
         cap *= 2;
       }
       _denseUsed = Uint64List(cap);
+      _denseUsedDirtyLen = 0;
       _denseNeedsClear = false;
     } else if (_denseNeedsClear) {
-      final clearLen = used.length;
+      final clearEnd = _denseUsedDirtyLen < used.length
+          ? _denseUsedDirtyLen
+          : used.length;
       var off = 0;
-      while (off < clearLen) {
+      while (off < clearEnd) {
         final end = off + _zeroUsedChunk.length;
-        used.setRange(off, end < clearLen ? end : clearLen, _zeroUsedChunk);
+        used.setRange(off, end < clearEnd ? end : clearEnd, _zeroUsedChunk);
         off = end;
       }
       _denseNeedsClear = false;
@@ -531,6 +536,7 @@ class FtScanlineRasterizer {
     _maxBoundY = clipY1 << 8;
     _denseW = w;
     _denseWords = words;
+    _denseUsedDirtyLen = needUsed;
     _dirtyMinY = clipY1;
     _dirtyMaxY = clipY0 - 1;
     _denseNeedsClear = true;
@@ -1189,7 +1195,6 @@ class FtScanlineRasterizer {
     if (fullSa == 255) {
       final dst4 = _isWeb ? null : _cachedDst4;
       final dst64 = _isWeb ? null : _cachedDst64;
-      final v4 = Int32x4(srcPremul, srcPremul, srcPremul, srcPremul);
       for (var cy = startY; cy <= endY; cy++) {
         final j = cy - y0;
         final rowWordOff = j * words;
@@ -1214,20 +1219,7 @@ class FtScanlineRasterizer {
                 final start = rowBase + col;
                 final end = rowBase + cx;
                 if (!_isWeb && dst4 != null && end - start >= 8) {
-                  var p = start;
-                  final alignEnd = (p + 3) & ~3;
-                  while (p < alignEnd) {
-                    dst[p++] = srcPremul;
-                  }
-                  var q = p >>> 2;
-                  final qEnd = end >>> 2;
-                  while (q < qEnd) {
-                    dst4[q++] = v4;
-                  }
-                  p = q << 2;
-                  while (p < end) {
-                    dst[p++] = srcPremul;
-                  }
+                  _fillOpaqueSimd4(dst, dst4, start, end, srcPremul);
                 } else {
                   var p = start;
                   final end4 = end - 3;
@@ -1280,20 +1272,7 @@ class FtScanlineRasterizer {
             final start = rowBase + col;
             final end = rowBase + x1;
             if (!_isWeb && dst4 != null && end - start >= 8) {
-              var p = start;
-              final alignEnd = (p + 3) & ~3;
-              while (p < alignEnd) {
-                dst[p++] = srcPremul;
-              }
-              var q = p >>> 2;
-              final qEnd = end >>> 2;
-              while (q < qEnd) {
-                dst4[q++] = v4;
-              }
-              p = q << 2;
-              while (p < end) {
-                dst[p++] = srcPremul;
-              }
+              _fillOpaqueSimd4(dst, dst4, start, end, srcPremul);
             } else {
               var p = start;
               final end4 = end - 3;
@@ -1424,6 +1403,31 @@ class FtScanlineRasterizer {
     _denseNeedsClear = false;
   }
 
+  @pragma('vm:prefer-inline')
+  static void _fillOpaqueSimd4(
+    Uint32List dst,
+    Int32x4List dst4,
+    int start,
+    int end,
+    int srcPremul,
+  ) {
+    final fill4 = Int32x4(srcPremul, srcPremul, srcPremul, srcPremul);
+    var p = start;
+    final alignEnd = (p + 3) & ~3;
+    while (p < alignEnd) {
+      dst[p++] = srcPremul;
+    }
+    var q = p >>> 2;
+    final qEnd = end >>> 2;
+    while (q < qEnd) {
+      dst4[q++] = fill4;
+    }
+    p = q << 2;
+    while (p < end) {
+      dst[p++] = srcPremul;
+    }
+  }
+
   static void _blendDenseTranslucentRun(
     Uint32List dst,
     Uint64List? dst64,
@@ -1480,6 +1484,37 @@ class FtScanlineRasterizer {
         }
       }
       p = q << 1;
+      if (p < end) {
+        final d = dst[p];
+        dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);
+      }
+      return;
+    }
+    if (_isWasm && end - start >= 4) {
+      final effSrc64 = (effSrc << 32) | effSrc;
+      const mask = (0x00FF00FF << 32) | 0x00FF00FF;
+      const bias = (0x00800080 << 32) | 0x00800080;
+      const agMask = (0xFF00FF00 << 32) | 0xFF00FF00;
+      var p = start;
+      final end2 = end - 1;
+      while (p < end2) {
+        final d0 = dst[p];
+        final d1 = dst[p + 1];
+        if ((d0 | d1) == 0) {
+          dst[p] = effSrc;
+          dst[p + 1] = effSrc;
+        } else {
+          final d = (d1 << 32) | d0;
+          final rb0 = (d & mask) * ia + bias;
+          final rb = ((rb0 + ((rb0 >>> 8) & mask)) >>> 8) & mask;
+          final ag0 = ((d >>> 8) & mask) * ia + bias;
+          final ag = (ag0 + ((ag0 >>> 8) & mask)) & agMask;
+          final out = effSrc64 + (rb | ag);
+          dst[p] = out & 0xFFFFFFFF;
+          dst[p + 1] = out >>> 32;
+        }
+        p += 2;
+      }
       if (p < end) {
         final d = dst[p];
         dst[p] = d == 0 ? effSrc : _srcOverWithIa(effSrc, d, ia);

@@ -121,8 +121,14 @@ class RasterWorkspace {
     int color,
   ) {
     final native = _native;
-    if (native == null || !borrowGeometry || color == 0) return false;
+    if (native == null || (!_isWeb && !borrowGeometry) || color == 0) {
+      return false;
+    }
+    if (path.vertexCount > 4096 || path.contourCount > 256) {
+      _usedLargeNativeGeometry = true;
+    }
     final borrowed = native.borrowedDraws;
+    final copied = native.copiedDraws;
     final n = native.rasterSolid(
       path.vx,
       path.vy,
@@ -143,6 +149,7 @@ class RasterWorkspace {
       color,
     );
     borrowedCoverageDraws += native.borrowedDraws - borrowed;
+    copiedCoverageDraws += native.copiedDraws - copied;
     if (n < 0) return false;
     final bounds = native.bounds;
     out

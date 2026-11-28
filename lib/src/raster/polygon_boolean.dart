@@ -305,12 +305,10 @@ bool _solvePlanarBoolean(
 
   // Step 1: Sort input segments by canonical minX and sweep active X intervals
   // to collect every pairwise intersection and collinear/T-junction split.
-  final orderView = Int32List.sublistView(s._order, 0, edgeCount);
-  orderView.sort((a, b) {
-    final cmp = s._ax[a].compareTo(s._ax[b]);
-    if (cmp != 0) return cmp;
-    return s._ay[a].compareTo(s._ay[b]);
-  });
+  // In-place sort avoids allocating an Int32List view (keeping Int32List
+  // monomorphic in dart2wasm TFA).
+  final order = s._order;
+  _sortEdgeOrder(order, s._ax, s._ay, edgeCount);
 
   final active = s._active..clear();
   const proxEps = PolygonBooleanScratch._splitProximityEps;
@@ -318,7 +316,7 @@ bool _solvePlanarBoolean(
   var splitOps = 0;
 
   for (var oi = 0; oi < edgeCount; oi++) {
-    final i = orderView[oi];
+    final i = order[oi];
     final a1x = s._ax[i], a1y = s._ay[i];
     final b1x = s._bx[i], b1y = s._by[i];
     final minY1 = s._minY[i], maxY1 = s._maxY[i];
@@ -1145,4 +1143,139 @@ void _emitCanonicalRingSlice(
     emitted++;
   }
   out.endContour();
+}
+
+/// Allocation-free in-place introsort (quicksort + insertion sort + heapsort
+/// fallback) on `order[0 .. count)` ordered by `(ax[i], ay[i], i)`.
+/// Avoids `Int32List.sublistView` so `Int32List` stays monomorphic on dart2wasm.
+void _sortEdgeOrder(Int32List order, Float64List ax, Float64List ay, int count) {
+  if (count <= 1) return;
+  var depthLimit = 0;
+  for (var n = count; n > 1; n >>>= 1) {
+    depthLimit += 2;
+  }
+  _introsortEdgeOrder(order, ax, ay, 0, count - 1, depthLimit);
+}
+
+@pragma('vm:prefer-inline')
+bool _edgeOrderLess(int a, int b, Float64List ax, Float64List ay) {
+  final axA = ax[a], axB = ax[b];
+  if (axA != axB) return axA < axB;
+  final ayA = ay[a], ayB = ay[b];
+  if (ayA != ayB) return ayA < ayB;
+  return a < b;
+}
+
+void _insertionSortEdgeOrder(
+  Int32List order,
+  Float64List ax,
+  Float64List ay,
+  int lo,
+  int hi,
+) {
+  for (var i = lo + 1; i <= hi; i++) {
+    final key = order[i];
+    var j = i - 1;
+    while (j >= lo && _edgeOrderLess(key, order[j], ax, ay)) {
+      order[j + 1] = order[j];
+      j--;
+    }
+    order[j + 1] = key;
+  }
+}
+
+void _heapsortEdgeOrder(
+  Int32List order,
+  Float64List ax,
+  Float64List ay,
+  int lo,
+  int hi,
+) {
+  final len = hi - lo + 1;
+  void siftDown(int root, int end) {
+    var r = root;
+    while (true) {
+      final child = (r << 1) + 1;
+      if (child > end) break;
+      var swap = r;
+      if (_edgeOrderLess(order[lo + swap], order[lo + child], ax, ay)) {
+        swap = child;
+      }
+      if (child + 1 <= end &&
+          _edgeOrderLess(order[lo + swap], order[lo + child + 1], ax, ay)) {
+        swap = child + 1;
+      }
+      if (swap == r) break;
+      final tmp = order[lo + r];
+      order[lo + r] = order[lo + swap];
+      order[lo + swap] = tmp;
+      r = swap;
+    }
+  }
+
+  for (var start = (len - 2) >> 1; start >= 0; start--) {
+    siftDown(start, len - 1);
+  }
+  for (var end = len - 1; end > 0; end--) {
+    final tmp = order[lo + end];
+    order[lo + end] = order[lo];
+    order[lo] = tmp;
+    siftDown(0, end - 1);
+  }
+}
+
+void _introsortEdgeOrder(
+  Int32List order,
+  Float64List ax,
+  Float64List ay,
+  int lo,
+  int hi,
+  int depthLimit,
+) {
+  while (hi - lo > 16) {
+    if (depthLimit == 0) {
+      _heapsortEdgeOrder(order, ax, ay, lo, hi);
+      return;
+    }
+    depthLimit--;
+    final mid = lo + ((hi - lo) >> 1);
+    if (_edgeOrderLess(order[mid], order[lo], ax, ay)) {
+      final t = order[lo];
+      order[lo] = order[mid];
+      order[mid] = t;
+    }
+    if (_edgeOrderLess(order[hi], order[lo], ax, ay)) {
+      final t = order[lo];
+      order[lo] = order[hi];
+      order[hi] = t;
+    }
+    if (_edgeOrderLess(order[hi], order[mid], ax, ay)) {
+      final t = order[mid];
+      order[mid] = order[hi];
+      order[hi] = t;
+    }
+    final pivot = order[mid];
+    var i = lo - 1;
+    var j = hi + 1;
+    while (true) {
+      do {
+        i++;
+      } while (_edgeOrderLess(order[i], pivot, ax, ay));
+      do {
+        j--;
+      } while (_edgeOrderLess(pivot, order[j], ax, ay));
+      if (i >= j) break;
+      final t = order[i];
+      order[i] = order[j];
+      order[j] = t;
+    }
+    if (j - lo < hi - j) {
+      _introsortEdgeOrder(order, ax, ay, lo, j, depthLimit);
+      lo = j + 1;
+    } else {
+      _introsortEdgeOrder(order, ax, ay, j + 1, hi, depthLimit);
+      hi = j;
+    }
+  }
+  _insertionSortEdgeOrder(order, ax, ay, lo, hi);
 }

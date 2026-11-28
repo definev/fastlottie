@@ -7,6 +7,8 @@
 #include <arm_neon.h>
 #elif defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
 #include <emmintrin.h>
+#elif defined(__wasm_simd128__)
+#include <wasm_simd128.h>
 #endif
 
 #if defined(_WIN32)
@@ -420,7 +422,7 @@ static inline uint32_t fl_src_over(uint32_t src, uint32_t dst) {
   return src + (rb | ag);
 }
 
-static void fl_fill_solid(const int32_t *spans, int32_t count,
+static inline void fl_fill_solid(const int32_t *spans, int32_t count,
                           uint32_t *dst, int32_t dst_len,
                           int32_t origin_x, int32_t origin_y,
                           int32_t stride, uint32_t color) {
@@ -448,6 +450,11 @@ static void fl_fill_solid(const int32_t *spans, int32_t count,
       __m128i val4 = _mm_set1_epi32((int)src);
       for (; p <= len - 4; p += 4) {
         _mm_storeu_si128((__m128i*)(row + p), val4);
+      }
+#elif defined(__wasm_simd128__)
+      v128_t val4 = wasm_i32x4_splat((int32_t)src);
+      for (; p <= len - 4; p += 4) {
+        wasm_v128_store(row + p, val4);
       }
 #endif
       for (; p < len; ++p) {
@@ -501,6 +508,25 @@ static void fl_fill_solid(const int32_t *spans, int32_t count,
           __m128i res8 = _mm_packus_epi16(res_lo, res_hi);
           __m128i out16 = _mm_add_epi8(s16, res8);
           _mm_storeu_si128((__m128i*)(row + p), out16);
+        }
+      }
+#elif defined(__wasm_simd128__)
+      if (len >= 4) {
+        v128_t s16 = wasm_i32x4_splat((int32_t)src);
+        v128_t ia16 = wasm_i16x8_splat((int16_t)ia);
+        v128_t c128 = wasm_i16x8_splat(128);
+        for (; p <= len - 4; p += 4) {
+          v128_t d16 = wasm_v128_load(row + p);
+          v128_t lo = wasm_i16x8_add(
+              wasm_i16x8_mul(wasm_u16x8_extend_low_u8x16(d16), ia16),
+              c128);
+          v128_t hi = wasm_i16x8_add(
+              wasm_i16x8_mul(wasm_u16x8_extend_high_u8x16(d16), ia16),
+              c128);
+          lo = wasm_u16x8_shr(wasm_i16x8_add(lo, wasm_u16x8_shr(lo, 8)), 8);
+          hi = wasm_u16x8_shr(wasm_i16x8_add(hi, wasm_u16x8_shr(hi, 8)), 8);
+          v128_t out16 = wasm_i8x16_add(s16, wasm_u8x16_narrow_i16x8(lo, hi));
+          wasm_v128_store(row + p, out16);
         }
       }
 #endif
@@ -577,3 +603,25 @@ FL_EXPORT int32_t fl_dense_raster_solid_borrowed(
   }
   return count;
 }
+
+#if defined(__wasm__)
+// Unbounded fused raster + solid fill for JS Web Worker (Wasm) callers,
+// eliminating the second JS->Wasm roundtrip per solid draw.
+FL_EXPORT int32_t fl_dense_raster_solid(
+    void *state, const double *x, const double *y,
+    const int32_t *start, const int32_t *end, int32_t contours,
+    int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t odd,
+    int32_t *out, int32_t cap, int32_t *bounds,
+    uint32_t *dst, int32_t dst_len,
+    int32_t origin_x, int32_t origin_y, int32_t stride, uint32_t color) {
+  if (!state || !dst || dst_len <= 0 || stride <= 0 ||
+      x0 < 0 || y0 < 0 || x1 > 65535 || y1 > 65535 || x0 >= x1 || y0 >= y1 ||
+      !fl_dense_reserve(state, x1 - x0, y1 - y0)) return -2;
+  const int32_t count = fl_dense_run(state, x, y, start, end, contours,
+                                     x0, y0, x1, y1, odd, out, cap, bounds);
+  if (count >= 0) {
+    fl_fill_solid(out, count, dst, dst_len, origin_x, origin_y, stride, color);
+  }
+  return count;
+}
+#endif

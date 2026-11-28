@@ -10,6 +10,8 @@ import '../platform/simd_stub.dart'
 import '../raster/raster_core.dart';
 import 'composition.dart';
 
+const _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
+
 /// A reusable session for software rasterization of [FastLottieComposition]
 /// across frames without per-frame allocations.
 @visibleForTesting
@@ -123,6 +125,20 @@ Uint8List debugRenderSoftwareFrame(
   );
   try {
     session.renderFrame(frame);
+    if (_isWasm) {
+      final src = session.pixels;
+      final out = Uint8List(src.length << 2);
+      var bp = 0;
+      for (var i = 0; i < src.length; i++) {
+        final v = src[i];
+        out[bp] = v;
+        out[bp + 1] = v >>> 8;
+        out[bp + 2] = v >>> 16;
+        out[bp + 3] = v >>> 24;
+        bp += 4;
+      }
+      return out;
+    }
     return Uint8List.fromList(Uint8List.sublistView(session.pixels));
   } finally {
     session.dispose();

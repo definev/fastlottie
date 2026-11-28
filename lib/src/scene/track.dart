@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+const _isWeb = bool.fromEnvironment('dart.library.js_interop');
+
 /// Shared compiled keyframes. Search touches only [times]; interpolation reads
 /// one contiguous vector pair. Metadata is stored in three Int32 columns:
 /// flags/ease counts, resolved end offsets, and easing offsets.
@@ -15,7 +17,7 @@ class Keyframes {
     this.easing,
     this.tangents,
     bool simd,
-  ) : simdValues = simd && width >= 32
+  ) : simdValues = simd && !_isWeb && width >= 32
           ? values.buffer.asFloat32x4List(
               values.offsetInBytes,
               values.length ~/ 4,
@@ -247,7 +249,7 @@ class Track {
     final spatial = data._spatialAt(key);
     if (spatial != null) {
       spatial.sample(t.clamp(0.0, 1.0), output);
-    } else if (simd && len >= 32 && easeCount <= 1) {
+    } else if (simd && !_isWeb && len >= 32 && easeCount <= 1) {
       if (t <= 0.0) {
         output.setRange(0, len, values, a);
       } else if (t >= 1.0) {
@@ -279,7 +281,22 @@ class Track {
       } else if (t >= 1.0) {
         output.setRange(0, len, values, b);
       } else {
-        for (var i = 0, ai = a, bi = b; i < len; i++, ai++, bi++) {
+        var i = 0, ai = a, bi = b;
+        final len4 = len - 3;
+        while (i < len4) {
+          final s0 = values[ai], e0 = values[bi];
+          output[i] = s0 == e0 ? s0 : s0 + (e0 - s0) * t;
+          final s1 = values[ai + 1], e1 = values[bi + 1];
+          output[i + 1] = s1 == e1 ? s1 : s1 + (e1 - s1) * t;
+          final s2 = values[ai + 2], e2 = values[bi + 2];
+          output[i + 2] = s2 == e2 ? s2 : s2 + (e2 - s2) * t;
+          final s3 = values[ai + 3], e3 = values[bi + 3];
+          output[i + 3] = s3 == e3 ? s3 : s3 + (e3 - s3) * t;
+          i += 4;
+          ai += 4;
+          bi += 4;
+        }
+        for (; i < len; i++, ai++, bi++) {
           final start = values[ai], end = values[bi];
           output[i] = start == end ? start : start + (end - start) * t;
         }
