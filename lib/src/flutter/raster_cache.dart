@@ -3,10 +3,53 @@ part of 'player.dart';
 final class DefaultRasterCacheScope {
   static FastLottieRasterCache? _shared;
   static int _refCount = 0;
+  static Timer? _idleTimer;
+  static Duration? _idleGracePeriodOverride;
+
+  static bool _isTestRuntime() {
+    if (isFlutterTestEnvironment) return true;
+    if (kReleaseMode) return false;
+    try {
+      return WidgetsBinding.instance.runtimeType.toString().contains(
+        'TestWidgetsFlutterBinding',
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Duration get idleGracePeriod =>
+      _idleGracePeriodOverride ??
+      (_isTestRuntime() ? Duration.zero : const Duration(seconds: 5));
+
+  static set idleGracePeriod(Duration value) {
+    if (value.isNegative) {
+      throw ArgumentError.value(
+        value,
+        'defaultIdleGracePeriod',
+        'Must be non-negative',
+      );
+    }
+    _idleGracePeriodOverride = value;
+    if (_refCount == 0 && _shared != null) {
+      _scheduleOrDisposeIdle();
+    }
+  }
+
+  static void resetIdleGracePeriod() {
+    _idleGracePeriodOverride = null;
+    if (_refCount == 0 && _shared != null) {
+      _scheduleOrDisposeIdle();
+    }
+  }
 
   static FastLottieRasterCache? get current => _shared;
 
+  static bool get isIdle => _refCount == 0;
+
   static FastLottieRasterCache acquire() {
+    _idleTimer?.cancel();
+    _idleTimer = null;
     _refCount++;
     return _shared ??= FastLottieRasterCache(
       diskCacheDirectory: FastLottieRasterCache.defaultDiskDirectory,
@@ -16,9 +59,31 @@ final class DefaultRasterCacheScope {
   static void release() {
     if (_refCount > 0) _refCount--;
     if (_refCount == 0) {
-      _shared?.dispose();
-      _shared = null;
+      _scheduleOrDisposeIdle();
     }
+  }
+
+  static void _scheduleOrDisposeIdle() {
+    _idleTimer?.cancel();
+    _idleTimer = null;
+    final shared = _shared;
+    if (shared == null) return;
+    final grace = idleGracePeriod;
+    if (grace <= Duration.zero || !shared._hasWarmState) {
+      disposeIdleNow();
+      return;
+    }
+    shared._ensureLifecycleObserver();
+    _idleTimer = Timer(grace, disposeIdleNow);
+  }
+
+  static void disposeIdleNow() {
+    _idleTimer?.cancel();
+    _idleTimer = null;
+    if (_refCount != 0) return;
+    final shared = _shared;
+    _shared = null;
+    shared?.dispose();
   }
 }
 
@@ -161,13 +226,15 @@ class FastLottieRasterCache {
   static final Paint _paintLow = Paint()..filterQuality = FilterQuality.low;
   static final Paint _paintMedium = Paint()
     ..filterQuality = FilterQuality.medium;
+  static final Paint _paintHigh = Paint()..filterQuality = FilterQuality.high;
 
   Paint _paintForScale(double effectiveScale, [FilterQuality? override]) {
     if (override != null) {
       return switch (override) {
         FilterQuality.none => _paintNone,
         FilterQuality.low => _paintLow,
-        FilterQuality.medium || FilterQuality.high => _paintMedium,
+        FilterQuality.medium => _paintMedium,
+        FilterQuality.high => _paintHigh,
       };
     }
     return effectiveScale < 1 ? _paintLow : _paintNone;
@@ -195,7 +262,7 @@ class FastLottieRasterCache {
   set enabled(bool value) {
     _enabled = value;
     if (!value) {
-      _coordinator.clearPending();
+      _coordinator.clearPending(notifyInFlight: true);
     }
   }
 
@@ -213,16 +280,43 @@ class FastLottieRasterCache {
     DefaultRasterCacheScope.current?.attachDiskDirectory(value);
   }
 
+  /// Grace period before tearing down the shared default raster cache once all
+  /// mounted [FastLottie] widgets using it are disposed.
+  ///
+  /// Defaults to 5 seconds in application builds and [Duration.zero] under
+  /// `flutter test` so widget tests never leave pending timers.
+  static Duration get defaultIdleGracePeriod =>
+      DefaultRasterCacheScope.idleGracePeriod;
+  static set defaultIdleGracePeriod(Duration value) {
+    DefaultRasterCacheScope.idleGracePeriod = value;
+  }
+
+  /// Immediately disposes the shared default raster cache if no widgets hold a
+  /// lease on it.
+  static void disposeIdleDefaultCache() {
+    DefaultRasterCacheScope.disposeIdleNow();
+  }
+
+  @visibleForTesting
+  /// Resets [defaultIdleGracePeriod] back to its environment default.
+  static void debugResetDefaultIdleGracePeriod() {
+    DefaultRasterCacheScope.resetIdleGracePeriod();
+  }
+
+  bool get _hasWarmState =>
+      !_disposed && (_coordinator.workerPool.isStarted || _entries.isNotEmpty);
+
   int _reserved = 0, _bytes = 0;
+  int _hits = 0, _misses = 0, _renderedFrames = 0;
 
   /// Number of lookups that found the requested raster sample.
-  int hits = 0;
+  int get hits => _hits;
 
   /// Number of lookups without the requested sample, including admission misses.
-  int misses = 0;
+  int get misses => _misses;
 
   /// Number of frames installed in the retained image buffers.
-  int renderedFrames = 0;
+  int get renderedFrames => _renderedFrames;
   int _vectorRasterizedFrames = 0, _compressedCacheHits = 0, _bufferSwaps = 0;
   int _workerRenderMicros = 0,
       _nativeKernelCalls = 0,
@@ -267,8 +361,20 @@ class FastLottieRasterCache {
   static FastLottieRasterCache? get debugSharedDefaultCache =>
       DefaultRasterCacheScope.current;
 
-  /// The most recent raster pipeline error, if any.
-  Object? lastError;
+  @visibleForTesting
+  /// Completes once any active asynchronous disk-cache directory scan finishes.
+  Future<void> get debugDiskScanReady =>
+      _coordinator.workerPool.debugDiskScanReady;
+  @visibleForTesting
+  /// Records a synthetic diagnostic error for unit tests.
+  void debugRecordError(Object error) {
+    _lastError = error;
+  }
+
+  Object? _lastError;
+
+  /// The most recent raster pipeline error observed by any entry, if any.
+  Object? get lastError => _lastError;
 
   /// Total raster buffer bytes reserved for admitted entries.
   int get reservedBytes => _reserved;
@@ -395,7 +501,7 @@ class FastLottieRasterCache {
   }
 
   _RasterEntry? _acquire(FastLottiePlayer player, Size size) {
-    if (_disposed || lastError != null) return null;
+    if (_disposed) return null;
     _ensureLifecycleObserver();
     _admissionAttempts++;
     final c = player.composition;
@@ -588,6 +694,45 @@ class FastLottieRasterCache {
     _coordinator.onEntryDemoted(entry);
   }
 
+  void _releaseFailedEntryResources(_RasterEntry entry) {
+    final bg = entry.backgroundImage;
+    if (bg != null) {
+      final bBytes = bg.width * bg.height * 4;
+      _bytes -= bBytes;
+      _enqueueDisposal(bg, bBytes);
+      entry.backgroundImage = null;
+      entry.backgroundStripStart = -1;
+      entry.backgroundStripCount = 0;
+    }
+    final front = entry.renderingImage;
+    if (front != null) {
+      final fBytes = front.width * front.height * 4;
+      _bytes -= fBytes;
+      _enqueueDisposal(front, fBytes);
+      entry.renderingImage = null;
+      entry.renderingStripStart = -1;
+      entry.renderingStripCount = 0;
+      entry.lastRenderingSlot = 0;
+    }
+    final oldWeight = entry.weight;
+    final oldDemotable = entry.demotableBytes;
+    if (oldWeight > 0 || oldDemotable > 0) {
+      _reserved -= oldWeight;
+      _totalDemotableBytes -= oldDemotable;
+      if (entry.users.isEmpty) {
+        if (entry.poster) {
+          _unpinnedPosterBytes -= oldWeight;
+        } else {
+          _unpinnedAnimBytes -= oldWeight;
+          _unpinnedAnimDemotableBytes -= oldDemotable;
+        }
+      }
+      entry.weight = 0;
+      entry.framesPerStrip = 1;
+      _demotableEntries.remove(entry);
+    }
+  }
+
   void _release(FastLottiePlayer player) {
     final entry = player._rasterEntry;
     if (entry == null) return;
@@ -606,6 +751,7 @@ class FastLottieRasterCache {
       _coordinator.onEntryReleased(entry);
     }
     player._rasterEntry = null;
+    player._completePrewarmWaiters();
   }
 
   (ui.Image?, _RasterEntry?, int) _lookup(
@@ -622,7 +768,7 @@ class FastLottieRasterCache {
   );
 
   void _prewarm(FastLottiePlayer player, Size size) {
-    if (_disposed || !_enabled || lastError != null) return;
+    if (_disposed || !_enabled) return;
     _ensureLifecycleObserver();
     _coordinator.prewarm(player, size);
   }
@@ -640,12 +786,18 @@ class FastLottieRasterCache {
     }
   }
 
-  void _failed(Object error) {
-    lastError = error;
-    SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!_disposed) clear();
-    });
-    SchedulerBinding.instance.ensureVisualUpdate();
+  void _onDrawImageError(FastLottiePlayer player, Object error) {
+    _lastError = error;
+    final entry = player._rasterEntry;
+    if (entry != null && !entry.retired) {
+      entry.rasterError = error;
+      // Defer eviction out of CustomPainter.paint() so invalidation notifications
+      // never call markNeedsPaint() reentrantly during a paint pass.
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!_disposed && !entry.retired) _evict(entry);
+      });
+      SchedulerBinding.instance.ensureVisualUpdate();
+    }
   }
 
   int get _disposalByteCap =>
@@ -799,7 +951,7 @@ class FastLottieRasterCache {
 
   /// Releases all images, including active entries; players reacquire on draw.
   void clear() {
-    lastError = null;
+    _lastError = null;
     _admissionGeneration++;
     for (final entry in _entries.values.toList(growable: false)) {
       _evict(entry, immediateDispose: true);
@@ -844,6 +996,10 @@ final class _RasterCacheLifecycleObserver with WidgetsBindingObserver {
         state == AppLifecycleState.detached) {
       // Flush retired textures immediately before the OS stops vsync callbacks.
       _cache._flushAllDisposals();
+      if (identical(DefaultRasterCacheScope.current, _cache) &&
+          DefaultRasterCacheScope.isIdle) {
+        DefaultRasterCacheScope.disposeIdleNow();
+      }
     }
   }
 
@@ -851,6 +1007,10 @@ final class _RasterCacheLifecycleObserver with WidgetsBindingObserver {
   void didHaveMemoryPressure() {
     if (_cache._disposed) return;
     _cache.evictUnpinned();
+    if (identical(DefaultRasterCacheScope.current, _cache) &&
+        DefaultRasterCacheScope.isIdle) {
+      DefaultRasterCacheScope.disposeIdleNow();
+    }
   }
 }
 

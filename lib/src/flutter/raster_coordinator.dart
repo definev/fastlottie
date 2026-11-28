@@ -93,21 +93,50 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   int get pendingCount =>
       _activeJobs + _highPriorityQueue.length + _lowPriorityQueue.length;
 
-  void clearPending() {
+  void clearPending({bool notifyInFlight = false}) {
+    final cleared = Set<_RasterEntry>.identity();
     for (final entry in _highPriorityQueue) {
       entry.queuedForRaster = false;
       entry.queuedHighPriority = false;
       entry.pendingStripStart = -1;
       entry.pendingStripCount = 0;
+      if (!entry.retired && entry.users.isNotEmpty) cleared.add(entry);
     }
     for (final entry in _lowPriorityQueue) {
       entry.queuedForRaster = false;
       entry.queuedHighPriority = false;
       entry.pendingStripStart = -1;
       entry.pendingStripCount = 0;
+      if (!entry.retired && entry.users.isNotEmpty) cleared.add(entry);
     }
     _highPriorityQueue.clear();
     _lowPriorityQueue.clear();
+    if (notifyInFlight) {
+      for (final entry in _inFlightShards.keys) {
+        if (!entry.retired &&
+            entry.renderingImage == null &&
+            entry.users.isNotEmpty) {
+          cleared.add(entry);
+        }
+      }
+      for (final entry in _awaitingImages) {
+        if (!entry.retired &&
+            entry.renderingImage == null &&
+            entry.users.isNotEmpty) {
+          cleared.add(entry);
+        }
+      }
+    }
+    if (cleared.isNotEmpty) {
+      scheduleMicrotask(() {
+        if (_disposed) return;
+        for (final entry in cleared) {
+          if (!entry.retired && entry.users.isNotEmpty) {
+            _notifyUsers(entry);
+          }
+        }
+      });
+    }
   }
 
   void onEntryReleased(_RasterEntry entry) {
@@ -163,7 +192,6 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         !entry.queuedForRaster &&
         entry.desiredFrameIndex >= 0 &&
         cache._enabled &&
-        cache.lastError == null &&
         !entry.retired &&
         entry.rasterError == null &&
         entry.users.isNotEmpty) {
@@ -219,7 +247,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   }
 
   void prewarm(FastLottiePlayer player, Size rawPixels) {
-    if (!cache._enabled || cache.lastError != null || player.isDisposed) return;
+    if (!cache._enabled || player.isDisposed) return;
     final keySize = FastLottieRasterCache._rasterPixelSize(rawPixels);
     final c = player.composition;
     final poster = player.rasterMode == FastLottieRasterMode.poster;
@@ -287,7 +315,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       if (entry == null &&
           player._rasterRejectedKey == (keySize, rateKey) &&
           player._rasterRejectedGeneration == cache._admissionGeneration) {
-        cache.misses++;
+        cache._misses++;
         return (null, null, 0);
       }
       cache._release(player);
@@ -301,11 +329,11 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       }
     }
     if (entry == null) {
-      cache.misses++;
+      cache._misses++;
       return (null, null, 0);
     }
     if (entry.rasterError != null) {
-      cache.misses++;
+      cache._misses++;
       return (null, null, 0);
     }
 
@@ -332,7 +360,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       entry.desiredFrameIndex = index;
       final slot = index - entry.renderingStripStart;
       entry.lastRenderingSlot = slot;
-      cache.hits++;
+      cache._hits++;
       if (requestRaster &&
           !entry.poster &&
           total > entry.renderingStripCount &&
@@ -368,7 +396,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       entry.lastRenderingSlot = slot;
       entry.hasPlayedAdvance = true;
       cache._bufferSwaps++;
-      cache.hits++;
+      cache._hits++;
 
       if (displaced != null) {
         final dBytes = displaced.width * displaced.height * 4;
@@ -388,7 +416,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     }
 
     // 3. Miss on exact index (seek, startup, or worker still in flight).
-    cache.misses++;
+    cache._misses++;
     if (entry.renderingImage != null &&
         !_stripContains(
           entry.renderingStripStart,
@@ -414,7 +442,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     }
 
     entry.desiredFrameIndex = index;
-    if (requestRaster && cache._enabled && cache.lastError == null) {
+    if (requestRaster && cache._enabled) {
       final stripStart = _stripStartFor(entry, index);
       final stripCount = _stripCountFor(entry, stripStart, total);
       _requestStrip(entry, stripStart, stripCount, highPriority: true);
@@ -439,7 +467,6 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
 
   void _ensurePrefetch(_RasterEntry entry, int nextStart) {
     if (!cache._enabled ||
-        cache.lastError != null ||
         entry.retired ||
         entry.rasterError != null ||
         entry.users.isEmpty) {
@@ -509,7 +536,15 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
           final victimQueue = _lowPriorityQueue.isNotEmpty
               ? _lowPriorityQueue
               : _highPriorityQueue;
-          onEntryReleased(victimQueue.first);
+          final victim = victimQueue.first;
+          onEntryReleased(victim);
+          if (!victim.retired && victim.users.isNotEmpty) {
+            scheduleMicrotask(() {
+              if (!_disposed && !victim.retired && victim.users.isNotEmpty) {
+                _notifyUsers(victim);
+              }
+            });
+          }
         }
         entry.queuedForRaster = true;
         entry.queuedHighPriority = highPriority;
@@ -553,7 +588,6 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   void _dispatchEntryStrip(_RasterEntry entry, int stripStart, int stripCount) {
     if (_disposed ||
         !cache._enabled ||
-        cache.lastError != null ||
         entry.retired ||
         entry.rasterError != null ||
         entry.users.isEmpty) {
@@ -626,10 +660,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       .._nativeKernelCalls += kernelCalls
       .._geometryCopyBytes += geometryCopyBytes
       .._isolateTransferBytes += transferBytes;
-    if (_disposed ||
-        entry.retired ||
-        entry.users.isEmpty ||
-        cache.lastError != null) {
+    if (_disposed || entry.retired || entry.users.isEmpty) {
       _finishJob(entry, scheduleFollowup: false);
       return;
     }
@@ -750,8 +781,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         ),
       );
     } catch (error) {
-      _finishJob(entry, scheduleFollowup: false);
-      cache._failed(error);
+      onStripError(entry, error);
     }
   }
 
@@ -781,9 +811,14 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
 
   @override
   void onStripError(_RasterEntry entry, Object error) {
-    _finishJob(entry, scheduleFollowup: false);
-    if (!_disposed && !entry.retired) {
+    cache._lastError = error;
+    final active = !_disposed && !entry.retired;
+    if (active) {
       entry.rasterError = error;
+      cache._releaseFailedEntryResources(entry);
+    }
+    _finishJob(entry, scheduleFollowup: false);
+    if (active) {
       scheduleMicrotask(() {
         if (!_disposed && !entry.retired) _notifyUsers(entry);
       });
@@ -792,11 +827,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
 
   @override
   void onStripCancelled(_RasterEntry entry, int dispatchedGen) {
-    final active =
-        !_disposed &&
-        !entry.retired &&
-        entry.users.isNotEmpty &&
-        cache.lastError == null;
+    final active = !_disposed && !entry.retired && entry.users.isNotEmpty;
     _finishJob(entry, scheduleFollowup: active);
   }
 
@@ -818,14 +849,9 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     if (_disposed ||
         entry.retired ||
         entry.users.isEmpty ||
-        cache.lastError != null ||
         dispatchedGen != entry.stripGeneration) {
       image.dispose();
-      final active =
-          !_disposed &&
-          !entry.retired &&
-          entry.users.isNotEmpty &&
-          cache.lastError == null;
+      final active = !_disposed && !entry.retired && entry.users.isNotEmpty;
       if (active &&
           dispatchedGen != entry.stripGeneration &&
           entry.pendingStripStart < 0 &&
@@ -889,7 +915,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         entry.lastRenderingSlot = 0;
       }
       cache._bytes += imgBytes;
-      cache.renderedFrames += stripCount;
+      cache._renderedFrames += stripCount;
       if (displaced != null) {
         cache._bufferSwaps++;
         final dBytes = displaced.width * displaced.height * 4;
@@ -919,7 +945,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       entry.backgroundStripStart = stripStart;
       entry.backgroundStripCount = stripCount;
       cache._bytes += imgBytes;
-      cache.renderedFrames += stripCount;
+      cache._renderedFrames += stripCount;
       if (oldBack != null) {
         final oBytes = oldBack.width * oldBack.height * 4;
         cache._bytes -= oBytes;
@@ -938,7 +964,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       entry.renderingStripCount = stripCount;
       entry.lastRenderingSlot = 0;
       cache._bytes += imgBytes;
-      cache.renderedFrames += stripCount;
+      cache._renderedFrames += stripCount;
       if (displaced != null) {
         cache._bufferSwaps++;
         final dBytes = displaced.width * displaced.height * 4;
@@ -969,6 +995,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   }
 
   void _finishJob(_RasterEntry entry, {required bool scheduleFollowup}) {
+    _decodeStarts.remove(entry);
     final activeShard = _inFlightShards.remove(entry);
     if (!_disposed && !_awaitingImages.remove(entry)) {
       _releaseWorker(activeShard ?? _workerShard(entry));
@@ -986,7 +1013,6 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     if (scheduleFollowup &&
         !_disposed &&
         cache._enabled &&
-        cache.lastError == null &&
         !entry.retired &&
         entry.rasterError == null &&
         entry.users.isNotEmpty &&
@@ -1016,6 +1042,19 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
             _stripContains(nextPending, resolvedCount, entry.desiredFrameIndex),
       );
     }
+    if (!_disposed &&
+        !entry.retired &&
+        entry.rasterError == null &&
+        entry.users.isNotEmpty &&
+        entry.renderingImage == null &&
+        entry.inFlightStripStart < 0 &&
+        !entry.queuedForRaster) {
+      scheduleMicrotask(() {
+        if (!_disposed && !entry.retired && entry.users.isNotEmpty) {
+          _notifyUsers(entry);
+        }
+      });
+    }
     _pumpPending();
   }
 
@@ -1031,7 +1070,6 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
   void _pumpPending() {
     if (_disposed ||
         !cache._enabled ||
-        cache.lastError != null ||
         (_highPriorityQueue.isEmpty && _lowPriorityQueue.isEmpty) ||
         _activeJobs >= _maximumInFlight) {
       return;
@@ -1040,7 +1078,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
     _pumpScheduled = true;
     scheduleMicrotask(() {
       _pumpScheduled = false;
-      if (_disposed || !cache._enabled || cache.lastError != null) return;
+      if (_disposed || !cache._enabled) return;
       while ((_highPriorityQueue.isNotEmpty || _lowPriorityQueue.isNotEmpty) &&
           _activeJobs < _maximumInFlight) {
         final high = _firstDispatchable(_highPriorityQueue);

@@ -424,9 +424,10 @@ class BitstreamStore {
     if (cached != null && cached.length >= totalFrames) return true;
     final file = _openFiles[entryKey];
     if (file != null &&
-        file.completed &&
-        file.frameCount == totalFrames &&
-        file.writtenCount >= totalFrames) {
+        ((file.poster && totalFrames == 1 && file.writtenCount >= 1) ||
+            (file.completed &&
+                file.frameCount == totalFrames &&
+                file.writtenCount >= totalFrames))) {
       return true;
     }
     var maxAvailable = cached?.length ?? 0;

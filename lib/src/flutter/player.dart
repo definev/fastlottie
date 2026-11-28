@@ -8,6 +8,9 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 import '../cache/bitstream_cache.dart' show formatBitstreamEntryKey;
+import '../platform/platform_stub.dart'
+    if (dart.library.io) '../platform/platform_io.dart'
+    show isFlutterTestEnvironment;
 import '../raster/raster_core.dart' show RasterScene;
 import '../worker/worker_pool.dart';
 import 'composition.dart';
@@ -147,7 +150,17 @@ class FastLottiePlayer extends ChangeNotifier {
   List<ui.Image>? _rasterFrames;
   Size? _rasterSize;
   int _rasterGeneration = 0;
+  List<VoidCallback>? _prewarmCancels;
   final _rasterPaint = Paint()..filterQuality = FilterQuality.none;
+
+  void _completePrewarmWaiters() {
+    final cancels = _prewarmCancels;
+    if (cancels == null || cancels.isEmpty) return;
+    _prewarmCancels = null;
+    for (final cancel in cancels.toList(growable: false)) {
+      cancel();
+    }
+  }
 
   // Memoized layout bounds to eliminate per-frame GC allocations during playback.
   Rect? _layoutDestination;
@@ -260,6 +273,7 @@ class FastLottiePlayer extends ChangeNotifier {
     }
     final generation = ++_rasterGeneration;
     final images = <ui.Image>[];
+    final scene = composition.sceneTemplate.fork();
     try {
       for (var i = 0; i < count; i++) {
         if (_disposed || generation != _rasterGeneration) {
@@ -271,7 +285,7 @@ class FastLottiePlayer extends ChangeNotifier {
             contentSize.width / composition.width,
             contentSize.height / composition.height,
           );
-        _scene.draw(
+        scene.draw(
           canvas,
           composition.startFrame +
               math.min(
@@ -297,6 +311,7 @@ class FastLottiePlayer extends ChangeNotifier {
       }
       _rasterFrames = List.of(images);
       rasterCache?._release(this);
+      pictureCache?._release(this);
       // Keep the exact content extent separate from integer image allocation.
       // Fractional DPR/size can leave a padded final pixel; don't stretch it.
       _rasterSize = contentSize;
@@ -308,7 +323,11 @@ class FastLottiePlayer extends ChangeNotifier {
       if (_pictures.isEmpty) {
         _sceneState = null;
       }
+      if (!_disposed) {
+        notifyListeners();
+      }
     } finally {
+      scene.dispose();
       for (final image in images) {
         image.dispose();
       }
@@ -462,7 +481,7 @@ class FastLottiePlayer extends ChangeNotifier {
           }
           return;
         } catch (error) {
-          shared._failed(error);
+          shared._onDrawImageError(this, error);
         }
       } else if (coldFallback != null) {
         coldFallback(canvas, target);
@@ -563,16 +582,19 @@ class FastLottiePlayer extends ChangeNotifier {
     _checkPositiveFinite(dpr, 'devicePixelRatio');
     final scale = resolutionScale ?? shared.resolutionScale;
     final dest = destinationSize ?? composition.size;
+    if (!dest.isFinite || dest.isEmpty || composition.size.isEmpty) return;
     final fitted = applyBoxFit(fit, composition.size, dest);
     final target = alignment.inscribe(fitted.destination, Offset.zero & dest);
     final source = alignment.inscribe(
       fitted.source,
       Offset.zero & composition.size,
     );
+    if (source.width <= 0 || source.height <= 0 || target.isEmpty) return;
     final pixels = Size(
       composition.width * target.width / source.width * dpr * scale,
       composition.height * target.height / source.height * dpr * scale,
     );
+    if (!pixels.isFinite || pixels.isEmpty) return;
     shared._prewarm(this, pixels);
   }
 
@@ -597,28 +619,44 @@ class FastLottiePlayer extends ChangeNotifier {
     );
     final entry = _rasterEntry;
     if (entry == null ||
+        entry.retired ||
         entry.renderingImage != null ||
-        entry.rasterError != null) {
+        entry.rasterError != null ||
+        (!entry.queuedForRaster && entry.inFlightStripStart < 0)) {
       return Future<void>.value();
     }
     final completer = Completer<void>();
-    void onUpdate() {
-      if (_disposed ||
-          _rasterEntry == null ||
-          _rasterEntry!.renderingImage != null ||
-          _rasterEntry!.rasterError != null ||
-          shared.lastError != null) {
+    late final VoidCallback onUpdate;
+    void finish() {
+      if (!_disposed) {
         removeListener(onUpdate);
-        if (!completer.isCompleted) completer.complete();
       }
+      _prewarmCancels?.remove(finish);
+      if (!completer.isCompleted) completer.complete();
     }
 
+    onUpdate = () {
+      final current = _rasterEntry;
+      if (_disposed ||
+          !shared.enabled ||
+          shared._disposed ||
+          current == null ||
+          current.retired ||
+          current.renderingImage != null ||
+          current.rasterError != null ||
+          (!current.queuedForRaster && current.inFlightStripStart < 0)) {
+        finish();
+      }
+    };
+
+    (_prewarmCancels ??= <VoidCallback>[]).add(finish);
     addListener(onUpdate);
     return completer.future;
   }
 
   /// Releases this player's pictures, prepared images and shared cache lease.
   void clearCache() {
+    _completePrewarmWaiters();
     rasterCache?._release(this);
     pictureCache?._release(this);
     _rasterRejectedKey = null;

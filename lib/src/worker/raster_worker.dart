@@ -77,6 +77,10 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
   final lz4 = Lz4Scratch();
   final playback = TilePlaybackCursor();
   final scenes = <String, RasterScene>{};
+  final sceneEntries =
+      <String, Map<String, ({int requiredFrames, int lastTouch})>>{};
+  final sceneTouchCounts = <String, int>{};
+  const staleSceneEntryAge = 32;
   final telemetryClock = Stopwatch()..start();
   const defaultPixelCap = 256 * 256;
   const softPixelCap = 512 * 512;
@@ -191,12 +195,51 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
     }
   }
 
+  void touchSceneEntry(
+    String contentKey,
+    String entryKey,
+    int totalFrames, {
+    required bool poster,
+  }) {
+    final scene = scenes.remove(contentKey);
+    if (scene == null) return;
+    scenes[contentKey] = scene;
+    final seq = (sceneTouchCounts[contentKey] ?? 0) + 1;
+    sceneTouchCounts[contentKey] = seq;
+    final tracked =
+        sceneEntries[contentKey] ??=
+            <String, ({int requiredFrames, int lastTouch})>{};
+    final req = poster ? 1 : totalFrames;
+    final prev = tracked[entryKey];
+    tracked[entryKey] = (
+      requiredFrames: prev == null ? req : math.max(prev.requiredFrames, req),
+      lastTouch: seq,
+    );
+    if (tracked.length > 1) {
+      tracked.removeWhere(
+        (key, info) =>
+            key != entryKey && seq - info.lastTouch > staleSceneEntryAge,
+      );
+    }
+  }
+
   void releaseSceneIfCached(
     String contentKey,
     String entryKey,
-    int totalFrames,
-  ) {
-    if (!store.hasAllFrames(entryKey, totalFrames)) return;
+    int totalFrames, {
+    required bool poster,
+  }) {
+    if (!scenes.containsKey(contentKey)) return;
+    final tracked = sceneEntries[contentKey];
+    if (tracked != null && tracked.isNotEmpty) {
+      for (final entry in tracked.entries) {
+        if (!store.hasAllFrames(entry.key, entry.value.requiredFrames)) return;
+      }
+    } else if (!store.hasAllFrames(entryKey, poster ? 1 : totalFrames)) {
+      return;
+    }
+    sceneEntries.remove(contentKey);
+    sceneTouchCounts.remove(contentKey);
     final scene = scenes.remove(contentKey);
     if (scene == null) return;
     // Coverage entries keep compiled draws and masked layers alive after
@@ -207,9 +250,14 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
   void register(String key, RasterScene scene) {
     final previous = scenes.remove(key);
     if (previous != null) ws.releaseScene(previous);
+    sceneEntries.remove(key);
+    sceneTouchCounts.remove(key);
     failedScenes.remove(key);
     while (scenes.length >= maxWorkerScenes) {
-      final oldest = scenes.remove(scenes.keys.first)!;
+      final oldestKey = scenes.keys.first;
+      final oldest = scenes.remove(oldestKey)!;
+      sceneEntries.remove(oldestKey);
+      sceneTouchCounts.remove(oldestKey);
       ws.releaseScene(oldest);
     }
     scenes[key] = scene;
@@ -292,6 +340,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
       int? warmPage;
 
       RasterScene? scene;
+      touchSceneEntry(contentKey, entryKey, totalFrames, poster: poster);
 
       for (var j = 0; j < stripCount; j++) {
         if (cancelSlot >= 0 &&
@@ -476,7 +525,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         fpLo: fpLo,
       ));
       recordPixelUse(pxCount);
-      releaseSceneIfCached(contentKey, entryKey, totalFrames);
+      releaseSceneIfCached(contentKey, entryKey, totalFrames, poster: poster);
       if (!poster && warmPage != null) {
         store.preparePlaybackPage(
           entryKey: entryKey,
@@ -500,6 +549,8 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
       case null:
         store.dispose();
         scenes.clear();
+        sceneEntries.clear();
+        sceneTouchCounts.clear();
         ws.dispose();
         pixels.dispose();
         wasmSlotPixels?.dispose();
@@ -556,6 +607,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         poster: final bool poster,
       ):
         try {
+          touchSceneEntry(contentKey, entryKey, totalFrames, poster: poster);
           final pxCount = width * height;
           final frameByteLen = pxCount << 2;
           final Uint8List dstBytes;
@@ -578,7 +630,12 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
           );
 
           if (cacheHit) {
-            releaseSceneIfCached(contentKey, entryKey, totalFrames);
+            releaseSceneIfCached(
+              contentKey,
+              entryKey,
+              totalFrames,
+              poster: poster,
+            );
             final packed = _isWasm
                 ? (Uint8List(frameByteLen)
                     ..setRange(0, frameByteLen, dstBytes))
@@ -666,7 +723,12 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
             fpLo: stored.fpLo,
           ));
           recordPixelUse(pxCount);
-          releaseSceneIfCached(contentKey, entryKey, totalFrames);
+          releaseSceneIfCached(
+            contentKey,
+            entryKey,
+            totalFrames,
+            poster: poster,
+          );
         } catch (error) {
           endpoint.send((
             repFrameError,
@@ -737,6 +799,9 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
       case (opDeleteDisk, entryKey: final String entryKey):
         store.deleteDiskEntry(entryKey);
         store.evictEntryRam(entryKey);
+        for (final entries in sceneEntries.values) {
+          entries.remove(entryKey);
+        }
         endpoint.send((
           repDeleted,
           entryKey: entryKey,
@@ -748,6 +813,8 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
         store.closeOpenFiles();
         store.shrinkScratch();
         scenes.clear();
+        sceneEntries.clear();
+        sceneTouchCounts.clear();
         failedScenes.clear();
         ws.resetCaches();
         ws.trimScratch(aggressive: true);

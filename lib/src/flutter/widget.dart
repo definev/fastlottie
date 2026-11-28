@@ -53,6 +53,43 @@ class FastLottiePlaybackScope extends InheritedWidget {
       playback != oldWidget.playback;
 }
 
+enum _InternalClock { none, shared, controller }
+
+Size _resolveCompositionSize(
+  double? width,
+  double? height,
+  FastLottieComposition composition,
+) {
+  if (width != null && height != null) return Size(width, height);
+  if (width != null) {
+    final h = width.isFinite && composition.width > 0
+        ? width * composition.height / composition.width
+        : composition.height;
+    return Size(width, h);
+  }
+  if (height != null) {
+    final w = height.isFinite && composition.height > 0
+        ? height * composition.width / composition.height
+        : composition.width;
+    return Size(w, height);
+  }
+  return Size(composition.width, composition.height);
+}
+
+Widget _wrapSemantics(
+  Widget child, {
+  required String? semanticLabel,
+  required bool excludeFromSemantics,
+}) {
+  if (excludeFromSemantics) {
+    return ExcludeSemantics(child: child);
+  }
+  if (semanticLabel != null) {
+    return Semantics(label: semanticLabel, image: true, child: child);
+  }
+  return child;
+}
+
 /// Shared playback and layout configuration for compiled and loading widgets.
 abstract class _FastLottieWidget extends StatefulWidget {
   const _FastLottieWidget({
@@ -72,6 +109,8 @@ abstract class _FastLottieWidget extends StatefulWidget {
     this.resolutionScale,
     this.maximumFrameRate,
     this.usePipeline = true,
+    this.semanticLabel,
+    this.excludeFromSemantics = false,
   });
 
   /// Optional caller-owned animation supplying progress from zero to one.
@@ -120,6 +159,12 @@ abstract class _FastLottieWidget extends StatefulWidget {
   /// Enables the shared worker and double-buffered raster pipeline
   /// when [rasterCache] is omitted and [cache] allows caching.
   final bool usePipeline;
+
+  /// Optional accessibility label exposed via [Semantics] with `image: true`.
+  final String? semanticLabel;
+
+  /// Whether to exclude this animation from the semantics tree.
+  final bool excludeFromSemantics;
 }
 
 /// Plays a compiled composition. Animation ticks only repaint the canvas.
@@ -143,6 +188,8 @@ class FastLottie extends _FastLottieWidget {
     super.resolutionScale,
     super.maximumFrameRate,
     super.usePipeline,
+    super.semanticLabel,
+    super.excludeFromSemantics,
   });
 
   /// Compiled animation to play.
@@ -153,7 +200,7 @@ class FastLottie extends _FastLottieWidget {
   static const asset = FastLottieAsset.new;
 
   /// Decodes JSON or gzip/TGS bytes and plays the resulting composition.
-  /// Treat the supplied bytes as immutable; pass a new list to change source.
+  /// Equal byte contents reuse the existing decoded composition across rebuilds.
   static const bytes = FastLottieBytes.new;
 
   /// Loads and plays a remote `.tgs` or Lottie `.json` resource with automatic
@@ -181,6 +228,8 @@ class FastLottie extends _FastLottieWidget {
     double? resolutionScale,
     double? maximumFrameRate,
     bool usePipeline = true,
+    String? semanticLabel,
+    bool excludeFromSemantics = false,
     WidgetBuilder? placeholderBuilder,
     FastLottieErrorBuilder? errorBuilder,
   }) => FastLottieNetwork(
@@ -206,6 +255,8 @@ class FastLottie extends _FastLottieWidget {
     resolutionScale: resolutionScale,
     maximumFrameRate: maximumFrameRate,
     usePipeline: usePipeline,
+    semanticLabel: semanticLabel,
+    excludeFromSemantics: excludeFromSemantics,
     placeholderBuilder: placeholderBuilder,
     errorBuilder: errorBuilder,
   );
@@ -254,7 +305,37 @@ class _FastLottieState extends State<FastLottie>
       : const AlwaysStoppedAnimation<double>(0);
   bool _repeating = false;
   bool _usesDefaultPipeline = false;
+  bool _deactivated = false;
+  _InternalClock _activeInternalClock = _InternalClock.none;
   Animation<double> get animation => _activeAnimation;
+
+  void _syncClockHandoff() {
+    if (widget.controller != null ||
+        _playback != FastLottiePlayback.active ||
+        _reducedMotion ||
+        widget.composition.isStatic) {
+      return;
+    }
+    final nextClock = _useSharedClock
+        ? _InternalClock.shared
+        : _InternalClock.controller;
+    if (nextClock == _activeInternalClock) return;
+    if (nextClock == _InternalClock.shared) {
+      if (_activeInternalClock == _InternalClock.controller &&
+          _controllerInstance != null) {
+        final shared = _sharedAnimation ??= _SharedClockAnimation(
+          widget.composition.duration,
+        );
+        shared.setDuration(widget.composition.duration);
+        shared.setProgress(_controllerInstance!.value);
+      }
+    } else if (_activeInternalClock == _InternalClock.shared &&
+        _sharedAnimation != null) {
+      _controller.duration = widget.composition.duration;
+      _controller.value = _sharedAnimation!.value;
+    }
+    _activeInternalClock = nextClock;
+  }
 
   FastLottieRasterCache? _resolveRasterCache() {
     if (widget.rasterCache != null) {
@@ -309,6 +390,7 @@ class _FastLottieState extends State<FastLottie>
         }
         rethrow;
       }
+      _syncClockHandoff();
       _repaint = _FrameRepaint(
         _player,
         _paintAnimation,
@@ -318,6 +400,7 @@ class _FastLottieState extends State<FastLottie>
     } else if (nextPlayback != _playback) {
       final previous = _playerInstance!;
       _playback = nextPlayback;
+      _syncClockHandoff();
       _playerInstance = FastLottiePlayer(
         widget.composition,
         cache: widget.cache,
@@ -335,6 +418,7 @@ class _FastLottieState extends State<FastLottie>
       );
       previous.dispose();
     } else {
+      _syncClockHandoff();
       _repaint?.update(
         _player,
         _paintAnimation,
@@ -344,20 +428,31 @@ class _FastLottieState extends State<FastLottie>
     }
     if (_playback != FastLottiePlayback.hidden &&
         _player.rasterCache != null &&
-        widget.width != null &&
-        widget.height != null) {
-      final target = Size(widget.width!, widget.height!);
-      _player.prewarm(
-        destinationSize: target,
-        fit: widget.fit,
-        alignment: widget.alignment,
-        devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+        (widget.width != null || widget.height != null)) {
+      final target = _resolveCompositionSize(
+        widget.width,
+        widget.height,
+        widget.composition,
       );
+      if (target.isFinite && !target.isEmpty) {
+        _player.prewarm(
+          destinationSize: target,
+          fit: widget.fit,
+          alignment: widget.alignment,
+          devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+        );
+      }
     }
     _play();
   }
 
   void _play() {
+    if (_deactivated) {
+      _sharedAnimation?.setActive(false);
+      _controllerInstance?.stop();
+      return;
+    }
+    _syncClockHandoff();
     if (_useSharedClock) {
       _controllerInstance?.stop();
       final shared = _sharedAnimation ??= _SharedClockAnimation(
@@ -381,6 +476,21 @@ class _FastLottieState extends State<FastLottie>
       if (!_controller.isAnimating || _repeating) _controller.forward();
     }
     _repeating = widget.repeat;
+  }
+
+  @override
+  void deactivate() {
+    _deactivated = true;
+    _sharedAnimation?.setActive(false);
+    _controllerInstance?.stop();
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    _deactivated = false;
+    _play();
   }
 
   @override
@@ -435,6 +545,15 @@ class _FastLottieState extends State<FastLottie>
         }
         rethrow;
       }
+      if (oldWidget.composition != widget.composition) {
+        _sharedAnimation?.reset(widget.composition.duration);
+        if (_controllerInstance != null) {
+          _controllerInstance!.stop();
+          _controllerInstance!.duration = widget.composition.duration;
+          _controllerInstance!.value = 0;
+        }
+      }
+      _syncClockHandoff();
       _repaint?.update(
         _player,
         _paintAnimation,
@@ -445,15 +564,8 @@ class _FastLottieState extends State<FastLottie>
       if (wasUsingDefault && !_usesDefaultPipeline) {
         DefaultRasterCacheScope.release();
       }
-      if (oldWidget.composition != widget.composition) {
-        _sharedAnimation?.reset(widget.composition.duration);
-        if (_controllerInstance != null) {
-          _controllerInstance!.stop();
-          _controllerInstance!.duration = widget.composition.duration;
-          _controllerInstance!.value = 0;
-        }
-      }
     } else {
+      _syncClockHandoff();
       _repaint?.update(
         _player,
         _paintAnimation,
@@ -478,17 +590,16 @@ class _FastLottieState extends State<FastLottie>
   }
 
   @override
-  Widget build(BuildContext context) => RepaintBoundary(
-    child: _playback == FastLottiePlayback.hidden
-        ? SizedBox(
-            width: widget.width ?? widget.composition.width,
-            height: widget.height ?? widget.composition.height,
-          )
+  Widget build(BuildContext context) {
+    final size = _resolveCompositionSize(
+      widget.width,
+      widget.height,
+      widget.composition,
+    );
+    final child = _playback == FastLottiePlayback.hidden
+        ? SizedBox(width: size.width, height: size.height)
         : CustomPaint(
-            size: Size(
-              widget.width ?? widget.composition.width,
-              widget.height ?? widget.composition.height,
-            ),
+            size: size,
             painter: _FastPainter(
               _player,
               _paintAnimation,
@@ -499,8 +610,13 @@ class _FastLottieState extends State<FastLottie>
               MediaQuery.devicePixelRatioOf(context),
               repaint: _repaint!,
             ),
-          ),
-  );
+          );
+    return _wrapSemantics(
+      child,
+      semanticLabel: widget.semanticLabel,
+      excludeFromSemantics: widget.excludeFromSemantics,
+    );
+  }
 }
 
 class _FastPainter extends CustomPainter {
@@ -648,8 +764,10 @@ final class _SharedPlaybackClock {
   _SharedPlaybackClock._();
 
   final _active = <_SharedClockAnimation>[];
+  final _tickSnapshot = <_SharedClockAnimation>[];
   Ticker? _ticker;
   int _lastElapsedUs = 0;
+  bool _ticking = false;
 
   void attach(_SharedClockAnimation animation) {
     if (_active.contains(animation)) return;
@@ -675,9 +793,27 @@ final class _SharedPlaybackClock {
   void _onTick(Duration elapsed) {
     final nowUs = elapsed.inMicroseconds;
     _lastElapsedUs = nowUs;
-    // Iterate snapshot-safe by index; listeners only repaint, rarely mutate.
-    for (var i = 0; i < _active.length; i++) {
-      _active[i]._advance(nowUs);
+    if (_active.isEmpty) return;
+    final List<_SharedClockAnimation> snapshot;
+    final useScratch = !_ticking;
+    if (useScratch) {
+      _ticking = true;
+      _tickSnapshot
+        ..clear()
+        ..addAll(_active);
+      snapshot = _tickSnapshot;
+    } else {
+      snapshot = List.of(_active, growable: false);
+    }
+    try {
+      for (var i = 0; i < snapshot.length; i++) {
+        snapshot[i]._advance(nowUs);
+      }
+    } finally {
+      if (useScratch) {
+        _tickSnapshot.clear();
+        _ticking = false;
+      }
     }
   }
 }
@@ -694,7 +830,9 @@ final class _SharedClockAnimation extends Animation<double>
   int _offsetUs = 0;
   int _anchorUs = 0;
   double _value = 0.0;
-  bool _active = false;
+  bool _desiredActive = false;
+  bool _clockAttached = false;
+  int _listenerCount = 0;
   bool _disposed = false;
 
   @override
@@ -702,14 +840,47 @@ final class _SharedClockAnimation extends Animation<double>
 
   @override
   AnimationStatus get status =>
-      _active ? AnimationStatus.forward : AnimationStatus.dismissed;
+      _desiredActive ? AnimationStatus.forward : AnimationStatus.dismissed;
+
+  @override
+  void didRegisterListener() {
+    _listenerCount++;
+    _syncClock();
+  }
+
+  @override
+  void didUnregisterListener() {
+    if (_listenerCount > 0) _listenerCount--;
+    _syncClock();
+  }
+
+  void _syncClock() {
+    final shouldRun = !_disposed && _desiredActive && _listenerCount > 0;
+    if (shouldRun == _clockAttached) return;
+    _clockAttached = shouldRun;
+    if (shouldRun) {
+      _SharedPlaybackClock.instance.attach(this);
+    } else {
+      _offsetUs = (_value * _periodUs).round();
+      _SharedPlaybackClock.instance.detach(this);
+    }
+  }
 
   void setDuration(Duration duration) {
     final next = duration.inMicroseconds > 0 ? duration.inMicroseconds : 1;
     if (next == _periodUs) return;
     _periodUs = next;
     _offsetUs = (_value * _periodUs).round();
-    if (_active) {
+    if (_clockAttached) {
+      _anchorUs = _SharedPlaybackClock.instance._lastElapsedUs - _offsetUs;
+    }
+  }
+
+  void setProgress(double value) {
+    if (_disposed) return;
+    _value = value.clamp(0.0, 1.0);
+    _offsetUs = (_value * _periodUs).round();
+    if (_clockAttached) {
       _anchorUs = _SharedPlaybackClock.instance._lastElapsedUs - _offsetUs;
     }
   }
@@ -718,25 +889,20 @@ final class _SharedClockAnimation extends Animation<double>
     _periodUs = duration.inMicroseconds > 0 ? duration.inMicroseconds : 1;
     _value = 0.0;
     _offsetUs = 0;
-    if (_active) {
+    if (_clockAttached) {
       _anchorUs = _SharedPlaybackClock.instance._lastElapsedUs;
     }
     notifyListeners();
   }
 
   void setActive(bool active) {
-    if (_disposed || _active == active) return;
-    _active = active;
-    if (active) {
-      _SharedPlaybackClock.instance.attach(this);
-    } else {
-      _offsetUs = (_value * _periodUs).round();
-      _SharedPlaybackClock.instance.detach(this);
-    }
+    if (_disposed || _desiredActive == active) return;
+    _desiredActive = active;
+    _syncClock();
   }
 
   void _advance(int nowUs) {
-    if (_disposed || !_active) return;
+    if (_disposed || !_clockAttached) return;
     final elapsed = nowUs - _anchorUs;
     final mod = elapsed >= 0 ? elapsed % _periodUs : 0;
     final next = mod / _periodUs;
@@ -750,8 +916,10 @@ final class _SharedClockAnimation extends Animation<double>
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    if (_active) {
-      _active = false;
+    _desiredActive = false;
+    _listenerCount = 0;
+    if (_clockAttached) {
+      _clockAttached = false;
       _SharedPlaybackClock.instance.detach(this);
     }
     clearListeners();
@@ -773,6 +941,8 @@ class FastLottieView extends StatefulWidget {
     this.fit = BoxFit.contain,
     this.alignment = Alignment.center,
     this.useFrameRate = true,
+    this.semanticLabel,
+    this.excludeFromSemantics = false,
   });
 
   /// Player owned and disposed by the caller.
@@ -795,6 +965,13 @@ class FastLottieView extends StatefulWidget {
 
   /// Whether to sample authored frames; false allows vector subframes.
   final bool useFrameRate;
+
+  /// Optional accessibility label exposed via [Semantics] with `image: true`.
+  final String? semanticLabel;
+
+  /// Whether to exclude this animation from the semantics tree.
+  final bool excludeFromSemantics;
+
   @override
   State<FastLottieView> createState() => _FastLottieViewState();
 }
@@ -826,22 +1003,28 @@ class _FastLottieViewState extends State<FastLottieView> {
   }
 
   @override
-  Widget build(BuildContext context) => RepaintBoundary(
-    child: CustomPaint(
-      size: Size(
-        widget.width ?? widget.player.composition.width,
-        widget.height ?? widget.player.composition.height,
+  Widget build(BuildContext context) {
+    final size = _resolveCompositionSize(
+      widget.width,
+      widget.height,
+      widget.player.composition,
+    );
+    return _wrapSemantics(
+      CustomPaint(
+        size: size,
+        painter: _FastPainter(
+          widget.player,
+          widget.progress,
+          widget.fit,
+          widget.alignment,
+          widget.useFrameRate,
+          false,
+          MediaQuery.devicePixelRatioOf(context),
+          repaint: _repaint,
+        ),
       ),
-      painter: _FastPainter(
-        widget.player,
-        widget.progress,
-        widget.fit,
-        widget.alignment,
-        widget.useFrameRate,
-        false,
-        MediaQuery.devicePixelRatioOf(context),
-        repaint: _repaint,
-      ),
-    ),
-  );
+      semanticLabel: widget.semanticLabel,
+      excludeFromSemantics: widget.excludeFromSemantics,
+    );
+  }
 }

@@ -4,6 +4,11 @@ import 'dart:typed_data';
 
 bool get isDiskCacheSupported => true;
 
+bool get isFlutterTestEnvironment {
+  final value = Platform.environment['FLUTTER_TEST'];
+  return value != null && value != 'false';
+}
+
 int defaultWorkerCount([int? override]) {
   if (override != null) return override.clamp(1, 8);
   final cores = Platform.numberOfProcessors;
@@ -169,6 +174,55 @@ abstract final class PlatformDiskFs {
       return f.existsSync() ? f.lengthSync() : 0;
     } on FileSystemException {
       return 0;
+    }
+  }
+
+  static Future<List<PlatformFileEntry>> listFilesAsync(
+    String dirPath, {
+    String suffix = '.flcache',
+  }) async {
+    if (dirPath.isEmpty) return const [];
+    try {
+      final dir = Directory(dirPath);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+        return const [];
+      }
+      final entries = <PlatformFileEntry>[];
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.lastWhere(
+          (s) => s.isNotEmpty,
+          orElse: () => '',
+        );
+        if (suffix.isNotEmpty && !name.endsWith(suffix)) continue;
+        try {
+          final stat = await entity.stat();
+          entries.add(
+            PlatformFileEntry(
+              path: entity.path,
+              name: name,
+              size: stat.size,
+              modifiedMs: stat.modified.millisecondsSinceEpoch,
+            ),
+          );
+        } on FileSystemException {
+          // Skip files deleted concurrently.
+        }
+      }
+      return entries;
+    } on FileSystemException {
+      return const [];
+    }
+  }
+
+  static Future<bool> deleteFileAsync(String path) async {
+    try {
+      final f = File(path);
+      if (await f.exists()) await f.delete();
+      return true;
+    } on FileSystemException {
+      return false;
     }
   }
 

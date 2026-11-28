@@ -47,6 +47,7 @@ void main() {
     final c1 = distinctIcon(1);
     final c2 = distinctIcon(2);
     final c3 = distinctIcon(3);
+    final c4 = distinctIcon(4);
     final cache = FastLottiePictureCache(maximumCompositions: 2);
     addTearDown(cache.dispose);
 
@@ -73,8 +74,20 @@ void main() {
       pictureCache: cache,
     );
     record(p3, 0.0);
-    expect(cache.entries, 2);
+    // Pinned players do not starve the unpinned warm LRU (1 unpinned <= 2).
+    expect(cache.entries, 3);
     p3.dispose();
+    expect(cache.entries, 3); // 1 pinned (c2) + 2 unpinned (c1, c3).
+
+    final p4 = FastLottiePlayer(
+      c4,
+      cache: FastLottieCache.unbounded,
+      pictureCache: cache,
+    );
+    record(p4, 0.0);
+    p4.dispose();
+    // 3rd unpinned composition evicts oldest unpinned (c1): 1 pinned + 2 unpinned.
+    expect(cache.entries, 3);
 
     cache.evictUnpinned();
     // Only pinned p2 remains.
