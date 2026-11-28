@@ -818,11 +818,14 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
       cache._releaseFailedEntryResources(entry);
     }
     _finishJob(entry, scheduleFollowup: false);
-    if (active) {
-      scheduleMicrotask(() {
-        if (!_disposed && !entry.retired) _notifyUsers(entry);
-      });
+    if (!active) return;
+    if (entry.users.isEmpty) {
+      cache._evict(entry);
+      return;
     }
+    scheduleMicrotask(() {
+      if (!_disposed && !entry.retired) _notifyUsers(entry);
+    });
   }
 
   @override

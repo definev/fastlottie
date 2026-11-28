@@ -833,7 +833,7 @@ void main() {
   );
 
   testWidgets(
-    'failed entry stays isolated and is not requeued when demoted',
+    'failed entry stays isolated and is evicted after its last player leaves',
     (tester) async {
       final original = FastLottieComposition.fromJson(fixture('icon'));
       final blob = debugEncodeCompiledComposition(original);
@@ -859,6 +859,11 @@ void main() {
         rasterCache: cache,
         cache: FastLottieCache.none,
       );
+      final sharedFailed = FastLottiePlayer(
+        corrupt,
+        rasterCache: cache,
+        cache: FastLottieCache.none,
+      );
       final healthy = FastLottiePlayer(
         FastLottieComposition.fromJson(fixture('morph')),
         rasterCache: cache,
@@ -866,11 +871,13 @@ void main() {
       );
       addTearDown(() {
         failed.dispose();
+        sharedFailed.dispose();
         healthy.dispose();
         cache.dispose();
       });
 
       _record(failed, 0, size: 32);
+      _record(sharedFailed, 0, size: 32);
       for (var i = 0; i < 200 && cache.pendingFrames > 0; i++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 5)),
@@ -897,6 +904,37 @@ void main() {
       expect(cache.debugEntryFramesPerStrip(healthy), 4);
       expect(cache.workerDispatches, dispatchesBeforeDemote + 1);
       expect(cache.bytes, greaterThan(0));
+
+      failed.dispose();
+      expect(cache.entries, 2);
+      expect(cache.debugEntryFramesPerStrip(sharedFailed), 1);
+      sharedFailed.dispose();
+      expect(cache.entries, 1);
+      expect(cache.debugUnpinnedEntries, 0);
+      expect(cache.debugEntryFramesPerStrip(healthy), 4);
+
+      // A one-frame poster can report an error after its player leaves.
+      // Its entry should also be removed, even if it was already in the LRU.
+      final lateFailure = FastLottiePlayer(
+        corrupt,
+        rasterCache: cache,
+        cache: FastLottieCache.none,
+        rasterMode: FastLottieRasterMode.poster,
+      );
+      addTearDown(lateFailure.dispose);
+      _record(lateFailure, 0, size: 16);
+      expect(cache.entries, 2);
+      lateFailure.dispose();
+      expect(cache.debugUnpinnedEntries, 1);
+      for (var i = 0; i < 200 && cache.pendingFrames > 0; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+      }
+      expect(cache.pendingFrames, 0);
+      expect(cache.entries, 1);
+      expect(cache.debugUnpinnedEntries, 0);
     },
   );
 

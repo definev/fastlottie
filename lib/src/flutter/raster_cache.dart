@@ -718,6 +718,7 @@ class FastLottieRasterCache {
     final oldDemotable = entry.demotableBytes;
     if (oldWeight > 0 || oldDemotable > 0) {
       _reserved -= oldWeight;
+      if (entry.poster) _posterWeight -= oldWeight;
       _totalDemotableBytes -= oldDemotable;
       if (entry.users.isEmpty) {
         if (entry.poster) {
@@ -737,21 +738,24 @@ class FastLottieRasterCache {
     final entry = player._rasterEntry;
     if (entry == null) return;
     entry.users.remove(player);
-    if (entry.users.isEmpty && !entry.retired) {
-      _admissionGeneration++;
-      entry.lastTouched = ++_touchSeq;
-      if (entry.poster) {
-        if (_unpinnedPosters.add(entry)) _unpinnedPosterBytes += entry.weight;
-      } else {
-        if (_unpinnedAnims.add(entry)) {
-          _unpinnedAnimBytes += entry.weight;
-          _unpinnedAnimDemotableBytes += entry.demotableBytes;
-        }
-      }
-      _coordinator.onEntryReleased(entry);
-    }
     player._rasterEntry = null;
     player._completePrewarmWaiters();
+    if (entry.users.isNotEmpty || entry.retired) return;
+    if (entry.rasterError != null) {
+      _evict(entry);
+      return;
+    }
+    _admissionGeneration++;
+    entry.lastTouched = ++_touchSeq;
+    if (entry.poster) {
+      if (_unpinnedPosters.add(entry)) _unpinnedPosterBytes += entry.weight;
+    } else {
+      if (_unpinnedAnims.add(entry)) {
+        _unpinnedAnimBytes += entry.weight;
+        _unpinnedAnimDemotableBytes += entry.demotableBytes;
+      }
+    }
+    _coordinator.onEntryReleased(entry);
   }
 
   (ui.Image?, _RasterEntry?, int) _lookup(
