@@ -4,10 +4,7 @@ import 'dart:typed_data';
 
 import 'worker_messages.dart';
 
-const webWorkerAsset =
-    'packages/fastlottie/lib/src/wasm/fastlottie_worker_v5.js';
-// Reject cached worker assets with an older wire format or raster algorithm.
-const webWorkerVersion = 5;
+const webWorkerAsset = 'packages/fastlottie/lib/src/wasm/fastlottie_worker.js';
 const workerInit = -1;
 const workerReady = -2;
 const workerFailed = -3;

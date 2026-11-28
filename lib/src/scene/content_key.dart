@@ -163,6 +163,7 @@ final class _ContentKeyHasher {
       _mixSource(s.content);
     } else if (s is _BezierGeometry) {
       _mixInt(s.closed ? 1 : 2);
+      _mixInt(s.reverse ? 1 : 0);
       _mixInt(s.closures.length);
       for (final cl in s.closures) {
         _mixInt((cl.$1 ? 1 : 0) | (cl.$2 ? 2 : 0));
@@ -291,8 +292,8 @@ final class _ContentKeyHasher {
   }
 
   void _mixCompiler(_Compiler comp) {
-    // Prefix-free AST digest + premultiplied luma matte revision.
-    _mixInt(0x464C4B32);
+    // Prefix-free AST digest + P1-A visual correctness revision (FLK3).
+    _mixInt(0x464C4B33);
     _mixDouble(comp.width);
     _mixDouble(comp.height);
     _mixDouble(comp.start);

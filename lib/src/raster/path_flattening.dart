@@ -192,7 +192,8 @@ void _flattenBezier(
     }
   }
   out.beginContour(closed);
-  if (_useNativeBezier) {
+  final reverse = src.reverse;
+  if (_useNativeBezier && !reverse) {
     final start = out.vertexCount;
     while (true) {
       final countAfter = flattenBezierNative(
@@ -215,15 +216,29 @@ void _flattenBezier(
     }
   }
   final limit = closingCurve ? count : count - 1;
+  final startIdx = (reverse && !closingCurve) ? count - 1 : 0;
+  final outOff = reverse ? 2 : 4;
+  final inOff = reverse ? 4 : 2;
   if (transform != null) {
     final (ma, mb, mc, md, mtx, mty) = transform;
-    var lx = pts[0], ly = pts[1];
+    var lx = pts[startIdx * 6], ly = pts[startIdx * 6 + 1];
     out.addVertex(ma * lx + mc * ly + mtx, mb * lx + md * ly + mty);
     for (var step = 1; step <= limit; step++) {
-      final p = (step - 1) * 6;
-      final c = (step == count ? 0 : step) * 6;
-      final ox = pts[p + 4], oy = pts[p + 5];
-      final ix = pts[c + 2], iy = pts[c + 3];
+      final int pIdx, cIdx;
+      if (!reverse) {
+        pIdx = step - 1;
+        cIdx = step == count ? 0 : step;
+      } else if (closingCurve) {
+        pIdx = (count - step + 1) % count;
+        cIdx = (count - step) % count;
+      } else {
+        pIdx = count - step;
+        cIdx = count - step - 1;
+      }
+      final p = pIdx * 6;
+      final c = cIdx * 6;
+      final ox = pts[p + outOff], oy = pts[p + outOff + 1];
+      final ix = pts[c + inOff], iy = pts[c + inOff + 1];
       final nx = pts[c], ny = pts[c + 1];
       if (ox.abs() <= 1e-4 &&
           oy.abs() <= 1e-4 &&
@@ -249,13 +264,24 @@ void _flattenBezier(
       ly = ny;
     }
   } else {
-    var lx = pts[0], ly = pts[1];
+    var lx = pts[startIdx * 6], ly = pts[startIdx * 6 + 1];
     out.addVertex(lx, ly);
     for (var step = 1; step <= limit; step++) {
-      final p = (step - 1) * 6;
-      final c = (step == count ? 0 : step) * 6;
-      final ox = pts[p + 4], oy = pts[p + 5];
-      final ix = pts[c + 2], iy = pts[c + 3];
+      final int pIdx, cIdx;
+      if (!reverse) {
+        pIdx = step - 1;
+        cIdx = step == count ? 0 : step;
+      } else if (closingCurve) {
+        pIdx = (count - step + 1) % count;
+        cIdx = (count - step) % count;
+      } else {
+        pIdx = count - step;
+        cIdx = count - step - 1;
+      }
+      final p = pIdx * 6;
+      final c = cIdx * 6;
+      final ox = pts[p + outOff], oy = pts[p + outOff + 1];
+      final ix = pts[c + inOff], iy = pts[c + inOff + 1];
       final nx = pts[c], ny = pts[c + 1];
       if (ox.abs() <= 1e-4 &&
           oy.abs() <= 1e-4 &&
@@ -787,7 +813,7 @@ void _applyDash(
   final values = dash._values;
   var cycle = 0.0;
   for (var i = 0; i < count; i++) {
-    final v = math.max(i.isEven ? 1.0 : .1, dash.intervals[i].scalar(frame));
+    final v = math.max(i.isEven ? 0.01 : .1, dash.intervals[i].scalar(frame));
     values[i] = v;
     cycle += v;
   }
@@ -1018,8 +1044,9 @@ void _strokeAddJoin(
     return;
   }
 
-  // Outer bend on the right-hand side occurs when turning counter-clockwise (cross < 0).
-  if (cross >= 0) {
+  // Outer bend on the right-hand side occurs when turning counter-clockwise
+  // (cross < 0) or on a 180-degree fold-back (|cross| < 1e-4, dot < -0.999).
+  if (cross >= 0 && !(cross < 1e-4 && dot < -0.999)) {
     // Inner crease: route cleanly through joint center so NonZero fill has zero notch.
     dst.addVertex(oaX, oaY);
     dst.addVertex(vx, vy);

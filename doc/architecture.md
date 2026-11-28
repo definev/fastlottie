@@ -260,7 +260,7 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
   - **`_FrameRepaint`:** Filters animation ticks through `sampleForRepaint(progress, useFrameRate)` — never calls `setState()`, and suppresses `notifyListeners()` whenever the quantized frame is unchanged (e.g., a 30 FPS clip on a 120 Hz screen). Automatically pauses internal ticks for static compositions or when `MediaQuery.disableAnimationsOf(context)` is true.
 - **Conditional Imports for Native vs. Web:**
   - `raster_flutter_canvas.dart` / `raster_no_canvas.dart`: isolates `dart:ui` from `raster_core.dart` so the exact same raster core runs inside a JS/Wasm Web Worker.
-  - `raster_browser.dart` / `raster_web_protocol.dart` (`webWorkerVersion = 5`): communicates with `lib/src/wasm/fastlottie_worker_v5.js` and `fastlottie_simd_v2.wasm` via positional arrays + `Transferable ArrayBuffer`; automatically falls back to inline execution if workers are blocked or disabled (`FASTLOTTIE_DISABLE_WEB_WORKER`).
+  - `raster_browser.dart` / `raster_web_protocol.dart`: communicates with `lib/src/wasm/fastlottie_worker.js` and `fastlottie_simd.wasm` via positional arrays + `Transferable ArrayBuffer`; automatically falls back to inline execution if workers are blocked or disabled (`FASTLOTTIE_DISABLE_WEB_WORKER`).
   - `isolate_io.dart` / `isolate_stub.dart`, `platform_io.dart` / `platform_stub.dart`, `network_io.dart` / `network_stub.dart`, `simd_io.dart` / `simd_wasm.dart` / `simd_web.dart` / `simd_stub.dart`.
 
 ---
@@ -301,7 +301,7 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
 | `lib/src/worker/raster_worker.dart` | `softwareWorkerEntry`: worker loop, `maxWorkerScenes = 24`, cache lookup/store, `renderSceneSoftware`. |
 | `lib/src/worker/worker_messages.dart` | Internal opcodes and Dart records exchanged between pool and workers. |
 | `lib/src/worker/raster_browser.dart` / `stub.dart` | Web Worker lifecycle, Wasm asset loading, and inline fallback when workers fail or are disabled. |
-| `lib/src/worker/raster_web_protocol.dart` | Wire-format codec (`webWorkerVersion = 5`) encoding Dart records into positional arrays with `Transferable ArrayBuffer`. |
+| `lib/src/worker/raster_web_protocol.dart` | Wire-format codec encoding Dart records into positional arrays with `Transferable ArrayBuffer`. |
 | `lib/src/cache/bitstream_cache.dart` | `BitstreamStore`: compressed RAM LRU, `TilePlaybackPage`, `.flcache` (`FLC1` v2) disk store, self-healing CRC31. |
 | `lib/src/cache/tile_playback.dart` | `TilePlaybackPage`, `TilePlaybackCursor`: 16×16 tile deduplication across 2–4 warm frames in RAM. |
 | `lib/src/cache/lz4.dart` | `Lz4Codec`, `Lz4Scratch`: allocation-free pure-Dart LZ4 codec (`offset == 4` fast path). |
@@ -315,7 +315,7 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
 | `lib/src/platform/raster_flutter_canvas.dart` / `no_canvas.dart` | Conditional import bridge decoupling `dart:ui` from `raster_core.dart`. |
 | `lib/src/network/network_io.dart` / `stub.dart` / `network_types.dart` | HTTP/HTTPS fetching with `FastLottieCancelToken` and raw `.tgsbin` disk cache. |
 | `native/fastlottie_coverage.c`, `fastlottie_simd.c`, `fastlottie_geometry.c`, `fastlottie_cache.c` | Optimized C kernels: bitset scanline, NEON/SSE2 blending, Bézier flattening, stroke expansion, LZ4 & ARM64 CRC32. |
-| `lib/src/wasm/fastlottie_worker_v5.js`, `fastlottie_simd_v2.wasm` | Prebuilt Web Worker JS bundle and standalone C Wasm kernels for Flutter Web. |
+| `lib/src/wasm/fastlottie_worker.js`, `fastlottie_simd.wasm` | Prebuilt Web Worker JS bundle and standalone C Wasm kernels for Flutter Web. |
 
 ---
 

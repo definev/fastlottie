@@ -11,7 +11,14 @@ class _GradientSpec {
     this.highlightAngle,
   ) : _alphaCount = math.max(0, (stops.valueCount - count * 4) ~/ 2),
       _rgb = Float32List(count * 3),
+      _colorOffsets = Float64List(count),
+      _alphaOffsets = Float64List(
+        math.max(0, (stops.valueCount - count * 4) ~/ 2),
+      ),
       _scratchOffsets = Float64List(
+        math.max(2, count + math.max(0, (stops.valueCount - count * 4) ~/ 2)),
+      ),
+      _scratchArgb = Uint32List(
         math.max(2, count + math.max(0, (stops.valueCount - count * 4) ~/ 2)),
       );
   final int count;
@@ -24,7 +31,10 @@ class _GradientSpec {
       (!highlightLength!.isStatic || highlightLength!.scalar(0) != 0);
   final bool radial;
   final Float32List _rgb;
+  final Float64List _colorOffsets;
+  final Float64List _alphaOffsets;
   final Float64List _scratchOffsets;
+  final Uint32List _scratchArgb;
   List<Color>? _cachedColors;
   List<double>? _cachedOffsets;
   bool get isStatic =>
@@ -72,33 +82,94 @@ class _GradientSpec {
       _rgb[outBase] = Track.linearToSrgb(values[base + 1]);
       _rgb[outBase + 1] = Track.linearToSrgb(values[base + 2]);
       _rgb[outBase + 2] = Track.linearToSrgb(values[base + 3]);
+      final v = values[base].clamp(0.0, 1.0);
+      _colorOffsets[i] = i > 0 && v < _colorOffsets[i - 1]
+          ? _colorOffsets[i - 1]
+          : v;
     }
-    final rawLen = count + _alphaCount;
-    for (var i = 0; i < count; i++) {
-      _scratchOffsets[i] = values[4 * i];
+    final alphaBase = count * 4;
+    for (var i = 0; i < _alphaCount; i++) {
+      final v = values[alphaBase + 2 * i].clamp(0.0, 1.0);
+      _alphaOffsets[i] = i > 0 && v < _alphaOffsets[i - 1]
+          ? _alphaOffsets[i - 1]
+          : v;
     }
-    var write = count;
-    for (var i = count * 4; i < values.length; i += 2) {
-      _scratchOffsets[write++] = values[i];
-    }
-    // Insertion sort on small stop array followed by in-place deduplication.
-    for (var i = 1; i < rawLen; i++) {
-      final key = _scratchOffsets[i];
-      var j = i - 1;
-      while (j >= 0 && _scratchOffsets[j] > key) {
-        _scratchOffsets[j + 1] = _scratchOffsets[j];
-        j--;
+    // Two-pointer merge of monotonically clamped color & alpha stops.
+    // Preserves duplicate stop offsets (hard-step color and hard-step alpha
+    // transitions) in exact authoring order to match Skia and Tier B.
+    var merged = 0;
+    var cIdx = 0;
+    var aIdx = 0;
+    while (cIdx < count || aIdx < _alphaCount) {
+      final double p;
+      if (cIdx < count && aIdx < _alphaCount) {
+        final cp = _colorOffsets[cIdx];
+        final ap = _alphaOffsets[aIdx];
+        p = cp <= ap ? cp : ap;
+      } else if (cIdx < count) {
+        p = _colorOffsets[cIdx];
+      } else {
+        p = _alphaOffsets[aIdx];
       }
-      _scratchOffsets[j + 1] = key;
-    }
-    var unique = 0;
-    for (var i = 0; i < rawLen; i++) {
-      final v = _scratchOffsets[i].clamp(0.0, 1.0);
-      if (unique == 0 || (v - _scratchOffsets[unique - 1]).abs() > 1e-6) {
-        _scratchOffsets[unique++] = v;
+      final cStart = cIdx;
+      while (cIdx < count && (_colorOffsets[cIdx] - p).abs() <= 1e-6) {
+        cIdx++;
+      }
+      final aStart = aIdx;
+      while (aIdx < _alphaCount && (_alphaOffsets[aIdx] - p).abs() <= 1e-6) {
+        aIdx++;
+      }
+      final cRun = cIdx - cStart;
+      final aRun = aIdx - aStart;
+      final steps = cRun >= aRun ? cRun : aRun;
+      for (var step = 0; step < steps; step++) {
+        final double rf, gf, bf;
+        if (cRun > 0) {
+          final ci = cStart + (step < cRun ? step : cRun - 1);
+          final c3 = ci * 3;
+          rf = _rgb[c3];
+          gf = _rgb[c3 + 1];
+          bf = _rgb[c3 + 2];
+        } else {
+          final right = cStart < count ? cStart : count - 1;
+          final left = right > 0 ? right - 1 : 0;
+          final pL = _colorOffsets[left];
+          final pR = _colorOffsets[right];
+          final span = pR - pL;
+          final t = span <= 1e-12 ? 0.0 : ((p - pL) / span).clamp(0.0, 1.0);
+          final l3 = left * 3;
+          final r3 = right * 3;
+          rf = _rgb[l3] + (_rgb[r3] - _rgb[l3]) * t;
+          gf = _rgb[l3 + 1] + (_rgb[r3 + 1] - _rgb[l3 + 1]) * t;
+          bf = _rgb[l3 + 2] + (_rgb[r3 + 2] - _rgb[l3 + 2]) * t;
+        }
+        final double af;
+        if (_alphaCount == 0) {
+          af = 1.0;
+        } else if (aRun > 0) {
+          final ai = aStart + (step < aRun ? step : aRun - 1);
+          af = values[alphaBase + 2 * ai + 1];
+        } else {
+          final right = aStart < _alphaCount ? aStart : _alphaCount - 1;
+          final left = right > 0 ? right - 1 : 0;
+          final pL = _alphaOffsets[left];
+          final pR = _alphaOffsets[right];
+          final span = pR - pL;
+          final t = span <= 1e-12 ? 0.0 : ((p - pL) / span).clamp(0.0, 1.0);
+          final aL = values[alphaBase + 2 * left + 1];
+          final aR = values[alphaBase + 2 * right + 1];
+          af = aL + (aR - aL) * t;
+        }
+        _scratchOffsets[merged] = p;
+        _scratchArgb[merged] =
+            ((af * 255).round().clamp(0, 255) << 24) |
+            ((rf * 255).round().clamp(0, 255) << 16) |
+            ((gf * 255).round().clamp(0, 255) << 8) |
+            (bf * 255).round().clamp(0, 255);
+        merged++;
       }
     }
-    final len = unique == 1 ? 2 : unique;
+    final len = merged == 1 ? 2 : merged;
     var colors = _cachedColors;
     var offsets = _cachedOffsets;
     if (colors == null || colors.length != len) {
@@ -107,38 +178,11 @@ class _GradientSpec {
     } else {
       offsets!;
     }
-    var left = 0;
-    for (var k = 0; k < unique; k++) {
-      final p = _scratchOffsets[k];
-      offsets[k] = p;
-      while (left < count - 1 && values[(left + 1) * 4] < p) {
-        left++;
-      }
-      final right = math.min(left + 1, count - 1);
-      final span = values[right * 4] - values[left * 4];
-      final t = span == 0
-          ? 0.0
-          : ((p - values[left * 4]) / span).clamp(0.0, 1.0);
-      final l3 = left * 3;
-      final r3 = right * 3;
-      final r = ((_rgb[l3] + (_rgb[r3] - _rgb[l3]) * t) * 255).round().clamp(
-        0,
-        255,
-      );
-      final g = ((_rgb[l3 + 1] + (_rgb[r3 + 1] - _rgb[l3 + 1]) * t) * 255)
-          .round()
-          .clamp(0, 255);
-      final b = ((_rgb[l3 + 2] + (_rgb[r3 + 2] - _rgb[l3 + 2]) * t) * 255)
-          .round()
-          .clamp(0, 255);
-      colors[k] = Color.fromARGB(
-        (_alphaAt(values, p) * 255).round().clamp(0, 255),
-        r,
-        g,
-        b,
-      );
+    for (var k = 0; k < merged; k++) {
+      offsets[k] = _scratchOffsets[k];
+      colors[k] = Color(_scratchArgb[k]);
     }
-    if (unique == 1) {
+    if (merged == 1) {
       colors[1] = colors[0];
       offsets[1] = 1;
     }

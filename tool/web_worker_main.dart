@@ -17,11 +17,11 @@ void main() {
     try {
       final message = WorkerMessage(event.data);
       if (!ready) {
-        if (message.op != workerInit || message.i(1) != webWorkerVersion) {
+        if (message.op != workerInit) {
           throw const FormatException('Incompatible FastLottie worker host');
         }
         try {
-          final response = await _scope.fetch(message.s(2).toJS).toDart;
+          final response = await _scope.fetch(message.s(1).toJS).toDart;
           if (response.ok) {
             await initializeWasmKernels(
               (await response.arrayBuffer().toDart).toDart.asUint8List(),
@@ -34,7 +34,6 @@ void main() {
         ready = true;
         final (data, transfer) = encodeWorkerMessage([
           workerReady,
-          webWorkerVersion,
           isSimdSupported,
         ]);
         _scope.postMessage(data, transfer);

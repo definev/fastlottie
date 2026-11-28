@@ -112,6 +112,7 @@ enum BlendMode {
   dstOut,
   dstIn,
   modulate,
+  xor,
   multiply,
   screen,
   overlay,

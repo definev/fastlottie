@@ -303,14 +303,55 @@ class _Layer {
           ])
         : null;
   _Layer? parent;
-  late final bool isStatic =
+  late final bool isLayerPropsStatic =
       transform.isStatic &&
       (timeRemap?.isStatic ?? true) &&
       (group?.isStatic ?? true) &&
-      (child?.isStatic ?? true) &&
       (fillEffect?.isStatic ?? true) &&
-      (parent?.isStatic ?? true) &&
+      (parent?.isLayerPropsStatic ?? true) &&
       (masks?.every((m) => m.isStatic) ?? true);
+  late final bool isStatic = isLayerPropsStatic && (child?.isStatic ?? true);
+
+  double childFrame(double frame) => timeRemap != null
+      ? timeRemap!.scalar(frame) * child!.fps
+      : (frame - offset) / stretch;
+
+  bool isStaticInRange(
+    double rangeStart,
+    double rangeEnd, {
+    bool startClosed = true,
+    bool endClosed = false,
+  }) {
+    if (hidden || (group == null && child == null)) return true;
+    if (rangeStart >= rangeEnd) return true;
+    final alwaysHidden =
+        rangeStart >= op || (endClosed ? rangeEnd < ip : rangeEnd <= ip);
+    if (alwaysHidden) return true;
+    final alwaysVisible =
+        rangeStart >= ip && (endClosed ? rangeEnd < op : rangeEnd <= op);
+    if (!alwaysVisible) return false;
+    if (!isLayerPropsStatic) return false;
+    if (child != null) {
+      if (timeRemap != null) {
+        return timeRemap!.isStatic;
+      }
+      if (stretch > 0) {
+        return child!.isStaticInRange(
+          (rangeStart - offset) / stretch,
+          (rangeEnd - offset) / stretch,
+          startClosed: startClosed,
+          endClosed: endClosed,
+        );
+      }
+      return child!.isStaticInRange(
+        (rangeEnd - offset) / stretch,
+        (rangeStart - offset) / stretch,
+        startClosed: endClosed,
+        endClosed: startClosed,
+      );
+    }
+    return true;
+  }
   late final bool hasActiveMasks = masks?.any((m) => m.mode != 'n') ?? false;
   late final bool hasStaticMaskCoverage =
       masks?.every((m) => m.mode == 'n' || m.isStatic) ?? false;
@@ -396,10 +437,7 @@ class _Layer {
   Rect? _localContentBounds(double frame) {
     var bounds = group?.drawBounds(frame);
     if (child != null) {
-      final childFrame = timeRemap != null
-          ? timeRemap!.scalar(frame) * child!.fps - child!.start
-          : (frame - offset) / stretch;
-      bounds = _unionRect(bounds, child!.worldBounds(childFrame));
+      bounds = _unionRect(bounds, child!.worldBounds(childFrame(frame)));
     }
     return bounds;
   }
@@ -433,9 +471,7 @@ class _Layer {
     final alpha = layerAlpha(frame, parentAlpha);
     final maskAlpha = singleMaskAlpha(frame);
     if (alpha == 0 || maskAlpha == 0) return;
-    final childFrame = timeRemap != null
-        ? timeRemap!.scalar(frame) * child!.fps - child!.start
-        : (frame - offset) / stretch;
+    final cf = child != null ? childFrame(frame) : 0.0;
     final uiBlendMode = _resolveBlendMode(blendMode);
     final fill = fillEffect?.argb(frame);
     if (fill != null && (!alphaOnly || fill >>> 24 != 255)) {
@@ -452,7 +488,7 @@ class _Layer {
             BlendMode.srcIn,
           ),
       );
-      _drawContent(canvas, frame, childFrame, alpha);
+      _drawContent(canvas, frame, cf, alpha);
       canvas.restore();
       return;
     }
@@ -469,14 +505,14 @@ class _Layer {
           ..blendMode = uiBlendMode ?? BlendMode.srcOver
           ..color = Color.fromARGB(opacity, 0, 0, 0),
       );
-      _drawContent(canvas, frame, childFrame, 255);
+      _drawContent(canvas, frame, cf, 255);
       // Modulate RGB by an opaque tint. A white copy of the translated
       // silhouette removes that tint wherever the shadow should not appear.
       canvas.saveLayer(bounds, shadow.modulate);
       canvas.drawRect(bounds, shadow.tint);
       canvas.saveLayer(bounds, shadow.whiteSilhouette);
       canvas.translate(shadow.dx, shadow.dy);
-      _drawContent(canvas, frame, childFrame, 255);
+      _drawContent(canvas, frame, cf, 255);
       canvas.restore();
       canvas.restore();
       canvas.restore();
@@ -484,7 +520,7 @@ class _Layer {
     }
     if (!hasAnySpatialTransform && !hasActiveMasks && uiBlendMode == null) {
       group?.draw(canvas, frame, alpha);
-      child?.draw(canvas, childFrame, alpha);
+      child?.draw(canvas, cf, alpha);
       return;
     }
     if (uiBlendMode != null) {
@@ -494,6 +530,11 @@ class _Layer {
       canvas.save();
     }
     applyParents(canvas, frame);
+    if (hasActiveMasks && _hasComplexMaskOpacity(frame)) {
+      _drawWithComplexCanvasMasks(canvas, frame, cf, alpha);
+      canvas.restore();
+      return;
+    }
     if (hasActiveMasks) {
       _applyCanvasMasks(canvas, frame);
     }
@@ -518,14 +559,98 @@ class _Layer {
       );
     }
     group?.draw(canvas, frame, alpha);
-    child?.draw(canvas, childFrame, alpha);
+    child?.draw(canvas, cf, alpha);
     if (maskAlpha != 255) canvas.restore();
+    canvas.restore();
+  }
+
+  bool _hasComplexMaskOpacity(double frame) {
+    final list = masks;
+    if (list == null || list.isEmpty) return false;
+    if (list.length == 1 && list[0].clipsToPathAlone) return false;
+    for (var i = 0; i < list.length; i++) {
+      final m = list[i];
+      if (m.mode == 'n') continue;
+      if (m.opacity.scalar(frame).round().clamp(0, 100) < 100) return true;
+    }
+    return false;
+  }
+
+  void _drawWithComplexCanvasMasks(
+    Canvas canvas,
+    double frame,
+    double cf,
+    int alpha,
+  ) {
+    final list = masks!;
+    final bounds = (_localContentBounds(frame) ?? Rect.largest).inflate(1);
+    canvas.saveLayer(bounds, Paint());
+    group?.draw(canvas, frame, alpha);
+    child?.draw(canvas, cf, alpha);
+    canvas.saveLayer(bounds, Paint()..blendMode = BlendMode.dstIn);
+    final opaqueWhite = Paint()..color = const Color(0xFFFFFFFF);
+    var started = false;
+    for (var i = 0; i < list.length; i++) {
+      final m = list[i];
+      if (m.mode == 'n') continue;
+      final mAlpha = (m.opacity.scalar(frame) * 255 / 100).round().clamp(0, 255);
+      final p = m.path(frame);
+      if (!started && m.mode == 's') {
+        canvas.drawRect(bounds, opaqueWhite);
+      }
+      final blend = !started && m.mode != 's'
+          ? BlendMode.srcOver
+          : switch (m.mode) {
+              's' => BlendMode.dstOut,
+              'i' => BlendMode.dstIn,
+              'f' => BlendMode.xor,
+              _ => BlendMode.srcOver,
+            };
+      if (m.inverted) {
+        canvas.saveLayer(bounds, Paint()..blendMode = blend);
+        canvas.drawRect(bounds, opaqueWhite);
+        if (mAlpha > 0) {
+          canvas.drawPath(
+            p,
+            Paint()
+              ..blendMode = BlendMode.dstOut
+              ..color = Color.fromARGB(mAlpha, 255, 255, 255),
+          );
+        }
+        canvas.restore();
+      } else if (blend == BlendMode.dstIn) {
+        // drawPath(dstIn) in Skia skips pixels outside p; isolate in a
+        // saveLayer(dstIn) so the empty area outside p clears uncovered mask pixels.
+        canvas.saveLayer(bounds, Paint()..blendMode = BlendMode.dstIn);
+        if (mAlpha > 0) {
+          canvas.drawPath(
+            p,
+            Paint()..color = Color.fromARGB(mAlpha, 255, 255, 255),
+          );
+        }
+        canvas.restore();
+      } else if (mAlpha > 0) {
+        canvas.drawPath(
+          p,
+          Paint()
+            ..blendMode = blend
+            ..color = Color.fromARGB(mAlpha, 255, 255, 255),
+        );
+      }
+      started = true;
+    }
+    canvas.restore();
     canvas.restore();
   }
 
   void _drawContent(Canvas canvas, double frame, double childFrame, int alpha) {
     canvas.save();
     applyParents(canvas, frame);
+    if (hasActiveMasks && _hasComplexMaskOpacity(frame)) {
+      _drawWithComplexCanvasMasks(canvas, frame, childFrame, alpha);
+      canvas.restore();
+      return;
+    }
     if (hasActiveMasks) _applyCanvasMasks(canvas, frame);
     group?.draw(canvas, frame, alpha);
     child?.draw(canvas, childFrame, alpha);
@@ -554,12 +679,16 @@ class _Layer {
     for (var i = 0; i < list.length; i++) {
       final m = list[i];
       if (m.mode == 'n') continue;
-      final p = m.path(frame);
-      if (m.mode == 'a' && !m.inverted) {
+      var p = m.path(frame);
+      if (m.inverted) {
+        final b = localBounds ??= _localContentBounds(frame) ?? Rect.largest;
+        p = Path.combine(PathOperation.difference, Path()..addRect(b), p);
+      }
+      if (m.mode == 'a') {
         combined = combined == null
             ? p
             : Path.combine(PathOperation.union, combined, p);
-      } else if (m.mode == 's' && !m.inverted) {
+      } else if (m.mode == 's') {
         // Masks are authored in layer-local coordinates and this method runs
         // after the layer/parent transforms have been installed on Canvas.
         // Using worldBounds here applies those transforms a second time.
@@ -569,24 +698,14 @@ class _Layer {
               localBounds ??= _localContentBounds(frame) ?? Rect.largest,
             ));
         combined = Path.combine(PathOperation.difference, base, p);
-      } else if (m.mode == 'i' && !m.inverted) {
+      } else if (m.mode == 'i') {
         combined = combined == null
             ? p
             : Path.combine(PathOperation.intersect, combined, p);
-      } else if (m.mode == 'f' && !m.inverted) {
+      } else if (m.mode == 'f') {
         combined = combined == null
             ? p
             : Path.combine(PathOperation.xor, combined, p);
-      } else if (m.inverted) {
-        final b = localBounds ??= _localContentBounds(frame) ?? Rect.largest;
-        final invPath = Path.combine(
-          PathOperation.difference,
-          Path()..addRect(b),
-          p,
-        );
-        combined = combined == null
-            ? invPath
-            : Path.combine(PathOperation.union, combined, invPath);
       }
     }
     _lastCombinedMaskFrame = frame;
@@ -814,18 +933,18 @@ class _MergePathSource implements _PathSource {
 
     final op = switch (mode) {
       2 => PathOperation.union,
-      3 => PathOperation.reverseDifference,
+      3 => PathOperation.difference,
       4 => PathOperation.intersect,
       5 => PathOperation.xor,
       _ => PathOperation.union,
     };
 
-    final remainder = Path();
-    for (var i = 0; i < sources.length - 1; i++) {
-      remainder.addPath(sources[i].path(frame), Offset.zero);
+    // Fold left sequentially ((S0 op S1) op S2) per After Effects / Skottie.
+    var acc = sources[0].path(frame);
+    for (var i = 1; i < sources.length; i++) {
+      acc = Path.combine(op, acc, sources[i].path(frame));
     }
-    final first = sources.last.path(frame);
-    return _cached = Path.combine(op, first, remainder);
+    return _cached = acc;
   }
 
   @override
@@ -840,21 +959,24 @@ class _MergePathSource implements _PathSource {
           : sources[0].pathBounds(frame);
     }
 
+    if (mode == 3) {
+      return _cachedBounds = sources[0].pathBounds(frame);
+    }
+
     if (mode == 4) {
-      final b1 = sources.last.pathBounds(frame);
-      if (b1 == null) return _cachedBounds = null;
-      Rect? b2;
-      for (var i = 0; i < sources.length - 1; i++) {
-        b2 = _unionRect(b2, sources[i].pathBounds(frame));
+      var inter = sources[0].pathBounds(frame);
+      if (inter == null) return _cachedBounds = null;
+      for (var i = 1; i < sources.length; i++) {
+        final b = sources[i].pathBounds(frame);
+        if (b == null) return _cachedBounds = null;
+        inter = inter!.intersect(b);
+        if (inter.isEmpty) return _cachedBounds = null;
       }
-      if (b2 == null) return _cachedBounds = null;
-      final inter = b1.intersect(b2);
-      return _cachedBounds = inter.isEmpty ? null : inter;
+      return _cachedBounds = inter;
     }
 
     Rect? acc;
-    final count = mode == 3 ? sources.length - 1 : sources.length;
-    for (var i = 0; i < count; i++) {
+    for (var i = 0; i < sources.length; i++) {
       acc = _unionRect(acc, sources[i].pathBounds(frame));
     }
     return _cachedBounds = acc;
@@ -897,11 +1019,22 @@ Path _contour(
   final path = target != null ? (target..reset()) : Path();
   final count = points.length ~/ 6;
   if (count == 0) return path;
-  path.moveTo(points[0], points[1]);
-  final limit = (closingCurve ?? closed) ? count : count - 1;
+  final hasClosing = closingCurve ?? closed;
+  final startIdx = (reverse && !hasClosing) ? count - 1 : 0;
+  path.moveTo(points[startIdx * 6], points[startIdx * 6 + 1]);
+  final limit = hasClosing ? count : count - 1;
   for (var step = 1; step <= limit; step++) {
-    final previous = reverse ? (count - step + 1) % count : step - 1;
-    final current = reverse ? (count - step) % count : step % count;
+    final int previous, current;
+    if (!reverse) {
+      previous = step - 1;
+      current = step == count ? 0 : step;
+    } else if (hasClosing) {
+      previous = (count - step + 1) % count;
+      current = (count - step) % count;
+    } else {
+      previous = count - step;
+      current = count - step - 1;
+    }
     final p = previous * 6, c = current * 6;
     final out = reverse ? 2 : 4, inc = reverse ? 4 : 2;
     final ox = points[p + out], oy = points[p + out + 1];
@@ -927,10 +1060,16 @@ Path _contour(
 }
 
 class _BezierGeometry extends _Geometry {
-  _BezierGeometry(this.track, this.closed, [this.closures = const []]);
+  _BezierGeometry(
+    this.track,
+    this.closed, [
+    this.closures = const [],
+    this.reverse = false,
+  ]);
   final Track track;
   final bool closed;
   final List<(bool, bool)> closures;
+  final bool reverse;
   @override
   bool get isStatic => track.isStatic;
 
@@ -963,12 +1102,24 @@ class _BezierGeometry extends _Geometry {
   Path build(double frame) {
     final target = _cached ??= Path();
     final points = track.at(frame);
-    if (closures.isEmpty) return _contour(points, closed, target: target);
+    if (closures.isEmpty) {
+      return _contour(points, closed, target: target, reverse: reverse);
+    }
     if (frame <= track.keyframes!.times.first) {
-      return _contour(points, closures.first.$1, target: target);
+      return _contour(
+        points,
+        closures.first.$1,
+        target: target,
+        reverse: reverse,
+      );
     }
     if (frame >= track.keyframes!.times.last) {
-      return _contour(points, closures.last.$1, target: target);
+      return _contour(
+        points,
+        closures.last.$1,
+        target: target,
+        reverse: reverse,
+      );
     }
     final (startClosed, endClosed) = closures[track.segmentIndex];
     // rlottie interpolates the common cubic segments, then closes according to
@@ -978,6 +1129,7 @@ class _BezierGeometry extends _Geometry {
       points,
       startClosed,
       target: target,
+      reverse: reverse,
       closingCurve: startClosed && endClosed,
     );
   }

@@ -6,7 +6,7 @@ part of '../raster/raster_core.dart';
 // after constructing the DAG. Only process-owned or fingerprinted build-owned
 // blobs are accepted; this is not a loader for downloaded compiled content.
 class _SceneSnapshot {
-  static const magic = 0x314d4c46, version = 2;
+  static const magic = 0x314d4c46, version = 3;
   static const maxBytes = 64 << 20;
 
   static Uint8List encode(_Compiler compiler, String key, int sourceBytes) {
@@ -68,6 +68,7 @@ class _SceneSnapshot {
             8,
             ref(v.track),
             v.closed,
+            v.reverse,
             Uint8List.fromList([
               for (final (a, b) in v.closures) (a ? 1 : 0) | (b ? 2 : 0),
             ]),
@@ -435,10 +436,14 @@ class _SnapshotDecoder {
         case 8:
           final track = read<Track>(),
               closed = _input.flag(),
+              reverse = _input.flag(),
               flags = _input.u8();
-          value = _BezierGeometry(track, closed, [
-            for (final f in flags) (f & 1 != 0, f & 2 != 0),
-          ]);
+          value = _BezierGeometry(
+            track,
+            closed,
+            [for (final f in flags) (f & 1 != 0, f & 2 != 0)],
+            reverse,
+          );
         case 9:
           final ellipse = _input.flag(), reverse = _input.flag();
           value = _Primitive(ellipse, read(), read(), read(), reverse);

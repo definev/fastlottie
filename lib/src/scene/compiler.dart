@@ -62,11 +62,23 @@ class _Compiler {
   final layers = <_Layer>[];
   var commands = 1;
   bool hasStroke = false;
-  late final bool isStatic = layers.every(
-    (l) => l.isStatic && l.ip <= start && l.op >= end,
-  );
+  late final bool isStatic = isStaticInRange(start, end);
   late final bool hasNonNormalBlend = layers.any((l) => l.usesNonNormalBlend);
   List<int>? _commandBudget;
+
+  bool isStaticInRange(
+    double rangeStart,
+    double rangeEnd, {
+    bool startClosed = true,
+    bool endClosed = false,
+  }) => layers.every(
+    (l) => l.isStaticInRange(
+      rangeStart,
+      rangeEnd,
+      startClosed: startClosed,
+      endClosed: endClosed,
+    ),
+  );
 
   void _chargeCommands(int count, _JsonPath path) {
     commands += count;
@@ -129,7 +141,7 @@ class _Compiler {
     Map<String, dynamic> json, {
     Map<String, Map<String, dynamic>>? assetModels,
     Set<String> precompStack = const {},
-    Map<(String, double, double), _Compiler>? precompTemplates,
+    Map<(String, double, double, double, double), _Compiler>? precompTemplates,
     List<int>? commandBudget,
   }) {
     _commandBudget = commandBudget ?? <int>[1];
@@ -192,7 +204,8 @@ class _Compiler {
     final list = json['layers'];
     if (list is! List) fail(_JsonPath.layers, 'Expected layers');
     final precomps =
-        precompTemplates ?? <(String, double, double), _Compiler>{};
+        precompTemplates ??
+        <(String, double, double, double, double), _Compiler>{};
     final paths = _ShapePathCompiler(this, list);
     final byId = <int, _Layer>{};
     final parents = <_Layer, int>{};
@@ -334,7 +347,25 @@ class _Compiler {
         }
         final cw = number(m['w'] ?? width, path.field('w'));
         final ch = number(m['h'] ?? height, path.field('h'));
-        final precompKey = (id, cw, ch);
+        final assetIp = asset['ip'] != null
+            ? number(asset['ip'], path.field('refId'))
+            : 0.0;
+        final rawAssetOp = asset['op'] != null
+            ? number(asset['op'], path.field('refId'))
+            : assetIp + (end - start);
+        final assetOp = rawAssetOp > assetIp
+            ? rawAssetOp
+            : assetIp + (end - start);
+        // Validate asset['fr'] against composition bounds, while evaluating
+        // nested layers on the root fps timeline (Option B, matching
+        // package:lottie and dual-FPS stickers like emoji_u1f460.tgs).
+        final assetFr = asset['fr'] != null
+            ? number(asset['fr'], path.field('refId'))
+            : fps;
+        if (assetFr < _minFrameRate || assetFr > _maxFrameRate) {
+          fail(path.field('refId'), 'Invalid precomp frame rate');
+        }
+        final precompKey = (id, cw, ch, assetIp, assetOp);
         var template = precomps[precompKey];
         if (template == null) {
           template = _Compiler(options)
@@ -342,8 +373,8 @@ class _Compiler {
               {
                 'w': cw,
                 'h': ch,
-                'ip': 0,
-                'op': end - start,
+                'ip': assetIp,
+                'op': assetOp,
                 'fr': fps,
                 'layers': asset['layers'],
               },
@@ -635,8 +666,12 @@ class _Compiler {
       position = null;
     }
     final result = _Transform(
-      _track(m['a'], path.field('a'), 2, [0, 0]),
-      _track(position, path.field('p'), 2, [0, 0]),
+      _track(m['a'], path.field('a'), 2, [0, 0], separateEasing: true),
+      _track(position, path.field('p'), 2, [0, 0], separateEasing: true),
+      // Keep scale easing unified (separateEasing: false): matches
+      // package:lottie 3.8.2 AnimatableValueParser.parseScale
+      // (multiDimensional: false), avoiding divergences on TGS scale arrays
+      // and halving per-frame scale Bezier evaluations/easing storage.
       _track(m['s'], path.field('s'), 2, [100, 100], z: 100),
       _track(m['r'], path.field('r'), 1, [0]),
       _track(m['o'], path.field('o'), 1, [100]),
@@ -973,8 +1008,19 @@ class _Compiler {
             'd',
             'bm',
           });
+          if (m['d'] != null && m['d'] != 1 && m['d'] != 2 && m['d'] != 3) {
+            fail(p.field('d'), 'Path direction');
+          }
           if (m['ks'] == null) fail(p.field('ks'), 'Missing path data');
-          final geom = paths.geometry(m['ks'], p.field('ks'));
+          var geom = paths.geometry(m['ks'], p.field('ks'));
+          if (m['d'] == 3 && !geom.reverse) {
+            geom = _BezierGeometry(
+              geom.track,
+              geom.closed,
+              geom.closures,
+              true,
+            );
+          }
           if (!hidden) {
             sources.add(_Shape(geom));
           }

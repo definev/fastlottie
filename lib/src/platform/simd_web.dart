@@ -6,9 +6,9 @@ import 'simd_wasm.dart';
 
 export 'simd_wasm.dart' show isSimdSupported;
 
-const generatedWasmAsset = 'packages/fastlottie/fastlottie_simd_v2.wasm';
+const generatedWasmAsset = 'packages/fastlottie/fastlottie_simd.wasm';
 const bundledWasmAsset =
-    'packages/fastlottie/lib/src/wasm/fastlottie_simd_v2.wasm';
+    'packages/fastlottie/lib/src/wasm/fastlottie_simd.wasm';
 
 Future<void>? _wasmInitFuture;
 

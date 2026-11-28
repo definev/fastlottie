@@ -1,0 +1,2 @@
+lib/src/wasm/fastlottie_worker.js linguist-generated=true -diff
+lib/src/wasm/*.wasm binary
