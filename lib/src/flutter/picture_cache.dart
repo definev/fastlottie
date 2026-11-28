@@ -22,7 +22,7 @@ class FastLottiePictureCache {
     RangeError.checkNotNegative(maximumCommands, 'maximumCommands');
   }
 
-  /// Maximum retained compositions (active plus unpinned LRU).
+  /// Maximum number of unpinned compositions retained warm in LRU memory.
   final int maximumCompositions;
 
   /// Soft estimated command budget across cached frames; unpinned compositions
@@ -90,6 +90,8 @@ class FastLottiePictureCache {
         _unpinned.add(entry);
         _trim();
       }
+    } else {
+      _trimEntry(entry);
     }
   }
 
@@ -103,6 +105,28 @@ class FastLottiePictureCache {
     entry.pictures[frame] = picture;
     _hits++;
     return picture;
+  }
+
+  void _trimEntry(_PictureEntry entry, [FastLottieCache? floorLimits]) {
+    var maxFrames = floorLimits?.maximumFrames ?? 0;
+    var maxCommands = floorLimits?.maximumCommands ?? 0;
+    for (final user in entry.users) {
+      if (user.cache.maximumFrames > maxFrames) {
+        maxFrames = user.cache.maximumFrames;
+      }
+      if (user.cache.maximumCommands > maxCommands) {
+        maxCommands = user.cache.maximumCommands;
+      }
+    }
+    while (entry.pictures.isNotEmpty &&
+        (entry.pictures.length > maxFrames ||
+            entry.cachedCommands > maxCommands)) {
+      final oldestKey = entry.pictures.keys.first;
+      entry.pictures.remove(oldestKey)!.dispose();
+      _totalFrames--;
+      entry.cachedCommands -= entry.commandsPerFrame;
+      _totalCommands -= entry.commandsPerFrame;
+    }
   }
 
   void _store(
@@ -127,20 +151,13 @@ class FastLottiePictureCache {
     entry.cachedCommands += entry.commandsPerFrame;
     _totalCommands += entry.commandsPerFrame;
 
-    while (entry.pictures.length > limits.maximumFrames ||
-        entry.cachedCommands > limits.maximumCommands) {
-      final oldestKey = entry.pictures.keys.first;
-      entry.pictures.remove(oldestKey)!.dispose();
-      _totalFrames--;
-      entry.cachedCommands -= entry.commandsPerFrame;
-      _totalCommands -= entry.commandsPerFrame;
-    }
+    _trimEntry(entry, limits);
     _trim();
   }
 
   void _trim() {
     while (_unpinned.isNotEmpty &&
-        (_entries.length > maximumCompositions ||
+        (_unpinned.length > maximumCompositions ||
             _totalCommands > maximumCommands)) {
       final victim = _unpinned.first;
       _unpinned.remove(victim);

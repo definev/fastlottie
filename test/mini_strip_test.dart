@@ -870,14 +870,30 @@ void main() {
       });
 
       _record(failed, 0, size: 32);
-      await _drain(tester, cache);
-      expect(cache.lastError, isNull);
-      expect(cache.debugEntryFramesPerStrip(failed), 4);
+      for (var i = 0; i < 200 && cache.pendingFrames > 0; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+      }
+      expect(cache.pendingFrames, 0);
+      expect(cache.lastError, isA<StateError>());
+      // Failed entry immediately reclaims its reserved budget & GPU resources.
+      expect(cache.debugEntryFramesPerStrip(failed), 1);
+      expect(cache.reservedBytes, 0);
       final dispatchesBeforeDemote = cache.workerDispatches;
 
+      // Healthy entry must still admit and render despite failed entry's lastError.
       _record(healthy, 0, size: 32);
-      await _drain(tester, cache);
-      expect(cache.debugEntryFramesPerStrip(failed), lessThan(4));
+      for (var i = 0; i < 200 && cache.pendingFrames > 0; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+      }
+      expect(cache.pendingFrames, 0);
+      expect(cache.debugEntryFramesPerStrip(failed), 1);
+      expect(cache.debugEntryFramesPerStrip(healthy), 4);
       expect(cache.workerDispatches, dispatchesBeforeDemote + 1);
       expect(cache.bytes, greaterThan(0));
     },

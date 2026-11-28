@@ -130,7 +130,7 @@ final class RasterWorkerPool<T> {
            ? null
            : diskCacheDirectory {
     if (_diskDir != null && isDiskCacheSupported) {
-      _scanExistingDiskFiles(_diskDir!);
+      _startAsyncDiskScan(_diskDir!);
     }
   }
 
@@ -162,13 +162,20 @@ final class RasterWorkerPool<T> {
   // Host-tracked disk cache LRU across all shards.
   final _diskLru = <String, int>{};
   final _pendingDiskDeletes = <String, int>{};
+  final _deletedDuringDiskScan = <String>{};
   String? _lastTouchedDiskKey;
   int _diskBytes = 0;
+  int _diskScanGen = 0;
+  bool _diskScanInProgress = false;
+  Future<void>? _diskScanFuture;
   int _compressedRamBytes = 0;
   int _nextReqId = 1;
   int debugDispatchCount = 0;
   bool _started = false;
   bool _disposed = false;
+
+  bool get isStarted => _started;
+  Future<void> get debugDiskScanReady => _diskScanFuture ?? Future<void>.value();
 
   int get workerCount => _handles.isNotEmpty ? _handles.length : _workerCount;
   int get registeredSceneCount =>
@@ -473,6 +480,9 @@ final class RasterWorkerPool<T> {
     final next = (directory == null || directory.isEmpty) ? null : directory;
     if (next == _diskDir) return;
     _diskDir = next;
+    _diskScanGen++;
+    _diskScanInProgress = false;
+    _diskScanFuture = null;
     _diskLru.clear();
     _diskBytes = 0;
     _lastTouchedDiskKey = null;
@@ -481,7 +491,7 @@ final class RasterWorkerPool<T> {
       _forgetIdleShard(key);
     }
     if (next != null && isDiskCacheSupported) {
-      _scanExistingDiskFiles(next);
+      _startAsyncDiskScan(next);
     }
     if (_started) {
       final effective = maximumDiskBytes > 0 ? _diskDir : null;
@@ -497,32 +507,115 @@ final class RasterWorkerPool<T> {
     }
   }
 
-  void _scanExistingDiskFiles(String dir) {
+  void _startAsyncDiskScan(String dir) {
+    final scanGen = ++_diskScanGen;
+    _diskScanInProgress = true;
+    _deletedDuringDiskScan.clear();
     _lastTouchedDiskKey = null;
-    PlatformDiskFs.ensureDirectory(dir);
-    final entries = PlatformDiskFs.listFiles(dir, suffix: '.flcache');
-    entries.sort((a, b) => a.modifiedMs.compareTo(b.modifiedMs));
-    for (final file in entries) {
-      final name = file.name;
-      if (!name.endsWith('.flcache')) continue;
-      final stem = name.substring(0, name.length - '.flcache'.length);
-      _diskLru[stem] = file.size;
-      _diskBytes += file.size;
-    }
-    if (maximumDiskBytes <= 0) {
-      for (final file in entries) {
-        PlatformDiskFs.deleteFile(file.path);
+    // Run disk scan I/O in Zone.root so real dart:io futures never deadlock if
+    // a cache is created inside a FakeAsync widget test zone.
+    final future = Zone.root.run(() async {
+      final entries = await PlatformDiskFs.listFilesAsync(
+        dir,
+        suffix: '.flcache',
+      );
+      if (_disposed || scanGen != _diskScanGen || _diskDir != dir) return;
+      final deletedWhileScanning = Set<String>.of(_deletedDuringDiskScan);
+      _deletedDuringDiskScan.clear();
+      _diskScanInProgress = false;
+      if (maximumDiskBytes <= 0) {
+        _diskLru.clear();
+        _diskBytes = 0;
+        for (final file in entries) {
+          if (_disposed || scanGen != _diskScanGen || _diskDir != dir) return;
+          final name = file.name;
+          if (!name.endsWith('.flcache')) continue;
+          final stem = name.substring(0, name.length - '.flcache'.length);
+          if (_started) {
+            _evictKeyOnShard(stem);
+          } else {
+            _pendingDiskDeletes[stem] = -1;
+            try {
+              await PlatformDiskFs.deleteFileAsync(file.path);
+            } finally {
+              if (_pendingDiskDeletes[stem] == -1) {
+                _pendingDiskDeletes.remove(stem);
+              }
+            }
+          }
+        }
+        return;
       }
-      _diskLru.clear();
-      _diskBytes = 0;
-      return;
-    }
-    while (_diskBytes > maximumDiskBytes && _diskLru.isNotEmpty) {
-      final victim = _diskLru.keys.first;
-      final sz = _diskLru.remove(victim)!;
-      _diskBytes -= sz;
-      PlatformDiskFs.deleteFile(joinPath(dir, '$victim.flcache'));
-    }
+      entries.sort((a, b) => a.modifiedMs.compareTo(b.modifiedMs));
+      final merged = <String, int>{};
+      var totalBytes = 0;
+      for (final file in entries) {
+        final name = file.name;
+        if (!name.endsWith('.flcache')) continue;
+        final stem = name.substring(0, name.length - '.flcache'.length);
+        if (_pendingDiskDeletes.containsKey(stem) ||
+            deletedWhileScanning.contains(stem) ||
+            _diskLru.containsKey(stem)) {
+          continue;
+        }
+        merged[stem] = file.size;
+        totalBytes += file.size;
+      }
+      for (final live in _diskLru.entries) {
+        merged[live.key] = live.value;
+        totalBytes += live.value;
+      }
+      _diskLru
+        ..clear()
+        ..addAll(merged);
+      _diskBytes = totalBytes;
+      if (_diskBytes > maximumDiskBytes) {
+        final activeKeys = <String>{
+          ..._entryShardRefs.keys,
+          for (final req in _pendingRequests.values) req.entryKey,
+        };
+        if (_started) {
+          enforceDiskBudget(activeKeys);
+        } else {
+          // Await host-side deletions sequentially while workers are idle so
+          // a subsequent worker startup cannot race with an unawaited unlink.
+          while (!_disposed &&
+              scanGen == _diskScanGen &&
+              _diskDir == dir &&
+              _diskBytes > maximumDiskBytes &&
+              _diskLru.isNotEmpty) {
+            if (_started) {
+              enforceDiskBudget(activeKeys);
+              break;
+            }
+            String? victim;
+            for (final candidate in _diskLru.keys) {
+              if (!activeKeys.contains(candidate)) {
+                victim = candidate;
+                break;
+              }
+            }
+            victim ??= _diskLru.keys.first;
+            final sz = _diskLru.remove(victim)!;
+            _diskBytes -= sz;
+            if (_lastTouchedDiskKey == victim) _lastTouchedDiskKey = null;
+            _pendingDiskDeletes[victim] = -1;
+            try {
+              await PlatformDiskFs.deleteFileAsync(
+                joinPath(dir, '$victim.flcache'),
+              );
+            } finally {
+              if (_pendingDiskDeletes[victim] == -1) {
+                _pendingDiskDeletes.remove(victim);
+              }
+              _forgetIdleShard(victim);
+            }
+          }
+        }
+      }
+    });
+    _diskScanFuture = future;
+    unawaited(future);
   }
 
   void touchDiskEntry(String entryKey) {
@@ -694,6 +787,7 @@ final class RasterWorkerPool<T> {
       ):
         _updateWorkerRam(shard, workerRam);
         if (entryKey.isNotEmpty) {
+          if (_diskScanInProgress) _deletedDuringDiskScan.add(entryKey);
           _pendingDiskDeletes.remove(entryKey);
           _forgetIdleShard(entryKey);
         }
@@ -795,6 +889,7 @@ final class RasterWorkerPool<T> {
   }
 
   void _evictKeyOnShard(String entryKey) {
+    if (_diskScanInProgress) _deletedDuringDiskScan.add(entryKey);
     if (_started) {
       final shard =
           _entryShard[entryKey] ?? _shardForKey(entryKey, _handles.length);
@@ -805,9 +900,16 @@ final class RasterWorkerPool<T> {
       }
     }
     if (_diskDir != null && isDiskCacheSupported) {
-      PlatformDiskFs.deleteFile(joinPath(_diskDir!, '$entryKey.flcache'));
-      _pendingDiskDeletes.remove(entryKey);
-      _forgetIdleShard(entryKey);
+      final path = joinPath(_diskDir!, '$entryKey.flcache');
+      _pendingDiskDeletes[entryKey] = -1;
+      unawaited(
+        PlatformDiskFs.deleteFileAsync(path).whenComplete(() {
+          if (_pendingDiskDeletes[entryKey] == -1) {
+            _pendingDiskDeletes.remove(entryKey);
+          }
+          _forgetIdleShard(entryKey);
+        }),
+      );
     }
   }
 
@@ -861,7 +963,7 @@ final class RasterWorkerPool<T> {
     final mayHitDisk =
         maximumDiskBytes > 0 &&
         _diskDir != null &&
-        _diskLru.containsKey(entryKey);
+        (_diskScanInProgress || _diskLru.containsKey(entryKey));
     try {
       if (!mayHitDisk && !_registeredScenes[shard].contains(contentKey)) {
         _registerScene(request);
@@ -886,6 +988,9 @@ final class RasterWorkerPool<T> {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _diskScanGen++;
+    _diskScanInProgress = false;
+    _diskScanFuture = null;
     for (final request in _pendingRequests.values) {
       if (request.cancelSlot < 0) continue;
       final slot = request.cancelSlot;

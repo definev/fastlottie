@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 bool get isDiskCacheSupported => false;
 
+bool get isFlutterTestEnvironment => const bool.fromEnvironment('FLUTTER_TEST');
+
 int defaultWorkerCount([int? override]) => 1;
 
 String joinPath(String dir, String fileName) {
@@ -47,6 +49,13 @@ abstract final class PlatformDiskFs {
   static bool exists(String path) => false;
 
   static int fileLength(String path) => 0;
+
+  static Future<List<PlatformFileEntry>> listFilesAsync(
+    String dirPath, {
+    String suffix = '.flcache',
+  }) => Future<List<PlatformFileEntry>>.value(const []);
+
+  static Future<bool> deleteFileAsync(String path) => Future<bool>.value(false);
 
   static bool deleteFile(String path) => false;
 }

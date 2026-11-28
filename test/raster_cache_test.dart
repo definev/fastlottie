@@ -785,7 +785,8 @@ void main() {
       expect(cache.debugRegisteredWorkerScenes, 1);
       await drain(tester, cache);
 
-      cache.lastError = StateError('transient');
+      cache.debugRecordError(StateError('transient'));
+      expect(cache.lastError, isA<StateError>());
       cache.clear();
       expect(cache.lastError, isNull);
 

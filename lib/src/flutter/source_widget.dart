@@ -25,6 +25,8 @@ abstract class _FastLottieSource extends _FastLottieWidget {
     super.resolutionScale,
     super.maximumFrameRate,
     super.usePipeline,
+    super.semanticLabel,
+    super.excludeFromSemantics,
     this.options = const FastLottieOptions(),
     this.placeholderBuilder,
     this.errorBuilder,
@@ -71,6 +73,8 @@ class FastLottieAsset extends _FastLottieSource {
     super.resolutionScale,
     super.maximumFrameRate,
     super.usePipeline,
+    super.semanticLabel,
+    super.excludeFromSemantics,
     this.bundle,
     super.options,
     super.placeholderBuilder,
@@ -101,10 +105,22 @@ class FastLottieAsset extends _FastLottieSource {
       other is FastLottieAsset && other.name == name && other.bundle == bundle;
 }
 
+bool _bytesEqual(List<int> a, List<int> b) {
+  if (identical(a, b)) return true;
+  final len = a.length;
+  if (len != b.length) return false;
+  if (len == 0) return true;
+  if (a[0] != b[0] || a[len - 1] != b[len - 1]) return false;
+  for (var i = 1; i < len - 1; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 /// Decodes and plays caller-supplied JSON or gzip/TGS bytes.
 class FastLottieBytes extends _FastLottieSource {
   /// Compiles [bytes] asynchronously on native platforms.
-  /// Keep the list immutable and supply a new list when replacing the source.
+  /// Rebuilds with equal byte contents reuse the decoded composition.
   const FastLottieBytes(
     this.bytes, {
     super.key,
@@ -123,12 +139,14 @@ class FastLottieBytes extends _FastLottieSource {
     super.resolutionScale,
     super.maximumFrameRate,
     super.usePipeline,
+    super.semanticLabel,
+    super.excludeFromSemantics,
     super.options,
     super.placeholderBuilder,
     super.errorBuilder,
   });
 
-  /// Encoded JSON or gzip/TGS source, treated as immutable.
+  /// Encoded JSON or gzip/TGS source.
   final List<int> bytes;
 
   @override
@@ -142,7 +160,7 @@ class FastLottieBytes extends _FastLottieSource {
 
   @override
   bool _hasSameSource(_FastLottieSource other) =>
-      other is FastLottieBytes && identical(other.bytes, bytes);
+      other is FastLottieBytes && _bytesEqual(other.bytes, bytes);
 }
 
 /// Fetches and plays a remote JSON or gzip/TGS composition.
@@ -171,6 +189,8 @@ class FastLottieNetwork extends _FastLottieSource {
     super.resolutionScale,
     super.maximumFrameRate,
     super.usePipeline,
+    super.semanticLabel,
+    super.excludeFromSemantics,
     super.options,
     super.placeholderBuilder,
     super.errorBuilder,
@@ -302,6 +322,8 @@ class _FastLottieSourceState extends State<_FastLottieSource> {
         resolutionScale: widget.resolutionScale,
         maximumFrameRate: widget.maximumFrameRate,
         usePipeline: widget.usePipeline,
+        semanticLabel: widget.semanticLabel,
+        excludeFromSemantics: widget.excludeFromSemantics,
       );
     }
     final error = _error;
