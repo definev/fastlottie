@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// Default byte ceiling for the native raw `.tgsbin` network disk cache (64 MiB).
+/// Default byte ceiling for the native raw `.flbin` network disk cache (64 MiB).
 const int defaultMaximumNetworkDiskBytes = 64 * 1024 * 1024;
 
 /// Thrown when an in-flight network fetch is aborted via [FastLottieCancelToken].

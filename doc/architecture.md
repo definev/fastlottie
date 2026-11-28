@@ -15,7 +15,7 @@ Related documentation: [Native raster & warm playback](native-playback.md) · [D
 flowchart TB
     subgraph Ingest["1. Ingest & Decode"]
         SRC[".json / .tgs (GZip) / Asset / Network URI"]
-        NET["network_io.dart / network_web.dart / network_coalescer.dart\nHttpClient / fetch + FastLottieCancelToken + Ref-Counted Coalescing\nBounded 64 MiB .tgsbin disk LRU (atomic .tgsbin.tmp.$pid.$seq)"]
+        NET["network_io.dart / network_web.dart / network_coalescer.dart\nHttpClient / fetch + FastLottieCancelToken + Ref-Counted Coalescing\nBounded 64 MiB .flbin disk LRU (atomic .flbin.tmp.$pid.$seq)"]
         DEC["decoding.dart: decodeLottieBytes()\nGZip sniff (0x1f 0x8b), 16 MiB zip-bomb cap"]
         SRC --> NET --> DEC
     end
@@ -157,7 +157,7 @@ sequenceDiagram
 
 - **Safe Decoding (`lib/decoding.dart`):** `decodeLottieBytes()` checks the first two bytes (`0x1f 0x8b`) to auto-decompress `.tgs` (GZip) payloads while enforcing a `maximumBytes = 16 MiB` ceiling against zip bombs (using streaming `dart:io` zlib on native platforms and `package:archive` on web).
 - **Direct UTF-8 Byte Parsing (`lib/src/scene/lottie_json_reader.dart`):** Parses Lottie JSON directly from UTF-8 bytes without allocating an intermediate `Map<String, dynamic>` DOM tree, minimizing GC pressure and parse latency.
-- **Cancellable & Coalesced Network Fetching (`lib/src/network/network_io.dart`, `network_web.dart`, `network_coalescer.dart`):** `FastLottieComposition.loadNetwork` (and `FastLottieNetwork`) works natively on both `dart:io` (`HttpClient` with immediate `request.abort()`) and Flutter Web (`fetch` + `AbortController` + streaming `ReadableStream` byte cap). Concurrent loads for the same resource are coalesced via reference-counted cancellation, and native raw payloads cached as `<128-bit-uri-hash>.tgsbin` (temp file + atomic rename) are bounded by an async per-directory LRU (`defaultMaximumNetworkDiskBytes = 64 MiB`).
+- **Cancellable & Coalesced Network Fetching (`lib/src/network/network_io.dart`, `network_web.dart`, `network_coalescer.dart`):** `FastLottieComposition.loadNetwork` (and `FastLottieNetwork`) works natively on both `dart:io` (`HttpClient` with immediate `request.abort()`) and Flutter Web (`fetch` + `AbortController` + streaming `ReadableStream` byte cap). Concurrent loads for the same resource are coalesced via reference-counted cancellation, and native raw payloads cached as `<128-bit-uri-hash>.flbin` (temp file + atomic rename) are bounded by an async per-directory LRU (`defaultMaximumNetworkDiskBytes = 64 MiB`).
 - **Fail-Fast Compiler (`lib/src/scene/compiler.dart`):**
   - Rather than silently dropping unsupported properties and rendering broken visuals, `_Compiler.check` validates every JSON key against `const Set<String>` whitelists (and rejects unsupported `ddd`, `ao`, `bm`, and `hasMask` combinations). Anything outside the subset throws `UnsupportedLottieException` with its exact JSON path (`$.layers[i]...`).
   - **Deterministic compilation order:** validate metadata → `_compileMasks()` → resolve expressions → build transforms & layer content → once all layers exist, run `_linkMattes()` (track mattes & Set Matte) and `_linkParents()` with cycle detection. This preserves deterministic error paths and `commands` counts used for cache budgets.
@@ -315,7 +315,7 @@ Implemented in [`raster_cache.dart`](../lib/src/flutter/raster_cache.dart) and [
 | `lib/src/platform/isolate_io.dart` / `stub.dart` | Worker isolate communication via `SendPort`/`ReceivePort` + `TransferableTypedData`. |
 | `lib/src/platform/platform_io.dart` / `stub.dart` | `PlatformFileHandle` (synchronous `RandomAccessFile`) and `PlatformDiskFs`. |
 | `lib/src/platform/raster_flutter_canvas.dart` / `no_canvas.dart` | Conditional import bridge decoupling `dart:ui` from `raster_core.dart`. |
-| `lib/src/network/network_io.dart` / `network_web.dart` / `network_stub.dart` / `network_coalescer.dart` / `network_types.dart` | Native (`dart:io`) & Web (`fetch` + `AbortController`) fetching with `FastLottieCancelToken`, ref-counted request coalescing, and bounded `.tgsbin` disk LRU. |
+| `lib/src/network/network_io.dart` / `network_web.dart` / `network_stub.dart` / `network_coalescer.dart` / `network_types.dart` | Native (`dart:io`) & Web (`fetch` + `AbortController`) fetching with `FastLottieCancelToken`, ref-counted request coalescing, and bounded `.flbin` disk LRU. |
 | `native/fastlottie_coverage.c`, `fastlottie_simd.c`, `fastlottie_geometry.c`, `fastlottie_cache.c` | Optimized C kernels: bitset scanline, NEON/SSE2 blending, Bézier flattening, stroke expansion, LZ4 & ARM64 CRC32. |
 | `lib/src/wasm/fastlottie_worker.js`, `fastlottie_simd.wasm` | Prebuilt Web Worker JS bundle and standalone C Wasm kernels for Flutter Web. |
 

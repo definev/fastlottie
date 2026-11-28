@@ -152,7 +152,7 @@ class FastLottieComposition {
   static final _loadNetworkCoalescer =
       NetworkRequestCoalescer<FastLottieComposition>();
 
-  /// Default byte cap for raw `.tgsbin` network disk caches on native
+  /// Default byte cap for raw `.flbin` network disk caches on native
   /// platforms (defaults to 64 MiB; set 0 to disable raw disk writes).
   static int get defaultMaximumNetworkDiskBytes =>
       _defaultMaximumNetworkDiskBytes;

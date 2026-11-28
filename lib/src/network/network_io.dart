@@ -67,14 +67,14 @@ final class _NetworkDiskDirLru {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is! File) continue;
         final name = _fileNameFromPath(entity.path);
-        if (name.endsWith('.tgsbin')) {
+        if (name.endsWith('.flbin')) {
           try {
             final stat = await entity.stat();
             found.add((name, stat.size, stat.modified.millisecondsSinceEpoch));
           } on FileSystemException {
             // Skip files removed concurrently.
           }
-        } else if (name.contains('.tgsbin.tmp.')) {
+        } else if (name.contains('.flbin.tmp.')) {
           try {
             final stat = await entity.stat();
             if (now.difference(stat.modified) > const Duration(minutes: 5)) {
@@ -215,7 +215,7 @@ String _cacheFilePath(
   final sep = Platform.pathSeparator;
   final clean = _cleanDirectoryPath(directoryPath);
   final key = canonicalNetworkRequestKey(uri, headers);
-  return '$clean$sep${_hashCacheKey(key)}.tgsbin';
+  return '$clean$sep${_hashCacheKey(key)}.flbin';
 }
 
 Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
@@ -633,7 +633,7 @@ Future<void> platformClearNetworkCacheDirectory(String directoryPath) {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is! File) continue;
         final name = _fileNameFromPath(entity.path);
-        if (name.endsWith('.tgsbin') || name.contains('.tgsbin.tmp.')) {
+        if (name.endsWith('.flbin') || name.contains('.flbin.tmp.')) {
           try {
             await entity.delete();
           } on FileSystemException {

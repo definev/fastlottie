@@ -114,7 +114,7 @@ class NetworkAndBytesExample extends StatelessWidget {
 }
 ```
 
-> `FastLottie.network` works out of the box on both native platforms (`dart:io` + bounded `.tgsbin` LRU) and Flutter Web (`fetch` + `AbortController`), coalescing concurrent requests for the same URL. Pass a custom `loader` (`FastLottieNetworkByteLoader`) if you need custom HTTP middleware.
+> `FastLottie.network` works out of the box on both native platforms (`dart:io` + bounded `.flbin` LRU) and Flutter Web (`fetch` + `AbortController`), coalescing concurrent requests for the same URL. Pass a custom `loader` (`FastLottieNetworkByteLoader`) if you need custom HTTP middleware.
 
 ---
 

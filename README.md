@@ -136,7 +136,7 @@ FastLottie.network(
 );
 ```
 
-> **Note on network loading:** Direct HTTP(S) fetching works out of the box on both native platforms (`dart:io`, with bounded `.tgsbin` LRU caching via `FastLottieComposition.defaultMaximumNetworkDiskBytes`) and Flutter Web (browser `fetch` + `AbortController`, subject to CORS). Concurrent loads for the same resource are coalesced automatically, and stale results arriving after disposal or source changes are ignored. Pass a custom `loader` (`FastLottieNetworkByteLoader`) whenever you need custom auth or HTTP middleware.
+> **Note on network loading:** Direct HTTP(S) fetching works out of the box on both native platforms (`dart:io`, with bounded `.flbin` LRU caching via `FastLottieComposition.defaultMaximumNetworkDiskBytes`) and Flutter Web (browser `fetch` + `AbortController`, subject to CORS). Concurrent loads for the same resource are coalesced automatically, and stale results arriving after disposal or source changes are ignored. Pass a custom `loader` (`FastLottieNetworkByteLoader`) whenever you need custom auth or HTTP middleware.
 
 ### 2. Controlling Playback
 

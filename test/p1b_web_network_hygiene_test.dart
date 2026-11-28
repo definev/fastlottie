@@ -158,7 +158,7 @@ void main() {
     });
   });
 
-  group('HTTP coalescing & bounded .tgsbin disk LRU', () {
+  group('HTTP coalescing & bounded .flbin disk LRU', () {
     setUp(() {
       final previous = HttpOverrides.current;
       HttpOverrides.global = _PassthroughHttpOverrides();
@@ -238,7 +238,7 @@ void main() {
       },
     );
 
-    test('raw .tgsbin disk cache enforces maximumSourceCacheBytes with LRU eviction', () async {
+    test('raw .flbin disk cache enforces maximumSourceCacheBytes with LRU eviction', () async {
       final payloadA = Uint8List.fromList(
         const GZipEncoder().encode(bytes(fixture('static')..['w'] = 100)),
       );
@@ -310,12 +310,12 @@ void main() {
       );
       expect(rC1.fromDiskCache, isFalse);
 
-      final tgsbinFiles = tempDir
+      final flbinFiles = tempDir
           .listSync()
           .whereType<File>()
-          .where((f) => f.path.endsWith('.tgsbin'))
+          .where((f) => f.path.endsWith('.flbin'))
           .toList();
-      expect(tgsbinFiles, hasLength(2));
+      expect(flbinFiles, hasLength(2));
 
       // A is still warm on disk; B was evicted and must re-fetch over HTTP.
       final rA3 = await FastLottieComposition.fetchNetworkBytes(
@@ -399,7 +399,7 @@ void main() {
       final survivors = raceDir
           .listSync()
           .whereType<File>()
-          .where((f) => f.path.endsWith('.tgsbin'))
+          .where((f) => f.path.endsWith('.flbin'))
           .toList();
       expect(survivors, hasLength(1));
 
@@ -419,7 +419,7 @@ void main() {
         ..writeAsStringSync('keep-me');
       final keepSiblingTmp = File('${cacheSubdir.path}/other.tmp.lock')
         ..writeAsStringSync('keep-lock');
-      final fastlottieTmp = File('${cacheSubdir.path}/abc.tgsbin.tmp.1.1')
+      final fastlottieTmp = File('${cacheSubdir.path}/abc.flbin.tmp.1.1')
         ..writeAsStringSync('stale-temp');
       await FastLottieComposition.fetchNetworkBytes(
         u('/a.tgs'),
@@ -431,7 +431,7 @@ void main() {
       expect(keepSiblingTmp.existsSync(), isTrue);
       expect(fastlottieTmp.existsSync(), isFalse);
       expect(
-        cacheSubdir.listSync().where((e) => e.path.endsWith('.tgsbin')),
+        cacheSubdir.listSync().where((e) => e.path.endsWith('.flbin')),
         isEmpty,
       );
     });
