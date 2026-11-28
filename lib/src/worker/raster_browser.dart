@@ -9,6 +9,7 @@ import 'package:web/web.dart' as web;
 import '../platform/isolate_stub.dart';
 import '../platform/simd_web.dart';
 import 'raster_web_protocol.dart';
+import 'web_worker_url.dart';
 
 int browserRasterWorkerCount(int? override) {
   if (const bool.fromEnvironment('FASTLOTTIE_DISABLE_WEB_WORKER')) return 1;
@@ -16,24 +17,56 @@ int browserRasterWorkerCount(int? override) {
       (web.window.navigator.hardwareConcurrency >= 4 ? 2 : 1);
 }
 
+(web.Worker, String?) _createBrowserWorker(
+  Uri pageUri,
+  Uri workerUri,
+  String name,
+) {
+  final workerUrl = workerUri.toString();
+  if (!isCrossOriginWorkerUri(pageUri, workerUri)) {
+    try {
+      return (web.Worker(workerUrl.toJS, web.WorkerOptions(name: name)), null);
+    } catch (_) {
+      // Fall back to a same-origin Blob shim if direct construction is blocked
+      // (for example, opaque origins or cross-origin asset redirects).
+    }
+  }
+  final shim = buildCrossOriginWorkerShim(workerUrl);
+  final blob = web.Blob(
+    [shim.toJS].toJS,
+    web.BlobPropertyBag(type: 'application/javascript'),
+  );
+  final blobUrl = web.URL.createObjectURL(blob);
+  try {
+    final worker = web.Worker(blobUrl.toJS, web.WorkerOptions(name: name));
+    return (worker, blobUrl);
+  } catch (_) {
+    web.URL.revokeObjectURL(blobUrl);
+    rethrow;
+  }
+}
+
 WorkerHandle? startBrowserRasterWorker(String name) {
   if (const bool.fromEnvironment('FASTLOTTIE_DISABLE_WEB_WORKER')) return null;
   try {
-    final base = Uri.parse(web.document.baseURI);
-    String url(String asset) =>
-        base.resolve(ui_web.assetManager.getAssetUrl(asset)).toString();
-    final worker = web.Worker(
-      url(webWorkerAsset).toJS,
-      web.WorkerOptions(name: name),
+    final baseUri = web.document.baseURI;
+    final pageHref = web.window.location.href;
+    final pageUri = Uri.parse(pageHref.isNotEmpty ? pageHref : baseUri);
+    Uri assetUri(String asset) =>
+        resolveBrowserAssetUri(baseUri, ui_web.assetManager.getAssetUrl(asset));
+    final (worker, blobUrl) = _createBrowserWorker(
+      pageUri,
+      assetUri(webWorkerAsset),
+      name,
     );
     return _BrowserRasterWorker(worker, () async {
       final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
-      return url(
+      return assetUri(
         manifest.listAssets().contains(generatedWasmAsset)
             ? generatedWasmAsset
             : bundledWasmAsset,
-      );
-    });
+      ).toString();
+    }, blobUrl);
   } catch (error, stack) {
     _logFallback(error, stack);
     return null;
@@ -55,7 +88,11 @@ bool browserRasterWorkerUsesWasm(WorkerHandle handle) =>
     handle is _BrowserRasterWorker && handle.usesWasm;
 
 final class _BrowserRasterWorker implements WorkerHandle {
-  _BrowserRasterWorker(this._worker, Future<String> Function() wasmUrl) {
+  _BrowserRasterWorker(
+    this._worker,
+    Future<String> Function() wasmUrl, [
+    this._blobUrl,
+  ]) {
     _worker.onmessage = ((web.MessageEvent event) {
       try {
         final reply = WorkerMessage(event.data);
@@ -67,6 +104,7 @@ final class _BrowserRasterWorker implements WorkerHandle {
           _ready = true;
           usesWasm = reply.b(1);
           _startup.cancel();
+          _revokeBlobUrl();
           for (final request in _queued) {
             _send(request);
           }
@@ -103,12 +141,21 @@ final class _BrowserRasterWorker implements WorkerHandle {
   }
 
   final web.Worker _worker;
+  String? _blobUrl;
   final _messages = StreamController<Object?>();
   final _queued = <Object?>[];
   late final Timer _startup;
   bool _ready = false;
   bool _disposed = false;
   bool usesWasm = false;
+
+  void _revokeBlobUrl() {
+    final url = _blobUrl;
+    if (url != null) {
+      _blobUrl = null;
+      web.URL.revokeObjectURL(url);
+    }
+  }
 
   @override
   Stream<Object?> get messages => _messages.stream;
@@ -144,6 +191,7 @@ final class _BrowserRasterWorker implements WorkerHandle {
     if (_disposed) return;
     _disposed = true;
     _startup.cancel();
+    _revokeBlobUrl();
     _queued.clear();
     _worker.terminate();
     unawaited(_messages.close());

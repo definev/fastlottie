@@ -10,6 +10,7 @@ import 'package:fastlottie/src/platform/simd_stub.dart'
     show NativePixelBuffer;
 import 'package:fastlottie/src/raster/raster_core.dart';
 import 'package:fastlottie/src/raster/raster_geometry.dart';
+import 'package:fastlottie/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show render;

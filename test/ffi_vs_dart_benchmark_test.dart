@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie/src/cache/bitstream_cache.dart';
 import 'package:fastlottie/src/cache/lz4.dart';
+import 'package:fastlottie/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 int _maxChannelDiff(Uint32List a, Uint32List b) {

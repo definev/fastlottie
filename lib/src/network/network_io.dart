@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'network_coalescer.dart';
 import 'network_types.dart';
 
 bool get isNetworkFetchSupported => true;
@@ -10,6 +11,164 @@ bool get isNetworkFetchSupported => true;
 HttpClient? _sharedHttpClient;
 int _tmpSeq = 0;
 final _createdCacheDirs = <String>{};
+final _diskDirLrus = <String, _NetworkDiskDirLru>{};
+final _ioFetchCoalescer =
+    NetworkRequestCoalescer<FastLottieNetworkFetchResult>();
+
+String _cleanDirectoryPath(String directoryPath) {
+  var end = directoryPath.length;
+  while (end > 1 &&
+      (directoryPath.codeUnitAt(end - 1) == 47 ||
+          directoryPath.codeUnitAt(end - 1) == 92)) {
+    end--;
+  }
+  return end == directoryPath.length
+      ? directoryPath
+      : directoryPath.substring(0, end);
+}
+
+String _fileNameFromPath(String path) {
+  final slash = path.lastIndexOf('/');
+  final backslash = path.lastIndexOf('\\');
+  final cut = slash > backslash ? slash : backslash;
+  return cut >= 0 ? path.substring(cut + 1) : path;
+}
+
+final class _NetworkDiskDirLru {
+  final entries = <String, int>{};
+  int totalBytes = 0;
+  bool _scanned = false;
+  String? _lastMtimeTouchFile;
+  Future<void> _serial = Future<void>.value();
+
+  /// Serializes directory writes, scans, evictions, and clears per cache
+  /// directory so concurrent fetches cannot mutually evict fresh writes or
+  /// leave ghost bytes in LRU accounting.
+  Future<T> runSerialized<T>(Future<T> Function() action) {
+    final prev = _serial;
+    final done = Completer<void>();
+    _serial = done.future;
+    return prev.whenComplete(() {}).then((_) async {
+      try {
+        return await action();
+      } finally {
+        done.complete();
+      }
+    });
+  }
+
+  Future<void> ensureScanned(String directoryPath) async {
+    if (_scanned) return;
+    try {
+      final dir = Directory(directoryPath);
+      if (!await dir.exists()) return;
+      final found = <(String name, int size, int modifiedMs)>[];
+      final now = DateTime.now();
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = _fileNameFromPath(entity.path);
+        if (name.endsWith('.tgsbin')) {
+          try {
+            final stat = await entity.stat();
+            found.add((name, stat.size, stat.modified.millisecondsSinceEpoch));
+          } on FileSystemException {
+            // Skip files removed concurrently.
+          }
+        } else if (name.contains('.tgsbin.tmp.')) {
+          try {
+            final stat = await entity.stat();
+            if (now.difference(stat.modified) > const Duration(minutes: 5)) {
+              await entity.delete();
+            }
+          } on FileSystemException {
+            // Ignore cleanup races.
+          }
+        }
+      }
+      found.sort((a, b) => a.$3.compareTo(b.$3));
+      final merged = <String, int>{};
+      var total = 0;
+      for (final (name, size, _) in found) {
+        if (entries.containsKey(name)) continue;
+        merged[name] = size;
+        total += size;
+      }
+      for (final live in entries.entries) {
+        merged[live.key] = live.value;
+        total += live.value;
+      }
+      entries
+        ..clear()
+        ..addAll(merged);
+      totalBytes = total;
+      _scanned = true;
+    } on FileSystemException {
+      // Directory unavailable; _scanned stays false so subsequent writes retry.
+    }
+  }
+
+  void resetState() {
+    entries.clear();
+    totalBytes = 0;
+    _scanned = false;
+    _lastMtimeTouchFile = null;
+  }
+
+  void touch(String fileName, int size) {
+    final previous = entries.remove(fileName);
+    if (previous != null) {
+      totalBytes -= previous;
+    }
+    entries[fileName] = size;
+    totalBytes += size;
+  }
+
+  void recordWrite(String fileName, int size) => touch(fileName, size);
+
+  void remove(String fileName) {
+    final previous = entries.remove(fileName);
+    if (previous != null) {
+      totalBytes -= previous;
+    }
+    if (_lastMtimeTouchFile == fileName) {
+      _lastMtimeTouchFile = null;
+    }
+  }
+
+  Future<void> evictToBudget(
+    String directoryPath,
+    int maximumCacheBytes, {
+    String? keepFile,
+  }) async {
+    final cleanDir = _cleanDirectoryPath(directoryPath);
+    final sep = Platform.pathSeparator;
+    while (totalBytes > maximumCacheBytes && entries.isNotEmpty) {
+      String? victim;
+      for (final candidate in entries.keys) {
+        if (candidate != keepFile) {
+          victim = candidate;
+          break;
+        }
+      }
+      if (victim == null) break;
+      final size = entries.remove(victim)!;
+      totalBytes -= size;
+      if (_lastMtimeTouchFile == victim) {
+        _lastMtimeTouchFile = null;
+      }
+      try {
+        await File('$cleanDir$sep$victim').delete();
+      } on FileSystemException {
+        // Ignore files already deleted concurrently.
+      }
+    }
+  }
+}
+
+_NetworkDiskDirLru _dirLru(String directoryPath) => _diskDirLrus.putIfAbsent(
+  _cleanDirectoryPath(directoryPath),
+  _NetworkDiskDirLru.new,
+);
 
 HttpClient _borrowHttpClient() {
   if (HttpOverrides.current == null) {
@@ -54,20 +213,8 @@ String _cacheFilePath(
   Map<String, String>? headers,
 ) {
   final sep = Platform.pathSeparator;
-  final clean = directoryPath.endsWith('/') || directoryPath.endsWith('\\')
-      ? directoryPath.substring(0, directoryPath.length - 1)
-      : directoryPath;
-  var key = uri.toString();
-  if (headers != null && headers.isNotEmpty) {
-    final normalized = {
-      for (final entry in headers.entries) entry.key.toLowerCase(): entry.value,
-    };
-    final names = normalized.keys.toList()..sort();
-    key = jsonEncode([
-      key,
-      for (final name in names) [name, normalized[name]],
-    ]);
-  }
+  final clean = _cleanDirectoryPath(directoryPath);
+  final key = canonicalNetworkRequestKey(uri, headers);
   return '$clean$sep${_hashCacheKey(key)}.tgsbin';
 }
 
@@ -77,12 +224,14 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
   FastLottieCancelToken? cancelToken,
   String? sourceCacheDirectory,
   int maximumBytes = 16 * 1024 * 1024,
+  int maximumCacheBytes = defaultMaximumNetworkDiskBytes,
   bool cacheDownloadedBytes = true,
   Duration responseTimeout = const Duration(seconds: 30),
 }) async {
   if (maximumBytes <= 0) {
     throw ArgumentError.value(maximumBytes, 'maximumBytes');
   }
+  RangeError.checkNotNegative(maximumCacheBytes, 'maximumCacheBytes');
   if (cancelToken?.isCancelled ?? false) {
     throw const FastLottieNetworkCancelledException();
   }
@@ -90,10 +239,11 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
   final initialHeaders = headers == null ? null : Map.of(headers);
   final hasDiskDir =
       sourceCacheDirectory != null && sourceCacheDirectory.isNotEmpty;
+  final cleanDir = hasDiskDir ? _cleanDirectoryPath(sourceCacheDirectory) : null;
   final cachePath = hasDiskDir
       ? _cacheFilePath(sourceCacheDirectory, uri, initialHeaders)
       : null;
-  if (cachePath != null) {
+  if (cachePath != null && cleanDir != null) {
     try {
       final cachedFile = File(cachePath);
       final stat = await cachedFile.stat();
@@ -108,6 +258,17 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
           throw const FastLottieNetworkCancelledException();
         }
         if (bytes.isNotEmpty && bytes.length <= maximumBytes) {
+          final lru = _dirLru(cleanDir);
+          final fileName = _fileNameFromPath(cachePath);
+          lru.touch(fileName, bytes.length);
+          if (lru._lastMtimeTouchFile != fileName) {
+            lru._lastMtimeTouchFile = fileName;
+            unawaited(
+              cachedFile
+                  .setLastModified(DateTime.now())
+                  .catchError((Object _) => cachedFile),
+            );
+          }
           return FastLottieNetworkFetchResult(bytes, fromDiskCache: true);
         }
       }
@@ -116,6 +277,42 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     }
   }
 
+  final coalesceKey = (
+    canonicalNetworkRequestKey(uri, initialHeaders),
+    cleanDir,
+    maximumBytes,
+    cleanDir != null && cacheDownloadedBytes,
+    cleanDir != null ? maximumCacheBytes : 0,
+    responseTimeout,
+  );
+  return _ioFetchCoalescer.run(
+    coalesceKey,
+    cancelToken: cancelToken,
+    start: (sharedToken) => _fetchNetworkIo(
+      uri,
+      initialHeaders: initialHeaders,
+      cancelToken: sharedToken,
+      sourceCacheDirectory: cleanDir,
+      cachePath: cachePath,
+      maximumBytes: maximumBytes,
+      maximumCacheBytes: maximumCacheBytes,
+      cacheDownloadedBytes: cacheDownloadedBytes,
+      responseTimeout: responseTimeout,
+    ),
+  );
+}
+
+Future<FastLottieNetworkFetchResult> _fetchNetworkIo(
+  Uri uri, {
+  required Map<String, String>? initialHeaders,
+  required FastLottieCancelToken cancelToken,
+  required String? sourceCacheDirectory,
+  required String? cachePath,
+  required int maximumBytes,
+  required int maximumCacheBytes,
+  required bool cacheDownloadedBytes,
+  required Duration responseTimeout,
+}) async {
   final usesShared = HttpOverrides.current == null;
   final client = _borrowHttpClient();
   HttpClientRequest? request;
@@ -135,9 +332,9 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     unawaited(subscription?.cancel());
   }
 
-  cancelToken?.addCancelListener(abort);
+  cancelToken.addCancelListener(abort);
   try {
-    if (cancelToken?.isCancelled ?? false) {
+    if (cancelToken.isCancelled) {
       throw const FastLottieNetworkCancelledException();
     }
     var url = uri;
@@ -181,7 +378,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
       final location = response.headers.value(HttpHeaders.locationHeader);
       final status = response.statusCode;
       await _cancelResponse(response);
-      if (aborted || (cancelToken?.isCancelled ?? false)) {
+      if (aborted || cancelToken.isCancelled) {
         throw const FastLottieNetworkCancelledException();
       }
       if (location == null) {
@@ -222,7 +419,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     final status = response.statusCode;
     if (status < 200 || status >= 300) {
       await _cancelResponse(response);
-      if (aborted || (cancelToken?.isCancelled ?? false)) {
+      if (aborted || cancelToken.isCancelled) {
         throw const FastLottieNetworkCancelledException();
       }
       throw FastLottieNetworkException(
@@ -233,7 +430,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
     }
     if (response.contentLength > maximumBytes) {
       await _cancelResponse(response);
-      if (aborted || (cancelToken?.isCancelled ?? false)) {
+      if (aborted || cancelToken.isCancelled) {
         throw const FastLottieNetworkCancelledException();
       }
       throw FastLottieNetworkException(
@@ -251,7 +448,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
         .listen(
           (chunk) {
             if (done.isCompleted) return;
-            if (aborted || (cancelToken?.isCancelled ?? false)) {
+            if (aborted || cancelToken.isCancelled) {
               done.completeError(const FastLottieNetworkCancelledException());
               unawaited(subscription?.cancel());
               return;
@@ -272,7 +469,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
           },
           onError: (Object error, StackTrace stack) {
             if (done.isCompleted) return;
-            if (aborted || (cancelToken?.isCancelled ?? false)) {
+            if (aborted || cancelToken.isCancelled) {
               done.completeError(const FastLottieNetworkCancelledException());
             } else if (error is TimeoutException) {
               done.completeError(
@@ -289,7 +486,7 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
           },
           onDone: () {
             if (done.isCompleted) return;
-            if (aborted || (cancelToken?.isCancelled ?? false)) {
+            if (aborted || cancelToken.isCancelled) {
               done.completeError(const FastLottieNetworkCancelledException());
             } else {
               done.complete(builder.takeBytes());
@@ -299,15 +496,18 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
         );
 
     final bytes = await done.future;
-    if (cacheDownloadedBytes && cachePath != null) {
+    if (cacheDownloadedBytes &&
+        cachePath != null &&
+        sourceCacheDirectory != null) {
       await _writeSourceCache(
         cachePath,
-        sourceCacheDirectory!,
+        sourceCacheDirectory,
         bytes,
         cancelToken,
+        maximumCacheBytes: maximumCacheBytes,
       );
     }
-    if (aborted || (cancelToken?.isCancelled ?? false)) {
+    if (aborted || cancelToken.isCancelled) {
       throw const FastLottieNetworkCancelledException();
     }
     return FastLottieNetworkFetchResult(bytes, fromDiskCache: false);
@@ -316,12 +516,12 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
   } on FastLottieNetworkException {
     rethrow;
   } catch (error) {
-    if (aborted || (cancelToken?.isCancelled ?? false)) {
+    if (aborted || cancelToken.isCancelled) {
       throw const FastLottieNetworkCancelledException();
     }
     throw FastLottieNetworkException(uri, error.toString());
   } finally {
-    cancelToken?.removeCancelListener(abort);
+    cancelToken.removeCancelListener(abort);
     if (!usesShared) {
       client.close(force: true);
     }
@@ -346,14 +546,18 @@ Future<void> platformCacheNetworkBytes(
   Uint8List bytes, {
   required String directoryPath,
   Map<String, String>? headers,
+  int maximumCacheBytes = defaultMaximumNetworkDiskBytes,
   FastLottieCancelToken? cancelToken,
 }) {
+  RangeError.checkNotNegative(maximumCacheBytes, 'maximumCacheBytes');
   if (directoryPath.isEmpty) return Future<void>.value();
+  final cleanDir = _cleanDirectoryPath(directoryPath);
   return _writeSourceCache(
-    _cacheFilePath(directoryPath, uri, headers),
-    directoryPath,
+    _cacheFilePath(cleanDir, uri, headers),
+    cleanDir,
     bytes,
     cancelToken,
+    maximumCacheBytes: maximumCacheBytes,
   );
 }
 
@@ -361,54 +565,84 @@ Future<void> _writeSourceCache(
   String path,
   String directoryPath,
   Uint8List bytes,
-  FastLottieCancelToken? cancelToken,
-) async {
-  if (bytes.isEmpty || (cancelToken?.isCancelled ?? false)) return;
-  final tmpFile = File('$path.tmp.$pid.${++_tmpSeq}');
-  var published = false;
-  try {
-    if (_createdCacheDirs.add(directoryPath)) {
-      await Directory(directoryPath).create(recursive: true);
-    }
-    try {
-      await tmpFile.writeAsBytes(bytes);
-    } on PathNotFoundException {
-      await Directory(directoryPath).create(recursive: true);
-      await tmpFile.writeAsBytes(bytes);
-    }
-    if (cancelToken?.isCancelled ?? false) return;
-    await tmpFile.rename(path);
-    published = true;
-  } on FileSystemException {
-    _createdCacheDirs.remove(directoryPath);
-  } finally {
-    if (!published) {
-      try {
-        await tmpFile.delete();
-      } on FileSystemException {
-        // The failed write may have left no temp file.
-      }
-    }
+  FastLottieCancelToken? cancelToken, {
+  required int maximumCacheBytes,
+}) {
+  if (bytes.isEmpty || (cancelToken?.isCancelled ?? false)) {
+    return Future<void>.value();
   }
-}
-
-Future<void> platformClearNetworkCacheDirectory(String directoryPath) async {
-  if (directoryPath.isEmpty) return;
-  _createdCacheDirs.remove(directoryPath);
-  try {
-    final dir = Directory(directoryPath);
-    if (!await dir.exists()) return;
-    await for (final entity in dir.list(followLinks: false)) {
-      if (entity is File &&
-          (entity.path.endsWith('.tgsbin') || entity.path.contains('.tmp.'))) {
+  final cleanDir = _cleanDirectoryPath(directoryPath);
+  final fileName = _fileNameFromPath(path);
+  final lru = _dirLru(cleanDir);
+  return lru.runSerialized(() async {
+    if (cancelToken?.isCancelled ?? false) return;
+    if (maximumCacheBytes <= 0 || bytes.length > maximumCacheBytes) {
+      // Do not write entries that exceed the disk budget; remove any stale copy.
+      lru.remove(fileName);
+      try {
+        final stale = File(path);
+        if (await stale.exists()) await stale.delete();
+      } on FileSystemException {
+        // Ignore concurrent deletion.
+      }
+      return;
+    }
+    final tmpFile = File('$path.tmp.$pid.${++_tmpSeq}');
+    var published = false;
+    try {
+      if (_createdCacheDirs.add(cleanDir)) {
+        await Directory(cleanDir).create(recursive: true);
+      }
+      try {
+        await tmpFile.writeAsBytes(bytes);
+      } on PathNotFoundException {
+        lru.resetState();
+        await Directory(cleanDir).create(recursive: true);
+        await tmpFile.writeAsBytes(bytes);
+      }
+      if (cancelToken?.isCancelled ?? false) return;
+      await tmpFile.rename(path);
+      published = true;
+      await lru.ensureScanned(cleanDir);
+      lru.recordWrite(fileName, bytes.length);
+      await lru.evictToBudget(cleanDir, maximumCacheBytes, keepFile: fileName);
+    } on FileSystemException {
+      _createdCacheDirs.remove(cleanDir);
+    } finally {
+      if (!published) {
         try {
-          await entity.delete();
+          await tmpFile.delete();
         } on FileSystemException {
-          // Ignore files already deleted concurrently.
+          // The failed write may have left no temp file.
         }
       }
     }
-  } on FileSystemException {
-    // Ignore non-fatal cleanup errors when clearing network disk cache.
-  }
+  });
+}
+
+Future<void> platformClearNetworkCacheDirectory(String directoryPath) {
+  if (directoryPath.isEmpty) return Future<void>.value();
+  final cleanDir = _cleanDirectoryPath(directoryPath);
+  final lru = _dirLru(cleanDir);
+  return lru.runSerialized(() async {
+    _createdCacheDirs.remove(cleanDir);
+    lru.resetState();
+    try {
+      final dir = Directory(cleanDir);
+      if (!await dir.exists()) return;
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = _fileNameFromPath(entity.path);
+        if (name.endsWith('.tgsbin') || name.contains('.tgsbin.tmp.')) {
+          try {
+            await entity.delete();
+          } on FileSystemException {
+            // Ignore files already deleted concurrently.
+          }
+        }
+      }
+    } on FileSystemException {
+      // Ignore non-fatal cleanup errors when clearing network disk cache.
+    }
+  });
 }

@@ -12,6 +12,7 @@ import 'package:fastlottie/src/raster/raster_core.dart';
 import 'package:fastlottie/src/raster/raster_geometry.dart';
 import 'package:fastlottie/src/raster/scanline_rasterizer.dart';
 import 'package:fastlottie/src/raster/swar_blender.dart';
+import 'package:fastlottie/testing.dart';
 import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';

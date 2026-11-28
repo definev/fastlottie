@@ -115,19 +115,19 @@ FastLottie.asset(
   ),
 );
 
-// From in-memory JSON or TGS bytes (treat the list as immutable; pass a new list to reload)
+// From in-memory JSON or TGS bytes (equal byte contents reuse the decoded composition)
 FastLottie.bytes(
   stickerBytes,
   width: 128,
   height: 128,
 );
 
-// From an HTTP(S) URL (cancels in-flight downloads automatically on dispose or URI change)
+// From an HTTP(S) URL (coalesces concurrent fetches and cancels on dispose or URI change)
 FastLottie.network(
   Uri.parse('https://example.com/sticker.tgs'),
   width: 128,
   height: 128,
-  sourceCacheDirectory: rawCacheDir.path, // Optional raw download cache on native
+  sourceCacheDirectory: rawCacheDir.path, // Optional bounded LRU raw download cache on native (64 MiB default)
   placeholderBuilder: (context) => const SizedBox.shrink(),
   errorBuilder: (context, error, retry) => GestureDetector(
     onTap: retry,
@@ -136,7 +136,7 @@ FastLottie.network(
 );
 ```
 
-> **Note on network loading:** Direct HTTP(S) fetching works out of the box on native platforms (`dart:io`). On Flutter Web, pass a custom `loader` callback (`FastLottieNetworkByteLoader`). Loading results that arrive after a widget is disposed or its source changes are automatically ignored.
+> **Note on network loading:** Direct HTTP(S) fetching works out of the box on both native platforms (`dart:io`, with bounded `.tgsbin` LRU caching via `FastLottieComposition.defaultMaximumNetworkDiskBytes`) and Flutter Web (browser `fetch` + `AbortController`, subject to CORS). Concurrent loads for the same resource are coalesced automatically, and stale results arriving after disposal or source changes are ignored. Pass a custom `loader` (`FastLottieNetworkByteLoader`) whenever you need custom auth or HTTP middleware.
 
 ### 2. Controlling Playback
 
@@ -306,11 +306,12 @@ player.dispose();
 
 On Web, `FastLottieRasterCache` automatically starts dedicated Web Workers (**2** workers when the browser reports ≥ 4 logical cores, otherwise **1**; override with `workerCount: 1`). Each worker maintains its own compiled scenes and share of the LZ4 budget, runs the bundled standalone C Wasm kernels when available, and transfers completed pixel strips back to Flutter.
 
-- Serve the worker script from the **same origin** as your app; if Web Workers are unavailable, raster jobs fall back inline automatically.
+- Same-origin worker assets launch directly; cross-origin CDN worker assets automatically boot through a same-origin `importScripts` Blob shim (subject to browser CSP `worker-src blob:`), falling back inline if Web Workers are blocked or unavailable.
 - For direct main-thread software rendering in JavaScript builds, call `await ensureSimdReady();` after `WidgetsFlutterBinding.ensureInitialized()` to load the C Wasm kernels. Flutter `--wasm` keeps inline rasterization in Dart memory by default (pass `enableOnDartWasm: true` only to opt in; browser worker acceleration works independently).
 - Web builds use the bundled C Wasm kernels by default. To compile custom kernels in a build hook, set `hooks.user_defines.fastlottie.zig` in your app's `pubspec.yaml` to the Zig executable path.
+- For production Web deploys with long-lived asset caching, build with `flutter build web --web-content-hash` so Flutter automatically content-hashes `fastlottie_worker.js` and `fastlottie_simd.wasm`.
 
-Maintainers can verify the bundled worker with `dart run tool/build_web_worker.dart --check`. Use the same Dart SDK used to generate the bundle for a byte-for-byte comparison. The current bundle was built with Dart `3.15.0-95.0.dev`.
+Maintainers can test live Web Worker changes without modifying the committed bundle via `node tool/test_web_worker.cjs` (which compiles into a temp directory by default; pass `--bundled` to test the committed asset), and rebuild or verify the committed bundle for release with `dart run tool/build_web_worker.dart [--check]`. Use the same Dart SDK used to generate the bundle for a byte-for-byte comparison. The current bundle was built with Dart `3.15.0-95.0.dev`.
 
 ---
 

@@ -11,6 +11,7 @@ import 'package:fastlottie/src/platform/compile_pool_io.dart';
 import 'package:fastlottie/src/platform/isolate_io.dart';
 import 'package:fastlottie/src/platform/simd_io.dart';
 import 'package:fastlottie/src/worker/worker_pool.dart';
+import 'package:fastlottie/testing.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 

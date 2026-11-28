@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../decoding.dart';
+import '../network/network_coalescer.dart';
 import '../network/network_stub.dart'
-    if (dart.library.io) '../network/network_io.dart';
+    if (dart.library.io) '../network/network_io.dart'
+    if (dart.library.js_interop) '../network/network_web.dart';
 import '../network/network_types.dart';
 import '../platform/compile_pool_stub.dart'
     if (dart.library.isolate) '../platform/compile_pool_io.dart';
@@ -18,6 +20,7 @@ Future<Uint8List> loadAssetBytes(AssetBundle bundle, String name) async {
 }
 
 final _jsonBytesCodec = json.fuse(utf8);
+const _initialMaximumNetworkDiskBytes = defaultMaximumNetworkDiskBytes;
 
 FastLottieComposition _compileLottie(
   List<int> bytes,
@@ -145,28 +148,48 @@ class FastLottieComposition {
     );
   }
 
+  static int _defaultMaximumNetworkDiskBytes = _initialMaximumNetworkDiskBytes;
+  static final _loadNetworkCoalescer =
+      NetworkRequestCoalescer<FastLottieComposition>();
+
+  /// Default byte cap for raw `.tgsbin` network disk caches on native
+  /// platforms (defaults to 64 MiB; set 0 to disable raw disk writes).
+  static int get defaultMaximumNetworkDiskBytes =>
+      _defaultMaximumNetworkDiskBytes;
+  static set defaultMaximumNetworkDiskBytes(int value) {
+    RangeError.checkNotNegative(value, 'defaultMaximumNetworkDiskBytes');
+    _defaultMaximumNetworkDiskBytes = value;
+  }
+
   /// Fetches raw bytes (`.tgs` or `.json`) over HTTP/HTTPS or from [sourceCacheDirectory],
-  /// supporting immediate socket abort via [cancelToken].
+  /// supporting immediate abort via [cancelToken] and bounded LRU disk caching.
   static Future<FastLottieNetworkFetchResult> fetchNetworkBytes(
     Uri uri, {
     Map<String, String>? headers,
     FastLottieCancelToken? cancelToken,
     String? sourceCacheDirectory,
     int maximumBytes = 16 * 1024 * 1024,
-  }) => platformFetchLottieBytes(
-    uri,
-    headers: headers,
-    cancelToken: cancelToken,
-    sourceCacheDirectory: sourceCacheDirectory,
-    maximumBytes: maximumBytes,
-  );
+    int? maximumSourceCacheBytes,
+  }) async {
+    final diskCap = maximumSourceCacheBytes ?? _defaultMaximumNetworkDiskBytes;
+    RangeError.checkNotNegative(diskCap, 'maximumSourceCacheBytes');
+    return platformFetchLottieBytes(
+      uri,
+      headers: headers,
+      cancelToken: cancelToken,
+      sourceCacheDirectory: sourceCacheDirectory,
+      maximumBytes: maximumBytes,
+      maximumCacheBytes: diskCap,
+    );
+  }
 
   /// Clears cached raw network payloads from [directoryPath].
   static Future<void> clearNetworkDiskCache(String directoryPath) =>
       platformClearNetworkCacheDirectory(directoryPath);
 
   /// Downloads (or reads from [sourceCacheDirectory]) and compiles a remote
-  /// `.tgs` or Lottie JSON composition off the UI isolate.
+  /// `.tgs` or Lottie JSON composition off the UI isolate, coalescing
+  /// concurrent requests for the same resource.
   static Future<FastLottieComposition> loadNetwork(
     Uri uri, {
     Map<String, String>? headers,
@@ -174,61 +197,97 @@ class FastLottieComposition {
     FastLottieCancelToken? cancelToken,
     String? sourceCacheDirectory,
     int maximumBytes = 16 * 1024 * 1024,
+    int? maximumSourceCacheBytes,
     FastLottieNetworkByteLoader? loader,
   }) async {
-    void checkCancelled() {
-      if (cancelToken?.isCancelled ?? false) {
+    final diskCap = maximumSourceCacheBytes ?? _defaultMaximumNetworkDiskBytes;
+    RangeError.checkNotNegative(diskCap, 'maximumSourceCacheBytes');
+
+    void checkCancelled(FastLottieCancelToken? token) {
+      if (token?.isCancelled ?? false) {
         throw const FastLottieNetworkCancelledException();
       }
     }
 
-    Future<FastLottieComposition> compile(Uint8List bytes) async {
-      checkCancelled();
+    Future<FastLottieComposition> compile(
+      Uint8List bytes,
+      FastLottieCancelToken? token,
+    ) async {
+      checkCancelled(token);
       final composition = await FastLottieComposition.fromBytesAsync(
         bytes,
         options: options,
       );
-      checkCancelled();
+      checkCancelled(token);
       return composition;
     }
 
     if (loader != null) {
+      checkCancelled(cancelToken);
       return compile(
         await loader(uri, headers: headers, cancelToken: cancelToken),
+        cancelToken,
       );
     }
 
-    final requestHeaders = headers == null ? null : Map.of(headers);
-    Future<FastLottieNetworkFetchResult> fetch(String? directory) =>
-        platformFetchLottieBytes(
-          uri,
-          headers: requestHeaders,
-          cancelToken: cancelToken,
-          sourceCacheDirectory: directory,
-          maximumBytes: maximumBytes,
-          cacheDownloadedBytes: false,
-        );
-    var result = await fetch(sourceCacheDirectory);
-    if (result.fromDiskCache) {
-      try {
-        return await compile(result.bytes);
-      } on FormatException {
-        // A raw cache entry may predate validation or come from a raw fetch.
-        result = await fetch(null);
+    String? normalizedCacheDir;
+    if (sourceCacheDirectory != null && sourceCacheDirectory.isNotEmpty) {
+      var end = sourceCacheDirectory.length;
+      while (end > 1 &&
+          (sourceCacheDirectory.codeUnitAt(end - 1) == 47 ||
+              sourceCacheDirectory.codeUnitAt(end - 1) == 92)) {
+        end--;
       }
+      normalizedCacheDir = end == sourceCacheDirectory.length
+          ? sourceCacheDirectory
+          : sourceCacheDirectory.substring(0, end);
     }
-    final composition = await compile(result.bytes);
-    if (sourceCacheDirectory != null) {
-      await platformCacheNetworkBytes(
-        uri,
-        result.bytes,
-        directoryPath: sourceCacheDirectory,
-        headers: requestHeaders,
-        cancelToken: cancelToken,
-      );
-      checkCancelled();
-    }
-    return composition;
+    final requestHeaders = headers == null ? null : Map.of(headers);
+    final coalesceKey = (
+      canonicalNetworkRequestKey(uri, requestHeaders),
+      options,
+      normalizedCacheDir,
+      maximumBytes,
+      normalizedCacheDir != null ? diskCap : 0,
+    );
+    return _loadNetworkCoalescer.run(
+      coalesceKey,
+      cancelToken: cancelToken,
+      start: (sharedToken) async {
+        Future<FastLottieNetworkFetchResult> fetch(String? directory) =>
+            platformFetchLottieBytes(
+              uri,
+              headers: requestHeaders,
+              cancelToken: sharedToken,
+              sourceCacheDirectory: directory,
+              maximumBytes: maximumBytes,
+              maximumCacheBytes: diskCap,
+              cacheDownloadedBytes: false,
+            );
+        var result = await fetch(sourceCacheDirectory);
+        if (result.fromDiskCache) {
+          try {
+            return await compile(result.bytes, sharedToken);
+          } on FormatException {
+            // A raw cache entry may predate validation or come from a raw fetch.
+            result = await fetch(null);
+          }
+        }
+        final composition = await compile(result.bytes, sharedToken);
+        if (sourceCacheDirectory != null) {
+          await platformCacheNetworkBytes(
+            uri,
+            result.bytes,
+            directoryPath: sourceCacheDirectory,
+            headers: requestHeaders,
+            maximumCacheBytes: diskCap,
+            cancelToken: sharedToken,
+          );
+          checkCancelled(sharedToken);
+        }
+        return composition;
+      },
+    );
   }
 
   /// Authored canvas width.

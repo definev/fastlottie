@@ -80,10 +80,10 @@ class NetworkAndBytesExample extends StatelessWidget {
     this.cacheDirectoryPath,
   });
 
-  /// Keep the byte list immutable; pass a new list instance to reload.
+  /// Equal byte contents reuse the existing decoded composition across rebuilds.
   final Uint8List stickerBytes;
 
-  /// Optional local directory path for caching raw downloaded bytes on native.
+  /// Optional local directory path for bounded LRU caching of raw downloaded bytes on native.
   final String? cacheDirectoryPath;
 
   @override
@@ -114,7 +114,7 @@ class NetworkAndBytesExample extends StatelessWidget {
 }
 ```
 
-> On Flutter Web, pass a custom `loader` (`FastLottieNetworkByteLoader`) to `FastLottie.network` or `FastLottieComposition.loadNetwork`.
+> `FastLottie.network` works out of the box on both native platforms (`dart:io` + bounded `.tgsbin` LRU) and Flutter Web (`fetch` + `AbortController`), coalescing concurrent requests for the same URL. Pass a custom `loader` (`FastLottieNetworkByteLoader`) if you need custom HTTP middleware.
 
 ---
 

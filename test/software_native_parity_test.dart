@@ -1,5 +1,6 @@
 import 'package:fastlottie/fastlottie.dart';
 import 'package:fastlottie/src/platform/geometry_kernel_io.dart' as geometry;
+import 'package:fastlottie/testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fastlottie_test.dart' show fixture;

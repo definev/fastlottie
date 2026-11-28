@@ -11,6 +11,7 @@ import 'package:fastlottie/src/platform/simd_stub.dart'
     if (dart.library.ffi) 'package:fastlottie/src/platform/simd_io.dart';
 import 'package:fastlottie/src/raster/raster_core.dart';
 import 'package:fastlottie/src/scene/lottie_json_reader.dart';
+import 'package:fastlottie/testing.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 

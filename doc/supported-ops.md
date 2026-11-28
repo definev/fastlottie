@@ -22,8 +22,9 @@ core renderer does not silently fall back to another renderer.
 | Layout | `contain`/`cover`/`none`/`scaleDown`/`fitWidth`/`fitHeight`/`fill`; Canvas transform also scales strokes |
 
 In the software RLE rasterizer, boolean Merge Paths (modes 2–5) are evaluated on
-fill coverage. Antialiased edge pixels may differ slightly from Canvas; strokes
-and trims continue to operate on contours. An Intersect with a single operand
+fill coverage, and exact polygon boolean operations (`polygon_boolean.dart`)
+compute merged contours whenever Merge Paths feed strokes or downstream Trim
+Paths so software output matches Canvas. An Intersect with a single operand
 keeps the remaining path as-is, matching baked geometry found in some Noto
 stickers.
 Software RLE supports all 17 layer blend modes. Modes 6, 7, 9, and 12–15 use

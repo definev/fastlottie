@@ -2,13 +2,7 @@
 library;
 
 export 'decoding.dart';
-export 'src/flutter/composition.dart'
-    show
-        FastLottieComposition,
-        debugDecodeCompiledComposition,
-        debugEncodeCompiledComposition,
-        debugForkRasterScene,
-        debugTakePreparedRasterScene;
+export 'src/flutter/composition.dart' show FastLottieComposition;
 export 'src/flutter/player.dart'
     show
         FastLottieCache,
@@ -17,8 +11,6 @@ export 'src/flutter/player.dart'
         FastLottiePlayer,
         FastLottieRasterCache,
         FastLottieRasterMode;
-export 'src/flutter/software_session.dart'
-    show FastLottieSoftwareSession, debugRenderSoftwareFrame;
 export 'src/flutter/widget.dart'
     show
         FastLottie,
@@ -29,7 +21,13 @@ export 'src/flutter/widget.dart'
         FastLottiePlayback,
         FastLottiePlaybackScope,
         FastLottieView;
-export 'src/network/network_types.dart';
+export 'src/network/network_types.dart'
+    show
+        FastLottieCancelToken,
+        FastLottieNetworkByteLoader,
+        FastLottieNetworkCancelledException,
+        FastLottieNetworkException,
+        FastLottieNetworkFetchResult;
 export 'src/platform/simd_stub.dart'
     if (dart.library.ffi) 'src/platform/simd_io.dart'
     if (dart.library.js_interop) 'src/platform/simd_web.dart'
