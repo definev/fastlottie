@@ -18,7 +18,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';
 
 import 'fastlottie_test.dart' show bytes, render;
-import 'path_ops_test.dart' show animated, constant, fill, rectangle, stroke, trim;
+import 'path_ops_test.dart'
+    show animated, constant, fill, rectangle, stroke, trim;
 
 Map<String, dynamic> _doc(
   List<Map<String, dynamic>> layers, {
@@ -211,10 +212,19 @@ _renderAllBackends(
     } else {
       for (var i = 0; i < nativePx.length; i++) {
         final nw = nativePx[i], dw = dartPx[i];
-        expect(((nw >> 16) & 0xff) - ((dw >> 16) & 0xff), inInclusiveRange(-1, 1));
-        expect(((nw >> 8) & 0xff) - ((dw >> 8) & 0xff), inInclusiveRange(-1, 1));
+        expect(
+          ((nw >> 16) & 0xff) - ((dw >> 16) & 0xff),
+          inInclusiveRange(-1, 1),
+        );
+        expect(
+          ((nw >> 8) & 0xff) - ((dw >> 8) & 0xff),
+          inInclusiveRange(-1, 1),
+        );
         expect((nw & 0xff) - (dw & 0xff), inInclusiveRange(-1, 1));
-        expect(((nw >>> 24) & 0xff) - ((dw >>> 24) & 0xff), inInclusiveRange(-1, 1));
+        expect(
+          ((nw >>> 24) & 0xff) - ((dw >>> 24) & 0xff),
+          inInclusiveRange(-1, 1),
+        );
       }
     }
     final span = comp.endFrame - comp.startFrame;
@@ -261,45 +271,42 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('P1-A.1 Track Matte + parent clipMask single-pass coverage', () {
-    test(
-      '50% opacity precomp mask applies once across two overlapping target paints under matte',
-      () async {
-        final doc = _doc(
-          [
-            _precompLayer(
-              1,
-              'comp_matte',
-              masks: [_rectMask(64, 64, 192, 192, opacity: 50)],
-            ),
-          ],
-          assets: [
-            {
-              'id': 'comp_matte',
-              'layers': [
-                // Matte source: opaque circle/rect covering whole masked area.
-                _shapeLayer(1, [
-                  rectangle(128, 128, 220, 220),
-                  fill([1, 1, 1]),
-                ], td: 1),
-                // Matte target with two overlapping opaque paints.
-                _shapeLayer(2, [
-                  rectangle(128, 128, 200, 200),
-                  fill([1, 0, 0]),
-                  rectangle(128, 128, 180, 180),
-                  fill([0, 0, 1]),
-                ], tt: 1),
-              ],
-            },
-          ],
-        );
-        final res = await _renderAllBackends(doc);
-        // Single-pass 50% mask gives ~128 alpha (double application would give ~192).
-        expect(_bgraAlpha(res.dartPx, 128, 128), closeTo(128, 2));
-        expect(_rgbaPixel(res.canvasRgba, 128, 128).$4, closeTo(128, 2));
-        expect(_bgraAlpha(res.dartPx, 40, 128), 0);
-        expect(_rgbaPixel(res.canvasRgba, 40, 128).$4, 0);
-      },
-    );
+    test('50% opacity precomp mask applies once across two overlapping target paints under matte', () async {
+      final doc = _doc(
+        [
+          _precompLayer(
+            1,
+            'comp_matte',
+            masks: [_rectMask(64, 64, 192, 192, opacity: 50)],
+          ),
+        ],
+        assets: [
+          {
+            'id': 'comp_matte',
+            'layers': [
+              // Matte source: opaque circle/rect covering whole masked area.
+              _shapeLayer(1, [
+                rectangle(128, 128, 220, 220),
+                fill([1, 1, 1]),
+              ], td: 1),
+              // Matte target with two overlapping opaque paints.
+              _shapeLayer(2, [
+                rectangle(128, 128, 200, 200),
+                fill([1, 0, 0]),
+                rectangle(128, 128, 180, 180),
+                fill([0, 0, 1]),
+              ], tt: 1),
+            ],
+          },
+        ],
+      );
+      final res = await _renderAllBackends(doc);
+      // Single-pass 50% mask gives ~128 alpha (double application would give ~192).
+      expect(_bgraAlpha(res.dartPx, 128, 128), closeTo(128, 2));
+      expect(_rgbaPixel(res.canvasRgba, 128, 128).$4, closeTo(128, 2));
+      expect(_bgraAlpha(res.dartPx, 40, 128), 0);
+      expect(_rgbaPixel(res.canvasRgba, 40, 128).$4, 0);
+    });
 
     test(
       'dstOut non-overlapping matte still respects 50% parent clipMask',
@@ -344,55 +351,51 @@ void main() {
   });
 
   group('P1-A.2 Inner Shadow mask isolation, overflow lookahead & stride', () {
-    test(
-      'inner shadow inside masked precomp uses unclipped silhouette with no fake border',
-      () async {
+    test('inner shadow inside masked precomp uses unclipped silhouette with no fake border', () async {
+      final doc = _doc(
+        [
+          _precompLayer(
+            1,
+            'comp_ishadow',
+            masks: [_rectMask(48, 48, 208, 208)],
+          ),
+        ],
+        assets: [
+          {
+            'id': 'comp_ishadow',
+            'layers': [
+              _shapeLayer(
+                1,
+                [
+                  rectangle(128, 128, 220, 220),
+                  fill([1, 1, 1]),
+                ],
+                sy: [
+                  {
+                    'ty': 2,
+                    'c': constant([0, 0, 0, 1]),
+                    'a': constant(135),
+                    'd': constant(16),
+                    'bm': constant(1),
+                  },
+                ],
+              ),
+            ],
+          },
+        ],
+      );
+      final res = await _renderAllBackends(doc);
+      // Right inside the mask edge (52, 128): unclipped rect edge is at x=18,
+      // far outside, so NO fake inner shadow tint appears at the mask boundary.
+      expect(_bgraPixel(res.dartPx, 52, 128), (255, 255, 255, 255));
+      expect(_rgbaPixel(res.canvasRgba, 52, 128), (255, 255, 255, 255));
+      expect(_bgraAlpha(res.dartPx, 40, 128), 0);
+    });
+
+    test('negative x/y silhouette overflow + padded dstStride preserves shadow and guard', () async {
+      for (final angle in [45, 135, 225, 315]) {
         final doc = _doc(
           [
-            _precompLayer(
-              1,
-              'comp_ishadow',
-              masks: [_rectMask(48, 48, 208, 208)],
-            ),
-          ],
-          assets: [
-            {
-              'id': 'comp_ishadow',
-              'layers': [
-                _shapeLayer(
-                  1,
-                  [
-                    rectangle(128, 128, 220, 220),
-                    fill([1, 1, 1]),
-                  ],
-                  sy: [
-                    {
-                      'ty': 2,
-                      'c': constant([0, 0, 0, 1]),
-                      'a': constant(135),
-                      'd': constant(16),
-                      'bm': constant(1),
-                    },
-                  ],
-                ),
-              ],
-            },
-          ],
-        );
-        final res = await _renderAllBackends(doc);
-        // Right inside the mask edge (52, 128): unclipped rect edge is at x=18,
-        // far outside, so NO fake inner shadow tint appears at the mask boundary.
-        expect(_bgraPixel(res.dartPx, 52, 128), (255, 255, 255, 255));
-        expect(_rgbaPixel(res.canvasRgba, 52, 128), (255, 255, 255, 255));
-        expect(_bgraAlpha(res.dartPx, 40, 128), 0);
-      },
-    );
-
-    test(
-      'negative x/y silhouette overflow + padded dstStride preserves shadow and guard',
-      () async {
-        for (final angle in [45, 135, 225, 315]) {
-          final doc = _doc([
             _shapeLayer(
               1,
               [
@@ -410,97 +413,135 @@ void main() {
                 },
               ],
             ),
-          ], w: 96, h: 96);
-          final baseline = await _renderAllBackends(doc, size: 96);
+          ],
+          w: 96,
+          h: 96,
+        );
+        final baseline = await _renderAllBackends(doc, size: 96);
 
-          const stride = 128;
-          const guard = 0x55AA33CC;
-          final scene = RasterScene.compile(doc, const FastLottieOptions());
-          final ptr = calloc<Uint32>(stride * 96 + 4);
-          final words = ptr.asTypedList(stride * 96 + 4);
-          final borrowed = NativePixelBuffer.borrowed(ptr, stride * 96);
-          try {
-            for (final native in [false, true]) {
-              final ws = RasterWorkspace(preferNative: native);
-              try {
-                words.fillRange(0, words.length, guard);
-                renderSceneSoftware(
-                  scene,
-                  0,
-                  borrowed,
-                  96,
-                  96,
-                  ws,
-                  rowStride: stride,
+        const stride = 128;
+        const guard = 0x55AA33CC;
+        final scene = RasterScene.compile(doc, const FastLottieOptions());
+        final ptr = calloc<Uint32>(stride * 96 + 4);
+        final words = ptr.asTypedList(stride * 96 + 4);
+        final borrowed = NativePixelBuffer.borrowed(ptr, stride * 96);
+        try {
+          for (final native in [false, true]) {
+            final ws = RasterWorkspace(preferNative: native);
+            try {
+              words.fillRange(0, words.length, guard);
+              renderSceneSoftware(
+                scene,
+                0,
+                borrowed,
+                96,
+                96,
+                ws,
+                rowStride: stride,
+              );
+              for (var y = 0; y < 96; y++) {
+                expect(
+                  words.sublist(y * stride, y * stride + 96),
+                  baseline.dartPx.sublist(y * 96, (y + 1) * 96),
+                  reason: 'angle=$angle native=$native row=$y stride mismatch',
                 );
-                for (var y = 0; y < 96; y++) {
-                  expect(
-                    words.sublist(y * stride, y * stride + 96),
-                    baseline.dartPx.sublist(y * 96, (y + 1) * 96),
-                    reason: 'angle=$angle native=$native row=$y stride mismatch',
-                  );
-                }
-                for (var i = stride * 96; i < words.length; i++) {
-                  expect(words[i], guard);
-                }
-              } finally {
-                ws.dispose();
               }
+              for (var i = stride * 96; i < words.length; i++) {
+                expect(words[i], guard);
+              }
+            } finally {
+              ws.dispose();
             }
-          } finally {
-            wsCleanup(scene);
-            borrowed.dispose();
-            calloc.free(ptr);
           }
+        } finally {
+          wsCleanup(scene);
+          borrowed.dispose();
+          calloc.free(ptr);
         }
-      },
-    );
+      }
+    });
   });
 
   group('P1-A.3 Color gamma, gradient stops & radial math parity', () {
-    test('#000000 -> #FFFFFF at t=0.5 gives #BCBCBC matching package:lottie', () async {
+    test(
+      '#000000 -> #FFFFFF at t=0.5 gives #BCBCBC matching package:lottie',
+      () async {
+        final doc = _doc([
+          _shapeLayer(1, [
+            rectangle(128, 128, 200, 200),
+            {
+              'ty': 'fl',
+              'c': {
+                'a': 1,
+                'k': [
+                  {
+                    't': 0,
+                    's': [0, 0, 0],
+                    'o': {
+                      'x': [0],
+                      'y': [0],
+                    },
+                    'i': {
+                      'x': [1],
+                      'y': [1],
+                    },
+                  },
+                  {
+                    't': 60,
+                    's': [1, 1, 1],
+                  },
+                ],
+              },
+              'o': constant(100),
+              'r': 1,
+            },
+          ]),
+        ]);
+        final res = await _renderAllBackends(doc, frame: 30, maxChannelDiff: 2);
+        final dartPx = _bgraPixel(res.dartPx, 128, 128);
+        expect(dartPx, (0xBC, 0xBC, 0xBC, 255));
+        expect(_rgbaPixel(res.canvasRgba, 128, 128).$1, closeTo(0xBC, 1));
+
+        final lottie = LottieDrawable(
+          LottieComposition.parseJsonBytes(bytes(doc)),
+          frameRate: FrameRate.max,
+        )..setProgress(0.5);
+        final lottieRgba = await render(
+          (c) => lottie.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256)),
+        );
+        expect(_rgbaPixel(lottieRgba, 128, 128).$1, closeTo(0xBC, 1));
+      },
+    );
+
+    test('opaque white -> transparent black gradient midpoint gives premul [64,64,64,128]', () async {
       final doc = _doc([
         _shapeLayer(1, [
-          rectangle(128, 128, 200, 200),
+          rectangle(128, 128, 256, 256),
           {
-            'ty': 'fl',
-            'c': {
-              'a': 1,
-              'k': [
-                {
-                  't': 0,
-                  's': [0, 0, 0],
-                  'o': {'x': [0], 'y': [0]},
-                  'i': {'x': [1], 'y': [1]},
-                },
-                {
-                  't': 60,
-                  's': [1, 1, 1],
-                },
-              ],
+            'ty': 'gf',
+            't': 1,
+            's': constant([0, 128]),
+            'e': constant([256, 128]),
+            'g': {
+              'p': 2,
+              // White at 0 (alpha 1), black at 1 (alpha 0) -> offset midpoint at 0.5
+              'k': constant([0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0]),
             },
             'o': constant(100),
             'r': 1,
           },
         ]),
       ]);
-      final res = await _renderAllBackends(doc, frame: 30, maxChannelDiff: 2);
-      final dartPx = _bgraPixel(res.dartPx, 128, 128);
-      expect(dartPx, (0xBC, 0xBC, 0xBC, 255));
-      expect(_rgbaPixel(res.canvasRgba, 128, 128).$1, closeTo(0xBC, 1));
-
-      final lottie = LottieDrawable(
-        LottieComposition.parseJsonBytes(bytes(doc)),
-        frameRate: FrameRate.max,
-      )..setProgress(0.5);
-      final lottieRgba = await render(
-        (c) => lottie.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256)),
-      );
-      expect(_rgbaPixel(lottieRgba, 128, 128).$1, closeTo(0xBC, 1));
+      final res = await _renderAllBackends(doc, maxChannelDiff: 2);
+      final px = _bgraPixel(res.dartPx, 128, 128);
+      expect(px.$1, closeTo(64, 2));
+      expect(px.$2, closeTo(64, 2));
+      expect(px.$3, closeTo(64, 2));
+      expect(px.$4, closeTo(128, 2));
     });
 
     test(
-      'opaque white -> transparent black gradient midpoint gives premul [64,64,64,128]',
+      'hard-step gradient [0.5: Red, 0.5: Blue] preserves crisp transition',
       () async {
         final doc = _doc([
           _shapeLayer(1, [
@@ -511,9 +552,25 @@ void main() {
               's': constant([0, 128]),
               'e': constant([256, 128]),
               'g': {
-                'p': 2,
-                // White at 0 (alpha 1), black at 1 (alpha 0) -> offset midpoint at 0.5
-                'k': constant([0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0]),
+                'p': 4,
+                'k': constant([
+                  0,
+                  1,
+                  0,
+                  0,
+                  0.5,
+                  1,
+                  0,
+                  0,
+                  0.5,
+                  0,
+                  0,
+                  1,
+                  1,
+                  0,
+                  0,
+                  1,
+                ]),
               },
               'o': constant(100),
               'r': 1,
@@ -521,65 +578,41 @@ void main() {
           ]),
         ]);
         final res = await _renderAllBackends(doc, maxChannelDiff: 2);
-        final px = _bgraPixel(res.dartPx, 128, 128);
-        expect(px.$1, closeTo(64, 2));
-        expect(px.$2, closeTo(64, 2));
-        expect(px.$3, closeTo(64, 2));
-        expect(px.$4, closeTo(128, 2));
+        // Right next to 0.5 boundary: pure Red on left, pure Blue on right.
+        expect(_bgraPixel(res.dartPx, 124, 128), (255, 0, 0, 255));
+        expect(_bgraPixel(res.dartPx, 132, 128), (0, 0, 255, 255));
+        expect(_rgbaPixel(res.canvasRgba, 124, 128), (255, 0, 0, 255));
+        expect(_rgbaPixel(res.canvasRgba, 132, 128), (0, 0, 255, 255));
       },
     );
 
-    test('hard-step gradient [0.5: Red, 0.5: Blue] preserves crisp transition', () async {
-      final doc = _doc([
-        _shapeLayer(1, [
-          rectangle(128, 128, 256, 256),
-          {
-            'ty': 'gf',
-            't': 1,
-            's': constant([0, 128]),
-            'e': constant([256, 128]),
-            'g': {
-              'p': 4,
-              'k': constant([
-                0, 1, 0, 0,
-                0.5, 1, 0, 0,
-                0.5, 0, 0, 1,
-                1, 0, 0, 1,
-              ]),
+    test(
+      'tight-radius radial gradient (r=2px on 256px span) matches C == Dart',
+      () async {
+        final doc = _doc([
+          _shapeLayer(1, [
+            rectangle(128, 128, 256, 256),
+            {
+              'ty': 'gf',
+              't': 2,
+              's': constant([128, 128]),
+              'e': constant([130, 128]),
+              'g': {
+                'p': 2,
+                'k': constant([0, 1, 0, 0, 1, 0, 0, 1]),
+              },
+              'o': constant(100),
+              'r': 1,
             },
-            'o': constant(100),
-            'r': 1,
-          },
-        ]),
-      ]);
-      final res = await _renderAllBackends(doc, maxChannelDiff: 2);
-      // Right next to 0.5 boundary: pure Red on left, pure Blue on right.
-      expect(_bgraPixel(res.dartPx, 124, 128), (255, 0, 0, 255));
-      expect(_bgraPixel(res.dartPx, 132, 128), (0, 0, 255, 255));
-      expect(_rgbaPixel(res.canvasRgba, 124, 128), (255, 0, 0, 255));
-      expect(_rgbaPixel(res.canvasRgba, 132, 128), (0, 0, 255, 255));
-    });
-
-    test('tight-radius radial gradient (r=2px on 256px span) matches C == Dart', () async {
-      final doc = _doc([
-        _shapeLayer(1, [
-          rectangle(128, 128, 256, 256),
-          {
-            'ty': 'gf',
-            't': 2,
-            's': constant([128, 128]),
-            'e': constant([130, 128]),
-            'g': {
-              'p': 2,
-              'k': constant([0, 1, 0, 0, 1, 0, 0, 1]),
-            },
-            'o': constant(100),
-            'r': 1,
-          },
-        ]),
-      ]);
-      await _renderAllBackends(doc, exactNativeDart: false, maxChannelDiff: 2);
-    });
+          ]),
+        ]);
+        await _renderAllBackends(
+          doc,
+          exactNativeDart: false,
+          maxChannelDiff: 2,
+        );
+      },
+    );
 
     test('focal radial gradient honors layer bm=1 Multiply and degenerate bounds safely', () async {
       final doc = _doc([
@@ -607,7 +640,11 @@ void main() {
           fill([0, 1, 1]),
         ]),
       ]);
-      final res = await _renderAllBackends(doc, exactNativeDart: false, maxChannelDiff: 3);
+      final res = await _renderAllBackends(
+        doc,
+        exactNativeDart: false,
+        maxChannelDiff: 3,
+      );
       // At the focal point (176, 128 = 128 + 0.6*80), gradient is white ->
       // multiplied by cyan [0,255,255] stays cyan (allowing 1px LUT step).
       expect(_bgraPixel(res.dartPx, 176, 128).$1, closeTo(0, 8));
@@ -660,12 +697,17 @@ void main() {
           _shapeLayer(1, [
             _bezierShape(
               pts,
-              [for (final _ in pts) [0, 0]],
-              [for (final _ in pts) [0, 0]],
+              [
+                for (final _ in pts) [0, 0],
+              ],
+              [
+                for (final _ in pts) [0, 0],
+              ],
               closed: false,
             ),
             stroke()
-              ..['lc'] = 1 // Butt cap so ONLY round join paints past fold vertex.
+              ..['lc'] =
+                  1 // Butt cap so ONLY round join paints past fold vertex.
               ..['lj'] = 2
               ..['w'] = constant(24),
           ]),
@@ -686,7 +728,7 @@ void main() {
         [0, 0, 0, 0, 10, 1.0 / 3.0 - 0.001, 30, 0, -10, 0, 0, 0],
         [10, 20, 0, 0, 12.5, -31.25, 110, 85, -18.75, 22.1, 0, 0],
       ];
-      final transforms = <(double, double, double, double, double, double)? >[
+      final transforms = <(double, double, double, double, double, double)?>[
         null,
         (0.75, -0.25, 0.4, 1.2, 13.5, -9.25),
       ];
@@ -727,11 +769,26 @@ void main() {
             }
             final x = Float64List(4096)..fillRange(0, 4096, -999);
             final y = Float64List(4096)..fillRange(0, 4096, -999);
-            final n = flattenBezierNative(pts, 2, closed, x, y, 0, flatnessSq, t);
+            final n = flattenBezierNative(
+              pts,
+              2,
+              closed,
+              x,
+              y,
+              0,
+              flatnessSq,
+              t,
+            );
             // Compare raw emitted vertices before PolyPath.endContour() trims a closing duplicate.
             expect(n, poly.vertexCount);
-            expect(x.sublist(0, n), orderedEquals(poly.vx.sublist(0, poly.vertexCount)));
-            expect(y.sublist(0, n), orderedEquals(poly.vy.sublist(0, poly.vertexCount)));
+            expect(
+              x.sublist(0, n),
+              orderedEquals(poly.vx.sublist(0, poly.vertexCount)),
+            );
+            expect(
+              y.sublist(0, n),
+              orderedEquals(poly.vy.sublist(0, poly.vertexCount)),
+            );
             expect(x[n], -999);
             poly.endContour();
           }
@@ -739,62 +796,92 @@ void main() {
       }
 
       // Non-finite coords on curved segment must fail cleanly (-2) so caller falls back to Dart.
-      final bad = Float32List.fromList([0, 0, 0, 0, 5, 0, 10, 0, double.nan, 0, 0, 0]);
+      final bad = Float32List.fromList([
+        0,
+        0,
+        0,
+        0,
+        5,
+        0,
+        10,
+        0,
+        double.nan,
+        0,
+        0,
+        0,
+      ]);
       final gx = Float64List(16)..fillRange(0, 16, -777);
       final gy = Float64List(16)..fillRange(0, 16, -777);
-      expect(flattenBezierNative(bad, 2, false, gx, gy, 0, flatnessSq, null), -2);
+      expect(
+        flattenBezierNative(bad, 2, false, gx, gy, 0, flatnessSq, null),
+        -2,
+      );
       expect(gx.sublist(1), everyElement(-777));
       expect(gy.sublist(1), everyElement(-777));
     });
 
-    test('zero-length dash d=[0, 18] with round cap draws crisp circular dots', () async {
-      final doc = _doc([
-        _shapeLayer(1, [
-          _bezierShape(
-            [[40, 128], [216, 128]],
-            [[0, 0], [0, 0]],
-            [[0, 0], [0, 0]],
-            closed: false,
-          ),
-          stroke()
-            ..['lc'] = 2
-            ..['lj'] = 2
-            ..['w'] = constant(8)
-            ..['d'] = [
-              {'n': 'd', 'v': constant(0)},
-              {'n': 'g', 'v': constant(18)},
-            ],
-        ]),
-      ]);
-      final res = await _renderAllBackends(doc, maxChannelDiff: 4);
-      expect(_bgraAlpha(res.dartPx, 40, 128), 255);
-      expect(_bgraAlpha(res.dartPx, 49, 128), 0);
-      expect(_bgraAlpha(res.dartPx, 58, 128), 255);
-      expect(_rgbaPixel(res.canvasRgba, 49, 128).$4, 0);
-      expect(_rgbaPixel(res.canvasRgba, 58, 128).$4, 255);
-    });
+    test(
+      'zero-length dash d=[0, 18] with round cap draws crisp circular dots',
+      () async {
+        final doc = _doc([
+          _shapeLayer(1, [
+            _bezierShape(
+              [
+                [40, 128],
+                [216, 128],
+              ],
+              [
+                [0, 0],
+                [0, 0],
+              ],
+              [
+                [0, 0],
+                [0, 0],
+              ],
+              closed: false,
+            ),
+            stroke()
+              ..['lc'] = 2
+              ..['lj'] = 2
+              ..['w'] = constant(8)
+              ..['d'] = [
+                {'n': 'd', 'v': constant(0)},
+                {'n': 'g', 'v': constant(18)},
+              ],
+          ]),
+        ]);
+        final res = await _renderAllBackends(doc, maxChannelDiff: 4);
+        expect(_bgraAlpha(res.dartPx, 40, 128), 255);
+        expect(_bgraAlpha(res.dartPx, 49, 128), 0);
+        expect(_bgraAlpha(res.dartPx, 58, 128), 255);
+        expect(_rgbaPixel(res.canvasRgba, 49, 128).$4, 0);
+        expect(_rgbaPixel(res.canvasRgba, 58, 128).$4, 255);
+      },
+    );
   });
 
   group('P1-A.5 Precomp unified timing, negative-stretch bounds & dual-FPS sticker', () {
     test('delayed st=20 precomp stays hidden before frame 20 and samples child at frame-st', () async {
       final doc = _doc(
-        [
-          _precompLayer(1, 'comp_delay', ip: 20, op: 50, st: 20),
-        ],
+        [_precompLayer(1, 'comp_delay', ip: 20, op: 50, st: 20)],
         assets: [
           {
             'id': 'comp_delay',
             'layers': [
-              _shapeLayer(1, [
-                rectangle(128, 128, 80, 80),
-                fill([1, 0, 0]),
-              ], ks: {
-                'a': constant([0, 0]),
-                'p': animated([0, 0], [100, 0]),
-                's': constant([100, 100]),
-                'r': constant(0),
-                'o': constant(100),
-              }),
+              _shapeLayer(
+                1,
+                [
+                  rectangle(128, 128, 80, 80),
+                  fill([1, 0, 0]),
+                ],
+                ks: {
+                  'a': constant([0, 0]),
+                  'p': animated([0, 0], [100, 0]),
+                  's': constant([100, 100]),
+                  'r': constant(0),
+                  'o': constant(100),
+                },
+              ),
             ],
           },
         ],
@@ -808,63 +895,64 @@ void main() {
       expect(_bgraAlpha(active.dartPx, 153, 128), 255);
     });
 
-    test('tm + sr + st replaces sr (Option B, matching package:lottie)', () async {
-      final doc = _doc(
-        [
-          _precompLayer(
-            1,
-            'comp_tm',
-            ip: 0,
-            op: 60,
-            st: 12,
-            sr: 2,
-            tm: animated(0.0, 0.99),
-          ),
-        ],
-        assets: [
-          {
-            'id': 'comp_tm',
-            'layers': [
-              _shapeLayer(
-                1,
-                [
-                  rectangle(60, 128, 50, 50),
-                  fill([0.1, 0.8, 0.3]),
-                ],
-                ip: 0,
-                op: 60,
-                ks: {
-                  'a': constant([0, 0]),
-                  'p': animated([0, 0], [120, 0]),
-                  's': constant([100, 100]),
-                  'r': constant(0),
-                  'o': constant(100),
-                },
-              ),
-            ],
-          },
-        ],
-      );
-      final res = await _renderAllBackends(doc, frame: 30);
-      final lottie = LottieDrawable(
-        LottieComposition.parseJsonBytes(bytes(doc)),
-        frameRate: FrameRate.max,
-      )..setProgress(0.5);
-      final lottieRgba = await render(
-        (c) => lottie.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256)),
-      );
-      var diff = 0;
-      for (var i = 0; i < lottieRgba.length; i++) {
-        diff += (res.canvasRgba[i] - lottieRgba[i]).abs();
-      }
-      expect(diff / lottieRgba.length, lessThan(0.5));
-    });
+    test(
+      'tm + sr + st replaces sr (Option B, matching package:lottie)',
+      () async {
+        final doc = _doc(
+          [
+            _precompLayer(
+              1,
+              'comp_tm',
+              ip: 0,
+              op: 60,
+              st: 12,
+              sr: 2,
+              tm: animated(0.0, 0.99),
+            ),
+          ],
+          assets: [
+            {
+              'id': 'comp_tm',
+              'layers': [
+                _shapeLayer(
+                  1,
+                  [
+                    rectangle(60, 128, 50, 50),
+                    fill([0.1, 0.8, 0.3]),
+                  ],
+                  ip: 0,
+                  op: 60,
+                  ks: {
+                    'a': constant([0, 0]),
+                    'p': animated([0, 0], [120, 0]),
+                    's': constant([100, 100]),
+                    'r': constant(0),
+                    'o': constant(100),
+                  },
+                ),
+              ],
+            },
+          ],
+        );
+        final res = await _renderAllBackends(doc, frame: 30);
+        final lottie = LottieDrawable(
+          LottieComposition.parseJsonBytes(bytes(doc)),
+          frameRate: FrameRate.max,
+        )..setProgress(0.5);
+        final lottieRgba = await render(
+          (c) => lottie.draw(c, const ui.Rect.fromLTWH(0, 0, 256, 256)),
+        );
+        var diff = 0;
+        for (var i = 0; i < lottieRgba.length; i++) {
+          diff += (res.canvasRgba[i] - lottieRgba[i]).abs();
+        }
+        expect(diff / lottieRgba.length, lessThan(0.5));
+      },
+    );
 
     test('non-zero asset.ip offsets precomp timeline consistently across C, Dart, and Canvas', () async {
       final doc = _doc(
-        [
-          _precompLayer(1, 'comp_ip', ip: 0, op: 60, st: 0),
-        ],
+        [_precompLayer(1, 'comp_ip', ip: 0, op: 60, st: 0)],
         assets: [
           {
             'id': 'comp_ip',
@@ -884,8 +972,22 @@ void main() {
                   'p': {
                     'a': 1,
                     'k': [
-                      {'t': 10, 's': [0, 0], 'o': {'x': [0], 'y': [0]}, 'i': {'x': [1], 'y': [1]}},
-                      {'t': 70, 's': [120, 0]},
+                      {
+                        't': 10,
+                        's': [0, 0],
+                        'o': {
+                          'x': [0],
+                          'y': [0],
+                        },
+                        'i': {
+                          'x': [1],
+                          'y': [1],
+                        },
+                      },
+                      {
+                        't': 70,
+                        's': [120, 0],
+                      },
                     ],
                   },
                   's': constant([100, 100]),
@@ -903,53 +1005,62 @@ void main() {
       expect(_bgraAlpha(res.dartPx, 60, 128), 0);
     });
 
-    test('negative stretch=-1 half-open boundary checks isStatic accurately', () async {
-      // Root [10, 30), precomp [10, 30) with st=30, sr=-1 -> child image is (0, 20].
-      Map<String, dynamic> negDoc(double childOp) => _doc(
-        [_precompLayer(1, 'comp_neg', ip: 10, op: 30, st: 30, sr: -1)],
-        ip: 10,
-        op: 30,
-        assets: [
-          {
-            'id': 'comp_neg',
-            'layers': [
-              _shapeLayer(
-                1,
-                [
-                  rectangle(128, 128, 120, 120),
-                  fill([0.2, 0.4, 1.0]),
-                ],
-                ip: 0,
-                op: childOp,
-              ),
-            ],
-          },
-        ],
-      );
+    test(
+      'negative stretch=-1 half-open boundary checks isStatic accurately',
+      () async {
+        // Root [10, 30), precomp [10, 30) with st=30, sr=-1 -> child image is (0, 20].
+        Map<String, dynamic> negDoc(double childOp) => _doc(
+          [_precompLayer(1, 'comp_neg', ip: 10, op: 30, st: 30, sr: -1)],
+          ip: 10,
+          op: 30,
+          assets: [
+            {
+              'id': 'comp_neg',
+              'layers': [
+                _shapeLayer(
+                  1,
+                  [
+                    rectangle(128, 128, 120, 120),
+                    fill([0.2, 0.4, 1.0]),
+                  ],
+                  ip: 0,
+                  op: childOp,
+                ),
+              ],
+            },
+          ],
+        );
 
-      // Child [0, 20): at frame=10, cf=20 which is OUTSIDE half-open [0, 20)!
-      final unstableComp = FastLottieComposition.fromJson(negDoc(20));
-      expect(unstableComp.isStatic, isFalse);
-      final f10 = await _renderAllBackends(negDoc(20), frame: 10);
-      final f11 = await _renderAllBackends(negDoc(20), frame: 11);
-      expect(_bgraAlpha(f10.dartPx, 128, 128), 0);
-      expect(_bgraAlpha(f11.dartPx, 128, 128), 255);
+        // Child [0, 20): at frame=10, cf=20 which is OUTSIDE half-open [0, 20)!
+        final unstableComp = FastLottieComposition.fromJson(negDoc(20));
+        expect(unstableComp.isStatic, isFalse);
+        final f10 = await _renderAllBackends(negDoc(20), frame: 10);
+        final f11 = await _renderAllBackends(negDoc(20), frame: 11);
+        expect(_bgraAlpha(f10.dartPx, 128, 128), 0);
+        expect(_bgraAlpha(f11.dartPx, 128, 128), 255);
 
-      // Child [0, 21): strictly contains (0, 20], so composition IS static.
-      final stableComp = FastLottieComposition.fromJson(negDoc(21));
-      expect(stableComp.isStatic, isTrue);
-      final s10 = await _renderAllBackends(negDoc(21), frame: 10);
-      final s29 = await _renderAllBackends(negDoc(21), frame: 29);
-      expect(s10.dartPx, orderedEquals(s29.dartPx));
-    });
+        // Child [0, 21): strictly contains (0, 20], so composition IS static.
+        final stableComp = FastLottieComposition.fromJson(negDoc(21));
+        expect(stableComp.isStatic, isTrue);
+        final s10 = await _renderAllBackends(negDoc(21), frame: 10);
+        final s29 = await _renderAllBackends(negDoc(21), frame: 29);
+        expect(s10.dartPx, orderedEquals(s29.dartPx));
+      },
+    );
 
-    test('dual-FPS NotoEmoji emoji_u1f460.tgs matches across C, Dart, and Canvas', () async {
-      final gz = File('test/fixtures/tgs/NotoEmoji/emoji_u1f460.tgs').readAsBytesSync();
-      final doc = jsonDecode(utf8.decode(decodeLottieBytes(gz))) as Map<String, dynamic>;
-      for (final f in [8.0, 32.0, 64.0]) {
-        await _renderAllBackends(doc, frame: f, maxChannelDiff: 12);
-      }
-    });
+    test(
+      'dual-FPS NotoEmoji emoji_u1f460.tgs matches across C, Dart, and Canvas',
+      () async {
+        final gz = File('test/fixtures/tgs/NotoEmoji/emoji_u1f460.tgs')
+            .readAsBytesSync();
+        final doc = jsonDecode(
+          utf8.decode(decodeLottieBytes(gz)),
+        ) as Map<String, dynamic>;
+        for (final f in [8.0, 32.0, 64.0]) {
+          await _renderAllBackends(doc, frame: f, maxChannelDiff: 12);
+        }
+      },
+    );
   });
 
   group('P1-A.6 MergePaths >= 3 left-fold evaluation', () {
@@ -972,105 +1083,120 @@ void main() {
       }
     });
 
-    test('asymmetric Subtract (A \\ B \\ C) preserves exact left-fold geometry', () async {
-      final doc = _doc([
-        _shapeLayer(1, [
-          rectangle(128, 128, 160, 160), // A: [48..208] x [48..208]
-          rectangle(168, 88, 100, 100), // B: [118..218] x [38..138]
-          rectangle(88, 168, 100, 100), // C: [38..138] x [118..218]
-          {'ty': 'mm', 'mm': 3},
-          fill([0, 0.6, 1]),
-        ]),
-      ]);
-      final res = await _renderAllBackends(doc);
-      // In A only -> opaque.
-      expect(_bgraAlpha(res.dartPx, 70, 70), 255);
-      expect(_rgbaPixel(res.canvasRgba, 70, 70).$4, 255);
-      // Inside B -> cut out.
-      expect(_bgraAlpha(res.dartPx, 170, 80), 0);
-      expect(_rgbaPixel(res.canvasRgba, 170, 80).$4, 0);
-      // Inside C -> cut out.
-      expect(_bgraAlpha(res.dartPx, 80, 170), 0);
-      expect(_rgbaPixel(res.canvasRgba, 80, 170).$4, 0);
-    });
+    test(
+      'asymmetric Subtract (A \\ B \\ C) preserves exact left-fold geometry',
+      () async {
+        final doc = _doc([
+          _shapeLayer(1, [
+            rectangle(128, 128, 160, 160), // A: [48..208] x [48..208]
+            rectangle(168, 88, 100, 100), // B: [118..218] x [38..138]
+            rectangle(88, 168, 100, 100), // C: [38..138] x [118..218]
+            {'ty': 'mm', 'mm': 3},
+            fill([0, 0.6, 1]),
+          ]),
+        ]);
+        final res = await _renderAllBackends(doc);
+        // In A only -> opaque.
+        expect(_bgraAlpha(res.dartPx, 70, 70), 255);
+        expect(_rgbaPixel(res.canvasRgba, 70, 70).$4, 255);
+        // Inside B -> cut out.
+        expect(_bgraAlpha(res.dartPx, 170, 80), 0);
+        expect(_rgbaPixel(res.canvasRgba, 170, 80).$4, 0);
+        // Inside C -> cut out.
+        expect(_bgraAlpha(res.dartPx, 80, 170), 0);
+        expect(_rgbaPixel(res.canvasRgba, 80, 170).$4, 0);
+      },
+    );
   });
 
   group('P1-A.7 Reverse Bezier, Transform p split easing, Canvas multi-mask & spatial loop', () {
-    test('open and closed Reverse Bezier (sh.d=3) reverses Trim Paths progression', () async {
-      for (final closed in [false, true]) {
-        final doc = _doc([
-          _shapeLayer(1, [
-            _bezierShape(
-              [
-                [40, 40],
-                [216, 40],
-                [216, 216],
-              ],
-              [
-                [0, 0],
-                [-20, 0],
-                [0, -20],
-              ],
-              [
-                [20, 0],
-                [0, 20],
-                [-20, 0],
-              ],
-              closed: closed,
-              d: 3,
-            ),
-            trim(constant(0), constant(45), constant(0)),
-            stroke()..['w'] = constant(10),
-          ]),
-        ]);
-        final res = await _renderAllBackends(doc, maxChannelDiff: 4);
-        // Reversed open/closed starts from last vertex (216, 216) rather than (40, 40).
-        expect(_bgraAlpha(res.dartPx, 216, 216), 255);
-        expect(_rgbaPixel(res.canvasRgba, 216, 216).$4, 255);
-        if (!closed) {
-          expect(_bgraAlpha(res.dartPx, 40, 40), 0);
-          expect(_rgbaPixel(res.canvasRgba, 40, 40).$4, 0);
+    test(
+      'open and closed Reverse Bezier (sh.d=3) reverses Trim Paths progression',
+      () async {
+        for (final closed in [false, true]) {
+          final doc = _doc([
+            _shapeLayer(1, [
+              _bezierShape(
+                [
+                  [40, 40],
+                  [216, 40],
+                  [216, 216],
+                ],
+                [
+                  [0, 0],
+                  [-20, 0],
+                  [0, -20],
+                ],
+                [
+                  [20, 0],
+                  [0, 20],
+                  [-20, 0],
+                ],
+                closed: closed,
+                d: 3,
+              ),
+              trim(constant(0), constant(45), constant(0)),
+              stroke()..['w'] = constant(10),
+            ]),
+          ]);
+          final res = await _renderAllBackends(doc, maxChannelDiff: 4);
+          // Reversed open/closed starts from last vertex (216, 216) rather than (40, 40).
+          expect(_bgraAlpha(res.dartPx, 216, 216), 255);
+          expect(_rgbaPixel(res.canvasRgba, 216, 216).$4, 255);
+          if (!closed) {
+            expect(_bgraAlpha(res.dartPx, 40, 40), 0);
+            expect(_rgbaPixel(res.canvasRgba, 40, 40).$4, 0);
+          }
         }
-      }
-    });
+      },
+    );
 
-    test('transform p split easing applies distinct X and Y timing curves', () async {
-      final doc = _doc([
-        _shapeLayer(
-          1,
-          [
-            rectangle(0, 0, 30, 30),
-            fill([1, 0.2, 0.2]),
-          ],
-          ks: {
-            'a': constant([0, 0]),
-            'p': {
-              'a': 1,
-              'k': [
-                {
-                  't': 0,
-                  's': [40, 40],
-                  'o': {'x': [0.05, 0.95], 'y': [1.0, 0.0]},
-                  'i': {'x': [0.2, 0.99], 'y': [1.0, 0.05]},
-                },
-                {
-                  't': 60,
-                  's': [200, 200],
-                },
-              ],
+    test(
+      'transform p split easing applies distinct X and Y timing curves',
+      () async {
+        final doc = _doc([
+          _shapeLayer(
+            1,
+            [
+              rectangle(0, 0, 30, 30),
+              fill([1, 0.2, 0.2]),
+            ],
+            ks: {
+              'a': constant([0, 0]),
+              'p': {
+                'a': 1,
+                'k': [
+                  {
+                    't': 0,
+                    's': [40, 40],
+                    'o': {
+                      'x': [0.05, 0.95],
+                      'y': [1.0, 0.0],
+                    },
+                    'i': {
+                      'x': [0.2, 0.99],
+                      'y': [1.0, 0.05],
+                    },
+                  },
+                  {
+                    't': 60,
+                    's': [200, 200],
+                  },
+                ],
+              },
+              's': constant([100, 100]),
+              'r': constant(0),
+              'o': constant(100),
             },
-            's': constant([100, 100]),
-            'r': constant(0),
-            'o': constant(100),
-          },
-        ),
-      ]);
-      // At frame 30 (midpoint): X jumped near 200 while Y stayed near 40.
-      final res = await _renderAllBackends(doc, frame: 30);
-      expect(_bgraAlpha(res.dartPx, 195, 45), 255);
-      expect(_rgbaPixel(res.canvasRgba, 195, 45).$4, 255);
-      expect(_bgraAlpha(res.dartPx, 120, 120), 0);
-    });
+          ),
+        ]);
+        // At frame 30 (midpoint): X jumped near 200 while Y stayed near 40.
+        final res = await _renderAllBackends(doc, frame: 30);
+        expect(_bgraAlpha(res.dartPx, 195, 45), 255);
+        expect(_rgbaPixel(res.canvasRgba, 195, 45).$4, 255);
+        expect(_bgraAlpha(res.dartPx, 120, 120), 0);
+      },
+    );
 
     test('Canvas multi-mask handles inverted + intersect and fractional mask opacity', () async {
       final invIntersectDoc = _doc([
@@ -1169,9 +1295,18 @@ void main() {
             'g': {
               'p': 3,
               'k': constant([
-                0.6, 1.0, 0.0, 0.0,
-                0.4, 0.0, 1.0, 0.0,
-                1.0, 0.0, 0.0, 1.0,
+                0.6,
+                1.0,
+                0.0,
+                0.0,
+                0.4,
+                0.0,
+                1.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                1.0,
               ]),
             },
           },
@@ -1197,12 +1332,22 @@ void main() {
             'g': {
               'p': 2,
               'k': constant([
-                0.0, 1.0, 1.0, 1.0,
-                1.0, 1.0, 1.0, 1.0,
-                0.0, 1.0,
-                0.5, 1.0,
-                0.5, 0.0,
-                1.0, 0.0,
+                0.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                1.0,
+                0.0,
+                1.0,
+                0.5,
+                1.0,
+                0.5,
+                0.0,
+                1.0,
+                0.0,
               ]),
             },
           },
@@ -1226,7 +1371,9 @@ void main() {
             'st': 0,
             'w': 256,
             'h': 256,
-            'tm': constant(15 / 60), // 0.25s -> frame 15 inside precomp [10, 70)
+            'tm': constant(
+              15 / 60,
+            ), // 0.25s -> frame 15 inside precomp [10, 70)
             'ks': {
               'a': constant([0, 0]),
               'p': constant([0, 0]),

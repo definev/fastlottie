@@ -3,7 +3,8 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:fastlottie/fastlottie.dart';
-import 'package:fastlottie/src/flutter/composition.dart' show CompositionPlayback;
+import 'package:fastlottie/src/flutter/composition.dart'
+    show CompositionPlayback;
 import 'package:fastlottie/src/platform/simd_stub.dart'
     if (dart.library.ffi) 'package:fastlottie/src/platform/simd_io.dart'
     if (dart.library.js_interop) 'package:fastlottie/src/platform/simd_wasm.dart'
@@ -139,15 +140,25 @@ _compareBackends(
       final w = dartPx[i];
       final idx = i * 4;
       final x = i % 256, y = i ~/ 256;
-      final sr = (w >> 16) & 0xff, sg = (w >> 8) & 0xff, sb = w & 0xff, sa = (w >>> 24) & 0xff;
-      final cr = canvasRgba[idx], cg = canvasRgba[idx + 1], cb = canvasRgba[idx + 2], ca = canvasRgba[idx + 3];
+      final sr = (w >> 16) & 0xff,
+          sg = (w >> 8) & 0xff,
+          sb = w & 0xff,
+          sa = (w >>> 24) & 0xff;
+      final cr = canvasRgba[idx],
+          cg = canvasRgba[idx + 1],
+          cb = canvasRgba[idx + 2],
+          ca = canvasRgba[idx + 3];
       if (sa > 0) {
-        if (x < swMinX) swMinX = x; if (x > swMaxX) swMaxX = x;
-        if (y < swMinY) swMinY = y; if (y > swMaxY) swMaxY = y;
+        if (x < swMinX) swMinX = x;
+        if (x > swMaxX) swMaxX = x;
+        if (y < swMinY) swMinY = y;
+        if (y > swMaxY) swMaxY = y;
       }
       if (ca > 0) {
-        if (x < cvMinX) cvMinX = x; if (x > cvMaxX) cvMaxX = x;
-        if (y < cvMinY) cvMinY = y; if (y > cvMaxY) cvMaxY = y;
+        if (x < cvMinX) cvMinX = x;
+        if (x > cvMaxX) cvMaxX = x;
+        if (y < cvMinY) cvMinY = y;
+        if (y > cvMaxY) cvMaxY = y;
       }
       final dr = (sr - cr).abs();
       final dg = (sg - cg).abs();
@@ -166,7 +177,8 @@ _compareBackends(
     expect(
       bad / dartPx.length,
       lessThan(maxBadRatio),
-      reason: 'Canvas vs Software diverged at $bad/${dartPx.length} px (sw=[$swMinX..$swMaxX,$swMinY..$swMaxY], cv=[$cvMinX..$cvMaxX,$cvMinY..$cvMaxY]): $sampleDiffs',
+      reason:
+          'Canvas vs Software diverged at $bad/${dartPx.length} px (sw=[$swMinX..$swMaxX,$swMinY..$swMaxY], cv=[$cvMinX..$cvMaxX,$cvMinY..$cvMaxY]): $sampleDiffs',
     );
     return (nativePx: nativePx, dartPx: dartPx, canvasRgba: canvasRgba);
   } finally {
@@ -180,32 +192,35 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('PR #5.1 PolygonBoolean kernel unit & topology checks', () {
-    test('collinear shared edge merges cleanly across Add/Subtract/Intersect/XOR', () {
-      final scratch = PolygonBooleanScratch();
-      final left = _rectPoly(20, 40, 100, 140);
-      final right = _rectPoly(100, 40, 180, 140);
-      final out = PolyPath();
+    test(
+      'collinear shared edge merges cleanly across Add/Subtract/Intersect/XOR',
+      () {
+        final scratch = PolygonBooleanScratch();
+        final left = _rectPoly(20, 40, 100, 140);
+        final right = _rectPoly(100, 40, 180, 140);
+        final out = PolyPath();
 
-      // Union of flush adjacent rects collapses collinear seam into 1 4-vertex rect [20..180].
-      expect(booleanPolyPaths(left, right, 2, out, scratch), isTrue);
-      expect(out.contourCount, 1);
-      expect(out.vertexCount, 4);
-      expect(_signedArea(out, 0), closeTo(160 * 100, 1e-3));
+        // Union of flush adjacent rects collapses collinear seam into 1 4-vertex rect [20..180].
+        expect(booleanPolyPaths(left, right, 2, out, scratch), isTrue);
+        expect(out.contourCount, 1);
+        expect(out.vertexCount, 4);
+        expect(_signedArea(out, 0), closeTo(160 * 100, 1e-3));
 
-      // Intersect of flush adjacent rects is zero-area empty.
-      expect(booleanPolyPaths(left, right, 4, out, scratch), isTrue);
-      expect(out.contourCount, 0);
+        // Intersect of flush adjacent rects is zero-area empty.
+        expect(booleanPolyPaths(left, right, 4, out, scratch), isTrue);
+        expect(out.contourCount, 0);
 
-      // Subtract leaves left unchanged (no sliver along x=100).
-      expect(booleanPolyPaths(left, right, 3, out, scratch), isTrue);
-      expect(out.contourCount, 1);
-      expect(_signedArea(out, 0), closeTo(80 * 100, 1e-3));
+        // Subtract leaves left unchanged (no sliver along x=100).
+        expect(booleanPolyPaths(left, right, 3, out, scratch), isTrue);
+        expect(out.contourCount, 1);
+        expect(_signedArea(out, 0), closeTo(80 * 100, 1e-3));
 
-      // XOR of flush adjacent rects removes shared seam just like Union.
-      expect(booleanPolyPaths(left, right, 5, out, scratch), isTrue);
-      expect(out.contourCount, 1);
-      expect(_signedArea(out, 0), closeTo(160 * 100, 1e-3));
-    });
+        // XOR of flush adjacent rects removes shared seam just like Union.
+        expect(booleanPolyPaths(left, right, 5, out, scratch), isTrue);
+        expect(out.contourCount, 1);
+        expect(_signedArea(out, 0), closeTo(160 * 100, 1e-3));
+      },
+    );
 
     test('pinch-touching corners emit two simple non-crossing contours', () {
       final scratch = PolygonBooleanScratch();
@@ -343,54 +358,61 @@ void main() {
       expect(out.contourCount, 1);
       final interArea = _signedArea(out, 0);
 
-      final rectAreaA = math.pi * 60 * 60 * 0.999; // regular 180-gon ~ circle area
+      final rectAreaA =
+          math.pi * 60 * 60 * 0.999; // regular 180-gon ~ circle area
       expect(unionArea, greaterThan(rectAreaA * 1.4));
       expect(interArea, greaterThan(rectAreaA * 0.4));
       expect(unionArea + interArea, closeTo(2 * math.pi * 60 * 60, 40.0));
     });
 
-    test('nearly vertical edges (both upward & downward) classify accurately', () {
-      final scratch = PolygonBooleanScratch();
-      // Nearly-vertical parallelogram slanted slightly right-upward (dx=1e-4, dy=-80 => signYe = -1)
-      // and slanted slightly right-downward (dx=1e-4, dy=+80) crossed by a wide horizontal bar.
-      final nearVert = PolyPath()
-        ..beginContour(true)
-        ..addVertex(100.0, 20.0)
-        ..addVertex(100.0001, 120.0)
-        ..addVertex(140.0001, 120.0)
-        ..addVertex(140.0, 20.0)
-        ..endContour();
-      final crossBar = PolyPath()
-        ..beginContour(true)
-        ..addVertex(60.0, 50.0)
-        ..addVertex(180.0, 50.0)
-        ..addVertex(180.0, 90.0)
-        ..addVertex(60.0, 90.0)
-        ..endContour();
-      final out = PolyPath();
+    test(
+      'nearly vertical edges (both upward & downward) classify accurately',
+      () {
+        final scratch = PolygonBooleanScratch();
+        // Nearly-vertical parallelogram slanted slightly right-upward (dx=1e-4, dy=-80 => signYe = -1)
+        // and slanted slightly right-downward (dx=1e-4, dy=+80) crossed by a wide horizontal bar.
+        final nearVert = PolyPath()
+          ..beginContour(true)
+          ..addVertex(100.0, 20.0)
+          ..addVertex(100.0001, 120.0)
+          ..addVertex(140.0001, 120.0)
+          ..addVertex(140.0, 20.0)
+          ..endContour();
+        final crossBar = PolyPath()
+          ..beginContour(true)
+          ..addVertex(60.0, 50.0)
+          ..addVertex(180.0, 50.0)
+          ..addVertex(180.0, 90.0)
+          ..addVertex(60.0, 90.0)
+          ..endContour();
+        final out = PolyPath();
 
-      // Intersect -> exact [100..140] x [50..90] box (area 1600).
-      expect(booleanPolyPaths(nearVert, crossBar, 4, out, scratch), isTrue);
-      expect(out.contourCount, 1);
-      expect(_signedArea(out, 0), closeTo(40 * 40, 1e-1));
+        // Intersect -> exact [100..140] x [50..90] box (area 1600).
+        expect(booleanPolyPaths(nearVert, crossBar, 4, out, scratch), isTrue);
+        expect(out.contourCount, 1);
+        expect(_signedArea(out, 0), closeTo(40 * 40, 1e-1));
 
-      // Subtract vertical from horizontal -> 2 clean left/right bars (each area 40*40 = 1600).
-      expect(booleanPolyPaths(crossBar, nearVert, 3, out, scratch), isTrue);
-      expect(out.contourCount, 2);
-      expect(_signedArea(out, 0) + _signedArea(out, 1), closeTo(3200, 1e-1));
+        // Subtract vertical from horizontal -> 2 clean left/right bars (each area 40*40 = 1600).
+        expect(booleanPolyPaths(crossBar, nearVert, 3, out, scratch), isTrue);
+        expect(out.contourCount, 2);
+        expect(_signedArea(out, 0) + _signedArea(out, 1), closeTo(3200, 1e-1));
 
-      // Slanted upward vertical edge (bottom-left (100, 120) -> top-right (100.0002, 20)).
-      final ccwNearVert = PolyPath()
-        ..beginContour(true)
-        ..addVertex(100.0, 120.0)
-        ..addVertex(100.0002, 20.0)
-        ..addVertex(140.0002, 20.0)
-        ..addVertex(140.0, 120.0)
-        ..endContour();
-      expect(booleanPolyPaths(ccwNearVert, crossBar, 2, out, scratch), isTrue);
-      expect(out.contourCount, 1);
-      expect(_signedArea(out, 0), closeTo(40 * 100 + 80 * 40, 1e-1));
-    });
+        // Slanted upward vertical edge (bottom-left (100, 120) -> top-right (100.0002, 20)).
+        final ccwNearVert = PolyPath()
+          ..beginContour(true)
+          ..addVertex(100.0, 120.0)
+          ..addVertex(100.0002, 20.0)
+          ..addVertex(140.0002, 20.0)
+          ..addVertex(140.0, 120.0)
+          ..endContour();
+        expect(
+          booleanPolyPaths(ccwNearVert, crossBar, 2, out, scratch),
+          isTrue,
+        );
+        expect(out.contourCount, 1);
+        expect(_signedArea(out, 0), closeTo(40 * 100 + 80 * 40, 1e-1));
+      },
+    );
 
     test('shallow X-crossing between nearly parallel edges splits cleanly', () {
       final scratch = PolygonBooleanScratch();
@@ -446,7 +468,11 @@ void main() {
         // Interior overlap vertical seam x=108 (mode 2 removes left seam; mode 1 keeps both!).
         if (mode == 2 || mode == 4) {
           // Overlap midpoint (128, 128) is strictly inside Union/Intersect -> NOT stroked!
-          expect(_bgraAlpha(res.dartPx, 128, 128), 0, reason: 'mode=$mode seam leak');
+          expect(
+            _bgraAlpha(res.dartPx, 128, 128),
+            0,
+            reason: 'mode=$mode seam leak',
+          );
         }
         if (mode == 1) {
           // Mode 1 (Merge) preserves individual outlines -> left rect right edge (144, 128) IS stroked.
@@ -550,41 +576,44 @@ void main() {
       await _compareBackends(rotatedBar);
     });
 
-    test('MergePaths respects nested and outer group transforms cleanly', () async {
-      final doc = _doc([
-        {
-          'ty': 'gr',
-          'it': [
-            {
-              'ty': 'gr',
-              'it': [
-                rectShape(x: 0, y: 0, w: 60, h: 60),
-                {
-                  'ty': 'tr',
-                  'p': constant([20, 0]),
-                  'a': constant([0, 0]),
-                  's': constant([100, 100]),
-                  'r': constant(0),
-                  'o': constant(100),
-                },
-              ],
-            },
-            circleShape(x: 45, y: 0, r: 30),
-            mergeOp(2),
-            {
-              'ty': 'tr',
-              'p': constant([90, 128]),
-              'a': constant([0, 0]),
-              's': constant([100, 100]),
-              'r': constant(0),
-              'o': constant(100),
-            },
-          ],
-        },
-        stroke()..['w'] = constant(6),
-      ]);
-      await _compareBackends(doc);
-    });
+    test(
+      'MergePaths respects nested and outer group transforms cleanly',
+      () async {
+        final doc = _doc([
+          {
+            'ty': 'gr',
+            'it': [
+              {
+                'ty': 'gr',
+                'it': [
+                  rectShape(x: 0, y: 0, w: 60, h: 60),
+                  {
+                    'ty': 'tr',
+                    'p': constant([20, 0]),
+                    'a': constant([0, 0]),
+                    's': constant([100, 100]),
+                    'r': constant(0),
+                    'o': constant(100),
+                  },
+                ],
+              },
+              circleShape(x: 45, y: 0, r: 30),
+              mergeOp(2),
+              {
+                'ty': 'tr',
+                'p': constant([90, 128]),
+                'a': constant([0, 0]),
+                's': constant([100, 100]),
+                'r': constant(0),
+                'o': constant(100),
+              },
+            ],
+          },
+          stroke()..['w'] = constant(6),
+        ]);
+        await _compareBackends(doc);
+      },
+    );
   });
 
   group('PR #5.3 MergePaths -> Trim Paths (mm -> tm) & caching', () {
@@ -611,8 +640,14 @@ void main() {
         stroke()..['w'] = constant(8),
         trim(constant(15), constant(65), constant(45)),
       ]);
-      final offsetRes = await _compareBackends(postStyleTrim, maxBadRatio: 0.01);
-      expect(offsetRes.dartPx.where((p) => (p >>> 24) > 0).length, greaterThan(400));
+      final offsetRes = await _compareBackends(
+        postStyleTrim,
+        maxBadRatio: 0.01,
+      );
+      expect(
+        offsetRes.dartPx.where((p) => (p >>> 24) > 0).length,
+        greaterThan(400),
+      );
 
       // Identical range between pre-style [mm, tm, st] and post-style [mm, st, tm].
       final sameOrderDoc = _doc([
@@ -622,7 +657,10 @@ void main() {
         trim(constant(15), constant(65), constant(45)),
         stroke()..['w'] = constant(8),
       ]);
-      final sameOrderRes = await _compareBackends(sameOrderDoc, maxBadRatio: 0.01);
+      final sameOrderRes = await _compareBackends(
+        sameOrderDoc,
+        maxBadRatio: 0.01,
+      );
       expect(offsetRes.dartPx, orderedEquals(sameOrderRes.dartPx));
 
       // Subtracting a disjoint shape preserves rect origin (168, 88) so 0..25% draws right edge.
@@ -633,7 +671,10 @@ void main() {
         trim(constant(0), constant(25), constant(0)),
         stroke()..['w'] = constant(8),
       ]);
-      final disjointTrimRes = await _compareBackends(rectMinusDisjointTrim, maxBadRatio: 0.012);
+      final disjointTrimRes = await _compareBackends(
+        rectMinusDisjointTrim,
+        maxBadRatio: 0.012,
+      );
       expect(_bgraAlpha(disjointTrimRes.dartPx, 168, 128), 255);
       expect(_bgraAlpha(disjointTrimRes.dartPx, 128, 88), 0);
 
@@ -669,7 +710,10 @@ void main() {
         fill([0.2, 0.7, 0.9]),
       ]);
       final fillRes = await _compareBackends(unionFill99, maxBadRatio: 0.02);
-      expect(fillRes.dartPx.where((p) => (p >>> 24) > 0).length, greaterThan(4500));
+      expect(
+        fillRes.dartPx.where((p) => (p >>> 24) > 0).length,
+        greaterThan(4500),
+      );
 
       // Animated Trim Paths on static boolean donut: Native C and Dart agree across frames
       // (partial filled boolean start/winding differs across Skia vs polygon engines).
@@ -739,8 +783,17 @@ void main() {
           {
             'ty': 'gr',
             'it': [
-              rectShape(x: 40 + (i % 10) * 16.0, y: 40 + (i ~/ 10) * 6.0, w: 12, h: 12),
-              circleShape(x: 44 + (i % 10) * 16.0, y: 40 + (i ~/ 10) * 6.0, r: 6),
+              rectShape(
+                x: 40 + (i % 10) * 16.0,
+                y: 40 + (i ~/ 10) * 6.0,
+                w: 12,
+                h: 12,
+              ),
+              circleShape(
+                x: 44 + (i % 10) * 16.0,
+                y: 40 + (i ~/ 10) * 6.0,
+                r: 6,
+              ),
               mergeOp(2),
               stroke()..['w'] = constant(2),
               {
@@ -782,8 +835,18 @@ void main() {
       final cacheComp = FastLottieComposition.fromJson(cacheDoc);
       final cacheWs = RasterWorkspace(initialHeight: 256, preferNative: false);
       final cacheBuf = NativePixelBuffer(256 * 256);
-      renderSceneSoftware(cacheComp.sceneTemplate.fork(), 0, cacheBuf, 256, 256, cacheWs);
-      expect(cacheWs.debugStaticPathCount, lessThanOrEqualTo(RasterWorkspace.maxStaticPaths));
+      renderSceneSoftware(
+        cacheComp.sceneTemplate.fork(),
+        0,
+        cacheBuf,
+        256,
+        256,
+        cacheWs,
+      );
+      expect(
+        cacheWs.debugStaticPathCount,
+        lessThanOrEqualTo(RasterWorkspace.maxStaticPaths),
+      );
       cacheBuf.dispose();
       cacheWs.dispose();
     });

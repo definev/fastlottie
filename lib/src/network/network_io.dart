@@ -239,7 +239,9 @@ Future<FastLottieNetworkFetchResult> platformFetchLottieBytes(
   final initialHeaders = headers == null ? null : Map.of(headers);
   final hasDiskDir =
       sourceCacheDirectory != null && sourceCacheDirectory.isNotEmpty;
-  final cleanDir = hasDiskDir ? _cleanDirectoryPath(sourceCacheDirectory) : null;
+  final cleanDir = hasDiskDir
+      ? _cleanDirectoryPath(sourceCacheDirectory)
+      : null;
   final cachePath = hasDiskDir
       ? _cacheFilePath(sourceCacheDirectory, uri, initialHeaders)
       : null;

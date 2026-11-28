@@ -507,49 +507,46 @@ void main() {
   });
 
   group('FastLottiePictureCache multi-user limits', () {
-    test(
-      'tight-budget sibling player does not clobber frames cached for unbounded sibling',
-      () {
-        final doc = fixture('icon')..['op'] = 10;
-        final comp = FastLottieComposition.fromJson(doc);
-        final cache = FastLottiePictureCache(
-          maximumCompositions: 4,
-          bypassOversizedLoops: false,
-        );
-        addTearDown(cache.dispose);
+    test('tight-budget sibling player does not clobber frames cached for unbounded sibling', () {
+      final doc = fixture('icon')..['op'] = 10;
+      final comp = FastLottieComposition.fromJson(doc);
+      final cache = FastLottiePictureCache(
+        maximumCompositions: 4,
+        bypassOversizedLoops: false,
+      );
+      addTearDown(cache.dispose);
 
-        final wide = FastLottiePlayer(
-          comp,
-          cache: FastLottieCache.unbounded,
-          pictureCache: cache,
-        );
-        final tight = FastLottiePlayer(
-          comp,
-          cache: const FastLottieCache(
-            maximumFrames: 2,
-            maximumCommands: 1 << 20,
-          ),
-          pictureCache: cache,
-        );
-        addTearDown(() {
-          wide.dispose();
-          tight.dispose();
-        });
-
-        for (var i = 0; i < 5; i++) {
-          record(wide, i / 10);
-        }
-        expect(cache.cachedFrames, 5);
-
-        // Tight player records a 6th frame; wide player's 5 frames must stay intact.
-        record(tight, 5 / 10);
-        expect(cache.cachedFrames, 6);
-
-        // Once wide leaves, entry trims down to tight's limit (2).
+      final wide = FastLottiePlayer(
+        comp,
+        cache: FastLottieCache.unbounded,
+        pictureCache: cache,
+      );
+      final tight = FastLottiePlayer(
+        comp,
+        cache: const FastLottieCache(
+          maximumFrames: 2,
+          maximumCommands: 1 << 20,
+        ),
+        pictureCache: cache,
+      );
+      addTearDown(() {
         wide.dispose();
-        expect(cache.cachedFrames, 2);
-      },
-    );
+        tight.dispose();
+      });
+
+      for (var i = 0; i < 5; i++) {
+        record(wide, i / 10);
+      }
+      expect(cache.cachedFrames, 5);
+
+      // Tight player records a 6th frame; wide player's 5 frames must stay intact.
+      record(tight, 5 / 10);
+      expect(cache.cachedFrames, 6);
+
+      // Once wide leaves, entry trims down to tight's limit (2).
+      wide.dispose();
+      expect(cache.cachedFrames, 2);
+    });
   });
 
   group('Widget layout, shared clock, Semantics & bytes', () {
@@ -707,78 +704,82 @@ void main() {
       },
     );
 
-    testWidgets('semanticLabel and excludeFromSemantics configure semantics cleanly', (
-      tester,
-    ) async {
-      final staticComp = FastLottieComposition.fromJson(fixture('static'));
-      final player = FastLottiePlayer(staticComp, cache: FastLottieCache.none);
-      addTearDown(player.dispose);
+    testWidgets(
+      'semanticLabel and excludeFromSemantics configure semantics cleanly',
+      (tester) async {
+        final staticComp = FastLottieComposition.fromJson(fixture('static'));
+        final player = FastLottiePlayer(
+          staticComp,
+          cache: FastLottieCache.none,
+        );
+        addTearDown(player.dispose);
 
-      await tester.pumpWidget(
-        _host(
-          FastLottie(
-            composition: staticComp,
-            width: 48,
-            height: 48,
-            usePipeline: false,
-            semanticLabel: 'Checkmark icon',
+        await tester.pumpWidget(
+          _host(
+            FastLottie(
+              composition: staticComp,
+              width: 48,
+              height: 48,
+              usePipeline: false,
+              semanticLabel: 'Checkmark icon',
+            ),
           ),
-        ),
-      );
-      final semantics = tester.getSemantics(find.byType(FastLottie));
-      expect(semantics.label, 'Checkmark icon');
-      expect(semantics.flagsCollection.isImage, isTrue);
-      expect(
-        find.descendant(
-          of: find.byType(FastLottie),
-          matching: find.byType(RepaintBoundary),
-        ),
-        findsNothing,
-      );
-
-      await tester.pumpWidget(
-        _host(
-          FastLottie(
-            composition: staticComp,
-            width: 48,
-            height: 48,
-            usePipeline: false,
-            excludeFromSemantics: true,
+        );
+        final semantics = tester.getSemantics(find.byType(FastLottie));
+        expect(semantics.label, 'Checkmark icon');
+        expect(semantics.flagsCollection.isImage, isTrue);
+        expect(
+          find.descendant(
+            of: find.byType(FastLottie),
+            matching: find.byType(RepaintBoundary),
           ),
-        ),
-      );
-      expect(
-        find.descendant(
-          of: find.byType(FastLottie),
-          matching: find.byType(ExcludeSemantics),
-        ),
-        findsOneWidget,
-      );
+          findsNothing,
+        );
 
-      await tester.pumpWidget(
-        _host(
-          FastLottieView(
-            player: player,
-            progress: const AlwaysStoppedAnimation<double>(0),
-            width: 48,
-            height: 48,
-            semanticLabel: 'View checkmark',
+        await tester.pumpWidget(
+          _host(
+            FastLottie(
+              composition: staticComp,
+              width: 48,
+              height: 48,
+              usePipeline: false,
+              excludeFromSemantics: true,
+            ),
           ),
-        ),
-      );
-      final viewSemantics = tester.getSemantics(find.byType(FastLottieView));
-      expect(viewSemantics.label, 'View checkmark');
-      expect(viewSemantics.flagsCollection.isImage, isTrue);
-      expect(
-        find.descendant(
-          of: find.byType(FastLottieView),
-          matching: find.byType(RepaintBoundary),
-        ),
-        findsNothing,
-      );
+        );
+        expect(
+          find.descendant(
+            of: find.byType(FastLottie),
+            matching: find.byType(ExcludeSemantics),
+          ),
+          findsOneWidget,
+        );
 
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
+        await tester.pumpWidget(
+          _host(
+            FastLottieView(
+              player: player,
+              progress: const AlwaysStoppedAnimation<double>(0),
+              width: 48,
+              height: 48,
+              semanticLabel: 'View checkmark',
+            ),
+          ),
+        );
+        final viewSemantics = tester.getSemantics(find.byType(FastLottieView));
+        expect(viewSemantics.label, 'View checkmark');
+        expect(viewSemantics.flagsCollection.isImage, isTrue);
+        expect(
+          find.descendant(
+            of: find.byType(FastLottieView),
+            matching: find.byType(RepaintBoundary),
+          ),
+          findsNothing,
+        );
+
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
 
     testWidgets(
       'FastLottie.bytes reuses decoded composition when rebuilt with a fresh equal byte copy',
@@ -828,9 +829,7 @@ void main() {
       'PR #7 review fixes: width double.infinity / 0 do not crash, prewarmCache resolves on entry switch, clock handoff keeps progress across PlaybackScope toggle',
       (tester) async {
         final comp = FastLottieComposition.fromJson(fixture('icon'));
-        final cache = FastLottieRasterCache(
-          maximumBytes: 32 * 1024 * 1024,
-        );
+        final cache = FastLottieRasterCache(maximumBytes: 32 * 1024 * 1024);
         addTearDown(cache.dispose);
 
         // 1. width: double.infinity and width: 0 must not crash on mount/prewarm.

@@ -247,7 +247,15 @@ class RasterWorkspace {
       return cached.value;
     }
     final local = PolyPath();
-    _appendMergeBoolean(source, frame, 0.01, local, this, trimDepth, groupDepth);
+    _appendMergeBoolean(
+      source,
+      frame,
+      0.01,
+      local,
+      this,
+      trimDepth,
+      groupDepth,
+    );
     final path = local.cloneImmutable();
     while (_staticPaths.length >= maxStaticPaths) {
       _staticPaths.remove(_staticPaths.keys.first);

@@ -352,6 +352,7 @@ class _Layer {
     }
     return true;
   }
+
   late final bool hasActiveMasks = masks?.any((m) => m.mode != 'n') ?? false;
   late final bool hasStaticMaskCoverage =
       masks?.every((m) => m.mode == 'n' || m.isStatic) ?? false;
@@ -593,7 +594,10 @@ class _Layer {
     for (var i = 0; i < list.length; i++) {
       final m = list[i];
       if (m.mode == 'n') continue;
-      final mAlpha = (m.opacity.scalar(frame) * 255 / 100).round().clamp(0, 255);
+      final mAlpha = (m.opacity.scalar(frame) * 255 / 100).round().clamp(
+        0,
+        255,
+      );
       final p = m.path(frame);
       if (!started && m.mode == 's') {
         canvas.drawRect(bounds, opaqueWhite);

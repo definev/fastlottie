@@ -9,10 +9,8 @@ String _computeCompositionContentKey(_Compiler c) {
 }
 
 final class _ContentKeyHasher {
-  _ContentKeyHasher(
-    this._seen, [
-    Map<_Trim, (int, int, int, int)>? trimDigests,
-  ]) : _trimDigests = trimDigests ?? Map<_Trim, (int, int, int, int)>.identity();
+  _ContentKeyHasher(this._seen, [Map<_Trim, (int, int, int, int)>? trimDigests])
+    : _trimDigests = trimDigests ?? Map<_Trim, (int, int, int, int)>.identity();
 
   final Map<_Compiler, (int, int, int, int)> _seen;
   final Map<_Trim, (int, int, int, int)> _trimDigests;
@@ -105,8 +103,7 @@ final class _ContentKeyHasher {
   }
 
   void _mixFloatRange(Float32List values, int start, int length) {
-    if (_isJs ||
-        const bool.fromEnvironment('FASTLOTTIE_SPLIT_HASH_MULTIPLY')) {
+    if (_isJs || const bool.fromEnvironment('FASTLOTTIE_SPLIT_HASH_MULTIPLY')) {
       for (var i = 0; i < length; i++) {
         _mixDouble(values[start + i]);
       }
@@ -221,7 +218,8 @@ final class _ContentKeyHasher {
     } else if (s is _MergePathSource) {
       _mixInt(9);
       _mixInt(s.mode);
-      if (s.mode != 1) _mixInt(0x424f4f4d); // Polygon + coverage boolean revision.
+      if (s.mode != 1)
+        _mixInt(0x424f4f4d); // Polygon + coverage boolean revision.
       _mixInt(s.sources.length);
       for (final sub in s.sources) {
         _mixSource(sub);

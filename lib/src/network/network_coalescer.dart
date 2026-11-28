@@ -78,9 +78,8 @@ final class _CoalescedCall<T> {
 
   void launch(Future<T> Function(FastLottieCancelToken sharedToken) start) {
     unawaited(
-      Future<T>.sync(
-        () => start(sharedToken),
-      ).then<void>(_completeValue, onError: _completeError),
+      Future<T>.sync(() => start(sharedToken))
+          .then<void>(_completeValue, onError: _completeError),
     );
   }
 

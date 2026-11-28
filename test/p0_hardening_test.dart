@@ -842,7 +842,10 @@ void main() {
     });
 
     test('contentKey distinguishes Trim Paths mode 2 when an unstroked sibling path changes length', () async {
-      Map<String, dynamic> trimMode2Doc(double secondLineLen, {bool swap = false}) {
+      Map<String, dynamic> trimMode2Doc(
+        double secondLineLen, {
+        bool swap = false,
+      }) {
         Map<String, dynamic> line(double y, double len) => {
           'ty': 'sh',
           'ks': constant({
@@ -913,8 +916,14 @@ void main() {
         pixelWidth: 256,
         pixelHeight: 256,
       );
-      final playerShort = FastLottiePlayer(compShort, cache: FastLottieCache.none);
-      final playerLong = FastLottiePlayer(compLong, cache: FastLottieCache.none);
+      final playerShort = FastLottiePlayer(
+        compShort,
+        cache: FastLottieCache.none,
+      );
+      final playerLong = FastLottiePlayer(
+        compLong,
+        cache: FastLottieCache.none,
+      );
       addTearDown(() {
         softShort.dispose();
         softLong.dispose();

@@ -1091,9 +1091,7 @@ final class _RasterCoordinator implements RasterWorkerListener<_RasterEntry> {
         queue.remove(entry);
         entry.queuedForRaster = false;
         entry.queuedHighPriority = false;
-        if (entry.retired ||
-            entry.rasterError != null ||
-            entry.users.isEmpty) {
+        if (entry.retired || entry.rasterError != null || entry.users.isEmpty) {
           continue;
         }
         final idx = entry.pendingStripStart >= 0

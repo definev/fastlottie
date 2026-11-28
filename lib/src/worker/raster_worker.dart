@@ -119,7 +119,9 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
   NativePixelBuffer ensureWasmSlotPixels(int count) {
     var slot = wasmSlotPixels;
     if (slot == null) {
-      return wasmSlotPixels = NativePixelBuffer(math.max(defaultPixelCap, count));
+      return wasmSlotPixels = NativePixelBuffer(
+        math.max(defaultPixelCap, count),
+      );
     }
     if (slot.typedList.length < count) {
       var cap = math.max(defaultPixelCap, slot.typedList.length);
@@ -206,9 +208,8 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
     scenes[contentKey] = scene;
     final seq = (sceneTouchCounts[contentKey] ?? 0) + 1;
     sceneTouchCounts[contentKey] = seq;
-    final tracked =
-        sceneEntries[contentKey] ??=
-            <String, ({int requiredFrames, int lastTouch})>{};
+    final tracked = sceneEntries[contentKey] ??=
+        <String, ({int requiredFrames, int lastTouch})>{};
     final req = poster ? 1 : totalFrames;
     final prev = tracked[entryKey];
     tracked[entryKey] = (
@@ -637,8 +638,7 @@ void softwareWorkerEntry(WorkerEndpoint endpoint) {
               poster: poster,
             );
             final packed = _isWasm
-                ? (Uint8List(frameByteLen)
-                    ..setRange(0, frameByteLen, dstBytes))
+                ? (Uint8List(frameByteLen)..setRange(0, frameByteLen, dstBytes))
                 : packBytesForIsolate(dstBytes);
             endpoint.send((
               repFrameReady,
